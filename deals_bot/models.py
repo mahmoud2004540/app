@@ -70,6 +70,11 @@ class Deal:
     reasons: List[str] = field(default_factory=list)
     indicators: dict = field(default_factory=dict)
     error: Optional[str] = None
+    # تأكيد من إطار زمني أعلى (None = لم يُفحص)
+    confirmed: Optional[bool] = None
+    # إدارة المخاطر (تُملأ عند توفّر رأس المال)
+    qty: Optional[float] = None            # حجم الصفقة المقترح (وحدات)
+    risk_amount: Optional[float] = None    # المبلغ المخاطَر به بعملتك
 
     def is_actionable(self) -> bool:
         return self.direction in ("BUY", "SELL") and self.error is None

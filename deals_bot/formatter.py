@@ -39,6 +39,10 @@ def format_deal(deal: Deal, index: int | None = None) -> str:
         f"   السوق: {deal.market}  |  الثقة: {deal.confidence:.0f}/100  |  الدرجة: {deal.score:+.0f}",
         f"   السعر الحالي: {_fmt_price(deal.price)}",
     ]
+    if deal.confirmed is True:
+        lines[1] += "  |  ✅ مؤكّد"
+    elif deal.confirmed is False:
+        lines[1] += "  |  ⚠️ غير مؤكّد"
     if deal.is_actionable():
         lines.append(
             f"   الدخول: {_fmt_price(deal.entry)}  |  "
@@ -46,6 +50,11 @@ def format_deal(deal: Deal, index: int | None = None) -> str:
             f"الهدف: {_fmt_price(deal.take_profit)}"
         )
         lines.append(f"   نسبة المخاطرة/العائد: 1:{deal.risk_reward:.1f}")
+        if deal.qty is not None:
+            lines.append(
+                f"   حجم الصفقة المقترح: {deal.qty:g} وحدة "
+                f"(مخاطرة {deal.risk_amount:g})"
+            )
 
     ind = deal.indicators
     if ind:
@@ -79,7 +88,8 @@ def format_digest(deals: List[Deal], title: str = "أفضل الصفقات") -> 
         )
     parts = [f"📊 {title}", ""]
     for i, d in enumerate(deals, 1):
-        head = f"{i}. {_ARROW.get(d.direction, d.direction)} {d.symbol}  ({d.market})"
+        badge = " ✅" if d.confirmed is True else ""
+        head = f"{i}. {_ARROW.get(d.direction, d.direction)} {d.symbol}  ({d.market}){badge}"
         parts.append(head)
         parts.append(
             f"   الثقة {d.confidence:.0f}/100 | السعر {_fmt_price(d.price)}"
@@ -89,6 +99,8 @@ def format_digest(deals: List[Deal], title: str = "أفضل الصفقات") -> 
                 f"   دخول {_fmt_price(d.entry)} | وقف {_fmt_price(d.stop_loss)} | "
                 f"هدف {_fmt_price(d.take_profit)} | R:R 1:{d.risk_reward:.1f}"
             )
+            if d.qty is not None:
+                parts.append(f"   حجم مقترح: {d.qty:g} وحدة (مخاطرة {d.risk_amount:g})")
         if d.reasons:
             parts.append(f"   • {d.reasons[0]}")
         parts.append("")

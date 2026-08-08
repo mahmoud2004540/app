@@ -194,11 +194,31 @@ def analyze_symbol(series: Series, momentum_lookback: int = 10) -> Deal:
     )
 
 
+def add_position_sizing(deal: Deal, balance: float, risk_pct: float) -> Deal:
+    """
+    احسب حجم الصفقة المقترح بناءً على رأس المال ونسبة المخاطرة.
+
+    Position size = (balance * risk_pct) / risk_per_unit, where risk_per_unit is
+    the distance between entry and stop-loss. Ensures you never risk more than
+    `risk_pct` of the account on a single trade.
+    """
+    if not deal.is_actionable() or balance <= 0 or risk_pct <= 0:
+        return deal
+    risk_per_unit = abs(deal.entry - deal.stop_loss)
+    if risk_per_unit <= 0:
+        return deal
+    risk_amount = balance * risk_pct
+    deal.qty = round(risk_amount / risk_per_unit, 8)
+    deal.risk_amount = round(risk_amount, 2)
+    return deal
+
+
 def rank_deals(
     all_series: List[Series],
     top: int = 5,
     direction: str = "any",
     momentum_lookback: int = 10,
+    min_confidence: float = 0.0,
 ) -> List[Deal]:
     """
     حلّل عدة رموز ورتّبها لإرجاع أفضل الصفقات.
@@ -207,9 +227,10 @@ def rank_deals(
       direction = "buy"  → only BUY deals
       direction = "sell" → only SELL deals
       direction = "any"  → strongest signal in either direction
+      min_confidence     → drop deals weaker than this (quality filter)
     """
     deals = [analyze_symbol(s, momentum_lookback=momentum_lookback) for s in all_series]
-    actionable = [d for d in deals if d.is_actionable()]
+    actionable = [d for d in deals if d.is_actionable() and d.confidence >= min_confidence]
 
     if direction == "buy":
         actionable = [d for d in actionable if d.direction == "BUY"]

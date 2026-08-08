@@ -23,15 +23,10 @@ import urllib.parse
 import urllib.request
 
 import config
-from deals_bot import rank_deals
 from deals_bot.formatter import format_digest
-from deals_bot.providers import fetch_many
+from deals_bot.strategy import best_deals
 
 TELEGRAM_MAX = 4000  # حد أمان أقل من 4096 لتفادي رفض الرسالة
-
-
-def _symbols_for(market: str) -> list[str]:
-    return config.WATCHLISTS.get(market, [])
 
 
 def build_message() -> str:
@@ -44,22 +39,9 @@ def build_message() -> str:
     top = int(os.environ.get("TOP", config.DEFAULT_TOP))
     direction = os.environ.get("DIRECTION", "any")
 
-    all_deals = []
-    for mkt in markets:
-        symbols = _symbols_for(mkt)
-        series = fetch_many(symbols, mkt, "yfinance", timeframe)
-        if series:
-            all_deals.extend(rank_deals(series, top=top, direction=direction))
-
-    if direction == "buy":
-        all_deals.sort(key=lambda d: d.score, reverse=True)
-    elif direction == "sell":
-        all_deals.sort(key=lambda d: d.score)
-    else:
-        all_deals.sort(key=lambda d: d.confidence, reverse=True)
-
+    deals = best_deals(markets, timeframe=timeframe, top=top, direction=direction)
     title = f"أفضل الصفقات — {', '.join(markets)} ({timeframe})"
-    return format_digest(all_deals[: max(top, 5)], title=title)
+    return format_digest(deals, title=title)
 
 
 def send_telegram(token: str, chat_id: str, text: str) -> None:

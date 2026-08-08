@@ -13,7 +13,9 @@ from __future__ import annotations
 
 import math
 
+import config
 from deals_bot import rank_deals
+from deals_bot.analyzer import add_position_sizing
 from deals_bot.formatter import format_deals
 from deals_bot.models import Candle, Series
 
@@ -40,6 +42,8 @@ def main() -> None:
         _make_series("EURUSD=X", "forex", 1.08, -0.0009, 0.006),          # down
     ]
     deals = rank_deals(series, top=5, direction="any")
+    for d in deals:
+        add_position_sizing(d, config.ACCOUNT_BALANCE, config.RISK_PER_TRADE)
     print(format_deals(deals, title="عرض توضيحي — أفضل الصفقات (بيانات اصطناعية)"))
 
 
