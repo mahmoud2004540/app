@@ -25,6 +25,11 @@ NEUTRAL_BAND = 20.0
 # نشاط الحيتان: حجم آخر شمعة ≥ هذا المضاعف من متوسط الحجم يعتبر "حوتًا"
 WHALE_VOLUME_MULT = 2.5
 
+# اندفاع (Pump): قفزة سعرية خلال عدد قليل من الشموع مع حجم مرتفع
+PUMP_LOOKBACK = 3        # عدد الشموع الأخيرة لقياس الاندفاع
+PUMP_MOVE_PCT = 3.0      # نسبة الحركة (٪) التي تعتبر اندفاعًا
+PUMP_VOL_MULT = 2.0      # الحد الأدنى لارتفاع الحجم المصاحب
+
 
 def analyze_symbol(series: Series, momentum_lookback: int = 10) -> Deal:
     """
@@ -183,6 +188,27 @@ def analyze_symbol(series: Series, momentum_lookback: int = 10) -> Deal:
                 bear += 12
             reasons.insert(0, f"🐋 حجم ضخم غير معتاد (×{vsurge:.1f})")
 
+    # 8) اندفاع (Pump/Dump) — قفزة سعرية سريعة خلال شمعات قليلة مع حجم عالٍ
+    pump = False
+    short_mom = ind.momentum_pct(closes, PUMP_LOOKBACK)
+    if short_mom is not None and vsurge is not None and vsurge >= PUMP_VOL_MULT:
+        if short_mom >= PUMP_MOVE_PCT:
+            pump = True
+            bull += 16
+            reasons.insert(
+                0,
+                f"🚀 اندفاع صاعد (Pump): +{short_mom:.1f}% خلال {PUMP_LOOKBACK} شموع "
+                f"مع حجم ×{vsurge:.1f}",
+            )
+        elif short_mom <= -PUMP_MOVE_PCT:
+            pump = True
+            bear += 16
+            reasons.insert(
+                0,
+                f"🚀 اندفاع هابط (Dump): {short_mom:.1f}% خلال {PUMP_LOOKBACK} شموع "
+                f"مع حجم ×{vsurge:.1f}",
+            )
+
     score = bull - bear                       # موجب = شراء، سالب = بيع
     score = max(-100.0, min(100.0, score))
     confidence = abs(score)
@@ -223,6 +249,7 @@ def analyze_symbol(series: Series, momentum_lookback: int = 10) -> Deal:
         risk_reward=round(risk_reward, 2),
         reasons=reasons,
         whale=whale,
+        pump=pump,
         indicators={
             "rsi": round(rsi_v, 1) if rsi_v is not None else None,
             "ema9": round(ema_fast, 6) if ema_fast else None,

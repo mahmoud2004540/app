@@ -117,16 +117,16 @@ def best_deals(
     if whale_only:
         filtered = [d for d in filtered if d.whale]
 
-    # اتجاه — صفقات الحيتان تتصدّر دائمًا، ثم الأقوى ثقةً
+    # اتجاه — الاندفاعات (Pump) ثم الحيتان تتصدّر دائمًا، ثم الأقوى ثقةً
     if direction == "buy":
         filtered = [d for d in filtered if d.direction == "BUY"]
-        filtered.sort(key=lambda d: (d.whale, d.score), reverse=True)
+        filtered.sort(key=lambda d: (d.pump, d.whale, d.score), reverse=True)
     elif direction == "sell":
         filtered = [d for d in filtered if d.direction == "SELL"]
-        # للبيع: الحيتان أولًا ثم الأكثر سلبية
-        filtered.sort(key=lambda d: (d.whale, -d.score), reverse=True)
+        # للبيع: الاندفاع/الحيتان أولًا ثم الأكثر سلبية
+        filtered.sort(key=lambda d: (d.pump, d.whale, -d.score), reverse=True)
     else:
-        filtered.sort(key=lambda d: (d.whale, d.confidence), reverse=True)
+        filtered.sort(key=lambda d: (d.pump, d.whale, d.confidence), reverse=True)
 
     top_deals = filtered[:top]
     # إدارة المخاطر

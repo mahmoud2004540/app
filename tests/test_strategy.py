@@ -122,6 +122,23 @@ def test_no_whale_without_volume_spike():
     assert d.whale is False
 
 
+def test_pump_detected_on_fast_spike():
+    # اتجاه هادئ ثم قفزة سعرية سريعة + حجم عالٍ على آخر شمعات
+    closes = [100.0 + 0.1 * i for i in range(117)] + [112.0, 116.0, 121.0]
+    volumes = [1000.0] * 117 + [3000.0, 3200.0, 3500.0]
+    d = analyze_symbol(_series_hlcv("PUMP", closes, volumes))
+    assert d.pump is True
+    assert d.direction == "BUY"
+    assert "🚀" in d.reasons[0]
+
+
+def test_no_pump_on_slow_move():
+    closes = _trend(100.0, 0.2, 120, wiggle=0.5)   # حركة بطيئة
+    volumes = [1000.0] * 120
+    d = analyze_symbol(_series_hlcv("SLOW", closes, volumes))
+    assert d.pump is False
+
+
 def test_whale_only_filter_and_priority():
     from deals_bot.strategy import best_deals  # noqa: F401 (import guard)
 
