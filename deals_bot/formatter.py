@@ -14,8 +14,30 @@ _ARROW = {"BUY": "🟢 شراء", "SELL": "🔴 بيع", "NEUTRAL": "⚪ حيا�
 
 DISCLAIMER = (
     "⚠️ تنبيه: هذا تحليل فني آلي لأغراض تعليمية فقط وليس نصيحة مالية. "
-    "التداول ينطوي على مخاطر — تحقّق بنفسك ولا تخاطر بأكثر مما تتحمّل خسارته."
+    "«الثقة» = مدى توافق كل المؤشرات + الحيتان (قوة الإشارة)، وليست ضمان ربح — "
+    "لا توجد صفقة ناجحة 100%. التداول ينطوي على مخاطر؛ استخدم وقف الخسارة دائمًا "
+    "ولا تخاطر بأكثر مما تتحمّل خسارته."
 )
+
+
+def grade(deal: Deal) -> str:
+    """
+    تقييم يجمع كل المؤشرات + الحيتان + التأكيد في وصف واحد واضح.
+
+    A single label summarising how strongly ALL signals (indicators + money flow
+    + whale + higher-timeframe confirmation) agree. Higher = stronger setup —
+    strength of confluence, NOT a probability of profit.
+    """
+    c = deal.confidence
+    if deal.whale and deal.confirmed is True and c >= 85:
+        return "⭐ توافق كامل — حيتان + كل المؤشرات + تأكيد إطار أعلى"
+    if c >= 90:
+        return "A+ إشارة قوية جدًا (توافق شبه كامل)"
+    if c >= 78:
+        return "A إشارة قوية"
+    if c >= 68:
+        return "B إشارة جيدة"
+    return "C إشارة متوسطة"
 
 
 def _fmt_price(x: float) -> str:
@@ -37,13 +59,14 @@ def format_deal(deal: Deal, index: int | None = None) -> str:
 
     lines = [
         head,
+        f"   التقييم: {grade(deal)}",
         f"   السوق: {deal.market}  |  الثقة: {deal.confidence:.0f}/100  |  الدرجة: {deal.score:+.0f}",
         f"   السعر الحالي: {_fmt_price(deal.price)}",
     ]
     if deal.confirmed is True:
-        lines[1] += "  |  ✅ مؤكّد"
+        lines[2] += "  |  ✅ مؤكّد"
     elif deal.confirmed is False:
-        lines[1] += "  |  ⚠️ غير مؤكّد"
+        lines[2] += "  |  ⚠️ غير مؤكّد"
     if deal.is_actionable():
         lines.append(
             f"   الدخول: {_fmt_price(deal.entry)}  |  "
@@ -93,6 +116,7 @@ def format_digest(deals: List[Deal], title: str = "أفضل الصفقات") -> 
         whale = "🐋 " if d.whale else ""
         head = f"{i}. {whale}{_ARROW.get(d.direction, d.direction)} {d.symbol}  ({d.market}){badge}"
         parts.append(head)
+        parts.append(f"   التقييم: {grade(d)}")
         parts.append(
             f"   الثقة {d.confidence:.0f}/100 | السعر {_fmt_price(d.price)}"
         )

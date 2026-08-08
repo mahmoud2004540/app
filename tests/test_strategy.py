@@ -134,3 +134,18 @@ def test_whale_only_filter_and_priority():
     )
     # الحوت يجب أن يحمل ثقة أعلى (بسبب تعزيز +22)
     assert whale.confidence > calm.confidence
+
+
+def test_grade_full_confluence_star():
+    from deals_bot.formatter import grade
+
+    d = analyze_symbol(
+        _series_hlcv("WHALE", _trend(100.0, 0.6, 120, wiggle=1.0),
+                     [1000.0] * 119 + [6000.0])
+    )
+    # حوت + ثقة عالية + تأكيد من إطار أعلى = توافق كامل ⭐
+    d.confirmed = True
+    assert "⭐" in grade(d)
+    # بدون تأكيد لا يُمنح التوافق الكامل
+    d.confirmed = None
+    assert "⭐" not in grade(d)
