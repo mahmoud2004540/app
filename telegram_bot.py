@@ -21,6 +21,14 @@ from __future__ import annotations
 
 import os
 
+# تحميل التوكن من ملف .env تلقائيًا إن وُجد (اختياري)
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv()
+except ImportError:
+    pass
+
 import config
 from deals_bot import rank_deals
 from deals_bot.formatter import format_deals
@@ -119,15 +127,23 @@ def _market_handler(market: str):
     return handler
 
 
+async def _on_start(app: "Application") -> None:
+    """طباعة اسم البوت عند الإقلاع للتأكد من صحة التوكن والاتصال."""
+    me = await app.bot.get_me()
+    print(f"✅ متصل كـ @{me.username} (id={me.id}). البوت يعمل الآن — اضغط Ctrl+C للإيقاف.")
+
+
 def main() -> None:
     token = os.environ.get("TELEGRAM_TOKEN")
     if not token:
         raise SystemExit(
-            "لم يتم ضبط متغيّر البيئة TELEGRAM_TOKEN.\n"
-            'صدّره أولًا:  export TELEGRAM_TOKEN="ضع_التوكن_هنا"'
+            "لم يتم ضبط TELEGRAM_TOKEN.\n"
+            "ضع التوكن في ملف .env بهذا الشكل:\n"
+            '  TELEGRAM_TOKEN=123456:ABC-DEF...\n'
+            'أو صدّره في الطرفية:  export TELEGRAM_TOKEN="ضع_التوكن_هنا"'
         )
 
-    app = Application.builder().token(token).build()
+    app = Application.builder().token(token).post_init(_on_start).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("best", best))
     app.add_handler(CommandHandler("buy", buy))
@@ -135,8 +151,8 @@ def main() -> None:
     app.add_handler(CommandHandler("stocks", _market_handler("stocks")))
     app.add_handler(CommandHandler("forex", _market_handler("forex")))
 
-    print("✅ البوت يعمل الآن. اضغط Ctrl+C للإيقاف.")
-    app.run_polling()
+    print("⏳ جاري تشغيل البوت...")
+    app.run_polling(drop_pending_updates=True)
 
 
 if __name__ == "__main__":
