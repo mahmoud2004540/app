@@ -68,3 +68,29 @@ def test_volume_surge():
     vols = [100.0] * 20 + [300.0]
     vs = ind.volume_surge(vols, 20)
     assert math.isclose(vs, 3.0, rel_tol=1e-9)
+
+
+def test_mfi_high_when_price_and_money_rise():
+    n = 30
+    highs = [10 + i * 0.5 + 0.2 for i in range(n)]
+    lows = [10 + i * 0.5 - 0.2 for i in range(n)]
+    closes = [10 + i * 0.5 for i in range(n)]     # rising
+    volumes = [1000.0] * n
+    m = ind.mfi(highs, lows, closes, volumes, 14)
+    assert m is not None and m > 60
+
+
+def test_mfi_low_when_price_falls():
+    n = 30
+    highs = [30 - i * 0.5 + 0.2 for i in range(n)]
+    lows = [30 - i * 0.5 - 0.2 for i in range(n)]
+    closes = [30 - i * 0.5 for i in range(n)]     # falling
+    volumes = [1000.0] * n
+    m = ind.mfi(highs, lows, closes, volumes, 14)
+    assert m is not None and m < 40
+
+
+def test_mfi_none_when_no_volume():
+    n = 30
+    seq = [10 + i * 0.5 for i in range(n)]
+    assert ind.mfi(seq, seq, seq, [0.0] * n, 14) is None

@@ -53,9 +53,9 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--source", "-s",
-        choices=["yfinance", "binance"],
+        choices=["yfinance", "binance", "coinbase", "auto"],
         default=config.DEFAULT_SOURCE,
-        help="مصدر البيانات (binance للكريبتو فقط).",
+        help="مصدر البيانات (coinbase/binance/auto للكريبتو؛ auto = لحظي مع رجوع تلقائي).",
     )
     parser.add_argument(
         "--timeframe", "-t",
