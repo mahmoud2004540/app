@@ -139,6 +139,20 @@ def test_no_pump_on_slow_move():
     assert d.pump is False
 
 
+def test_expected_moves_match_atr_levels():
+    from deals_bot.formatter import expected_moves
+
+    d = analyze_symbol(
+        _series_hlcv("UP", _trend(100.0, 0.6, 120, wiggle=1.0), [1000.0] * 120)
+    )
+    tgt, stp = expected_moves(d)
+    # يجب أن يطابقا نسبة الهدف/الوقف من سعر الدخول
+    assert math.isclose(tgt, abs(d.take_profit - d.entry) / d.entry * 100.0, rel_tol=1e-9)
+    assert math.isclose(stp, abs(d.stop_loss - d.entry) / d.entry * 100.0, rel_tol=1e-9)
+    # نسبة الهدف/الوقف ≈ نسبة المخاطرة/العائد (2.5/1.5) — مع تسامح للتقريب
+    assert math.isclose(tgt / stp, d.risk_reward, rel_tol=0.02)
+
+
 def test_whale_only_filter_and_priority():
     from deals_bot.strategy import best_deals  # noqa: F401 (import guard)
 

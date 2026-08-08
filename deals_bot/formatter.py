@@ -50,6 +50,22 @@ def _fmt_price(x: float) -> str:
     return f"{x:.6f}"
 
 
+def expected_moves(deal: Deal):
+    """
+    الحركة المتوقّعة بالنسبة المئوية حتى الهدف وحتى وقف الخسارة.
+
+    Returns (target_pct, stop_pct) as positive magnitudes: how much price is
+    projected to move to reach the take-profit (the "pump" target) and to the
+    stop-loss. Derived from ATR-based levels — an estimate from volatility, not
+    a promise. Returns (0.0, 0.0) if not actionable.
+    """
+    if not deal.is_actionable() or deal.entry == 0:
+        return 0.0, 0.0
+    target_pct = abs(deal.take_profit - deal.entry) / deal.entry * 100.0
+    stop_pct = abs(deal.stop_loss - deal.entry) / deal.entry * 100.0
+    return target_pct, stop_pct
+
+
 def format_deal(deal: Deal, index: int | None = None) -> str:
     """صفقة واحدة كنص متعدد الأسطر."""
     tags = ("🚀 " if deal.pump else "") + ("🐋 " if deal.whale else "")
@@ -72,6 +88,12 @@ def format_deal(deal: Deal, index: int | None = None) -> str:
             f"   الدخول: {_fmt_price(deal.entry)}  |  "
             f"وقف الخسارة: {_fmt_price(deal.stop_loss)}  |  "
             f"الهدف: {_fmt_price(deal.take_profit)}"
+        )
+        tgt, stp = expected_moves(deal)
+        verb = "صعود" if deal.direction == "BUY" else "هبوط"
+        lines.append(
+            f"   الحركة المتوقّعة: {verb} ~+{tgt:.1f}% حتى الهدف  |  "
+            f"−{stp:.1f}% عند وقف الخسارة"
         )
         lines.append(f"   نسبة المخاطرة/العائد: 1:{deal.risk_reward:.1f}")
         if deal.qty is not None:
@@ -121,6 +143,8 @@ def format_digest(deals: List[Deal], title: str = "أفضل الصفقات") -> 
             f"   الثقة {d.confidence:.0f}/100 | السعر {_fmt_price(d.price)}"
         )
         if d.is_actionable():
+            tgt, stp = expected_moves(d)
+            parts.append(f"   🎯 متوقّع ~+{tgt:.1f}% للهدف | −{stp:.1f}% للوقف")
             parts.append(
                 f"   دخول {_fmt_price(d.entry)} | وقف {_fmt_price(d.stop_loss)} | "
                 f"هدف {_fmt_price(d.take_profit)} | R:R 1:{d.risk_reward:.1f}"
