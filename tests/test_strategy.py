@@ -70,3 +70,24 @@ def test_backtest_result_math_consistent():
     assert math.isclose(res.total_r, sum(t.result_r for t in res.trades), rel_tol=1e-9)
     # العائد المتوقّع = الإجمالي / العدد
     assert math.isclose(res.expectancy_r, res.total_r / res.n, rel_tol=1e-9)
+
+
+# ------------------------- coinbase (real-time) parsing ------------------- #
+def test_parse_coinbase_maps_and_sorts():
+    from deals_bot.providers import _parse_coinbase
+
+    # Coinbase يرجع الأحدث أولًا بصيغة [time, low, high, open, close, volume]
+    raw = [
+        [1002, 9.0, 11.0, 10.0, 10.5, 100.0],   # newest
+        [1001, 8.5, 10.5, 9.5, 10.0, 90.0],
+        [1000, 8.0, 10.0, 9.0, 9.5, 80.0],      # oldest
+    ]
+    s = _parse_coinbase(raw, "BTC-USD")
+    # مرتّبة تصاعديًا حسب الزمن
+    assert [c.ts for c in s.candles] == [1000.0, 1001.0, 1002.0]
+    # التعيين صحيح: open=idx3, high=idx2, low=idx1, close=idx4, volume=idx5
+    last = s.candles[-1]
+    assert (last.open, last.high, last.low, last.close, last.volume) == (
+        10.0, 11.0, 9.0, 10.5, 100.0,
+    )
+    assert s.market == "crypto" and s.symbol == "BTC-USD"

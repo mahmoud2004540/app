@@ -89,7 +89,12 @@ def best_deals(
 
     collected: List[Deal] = []
     for market in markets:
-        src = source if market == "crypto" else "yfinance"
+        # للكريبتو: مصدر لحظي (Coinbase) مع رجوع تلقائي لـ Yahoo، إلا لو المستخدم
+        # فرض Binance صراحةً. لغير الكريبتو: Yahoo.
+        if market == "crypto":
+            src = source if source in ("binance", "coinbase") else "auto"
+        else:
+            src = "yfinance"
         symbols = (
             config.BINANCE_WATCHLIST
             if (market == "crypto" and src == "binance")
