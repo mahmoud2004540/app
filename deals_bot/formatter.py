@@ -65,6 +65,37 @@ def format_deal(deal: Deal, index: int | None = None) -> str:
     return "\n".join(lines)
 
 
+def format_digest(deals: List[Deal], title: str = "أفضل الصفقات") -> str:
+    """
+    نسخة مختصرة مناسبة لرسائل تيليجرام (سطور قليلة لكل صفقة).
+
+    Compact rendering for scheduled Telegram pushes — keeps each deal short so
+    the whole digest fits comfortably in one message.
+    """
+    if not deals:
+        return (
+            f"📭 {title}\n"
+            "لا توجد صفقات واضحة الآن حسب المعايير الحالية.\n\n" + DISCLAIMER
+        )
+    parts = [f"📊 {title}", ""]
+    for i, d in enumerate(deals, 1):
+        head = f"{i}. {_ARROW.get(d.direction, d.direction)} {d.symbol}  ({d.market})"
+        parts.append(head)
+        parts.append(
+            f"   الثقة {d.confidence:.0f}/100 | السعر {_fmt_price(d.price)}"
+        )
+        if d.is_actionable():
+            parts.append(
+                f"   دخول {_fmt_price(d.entry)} | وقف {_fmt_price(d.stop_loss)} | "
+                f"هدف {_fmt_price(d.take_profit)} | R:R 1:{d.risk_reward:.1f}"
+            )
+        if d.reasons:
+            parts.append(f"   • {d.reasons[0]}")
+        parts.append("")
+    parts.append(DISCLAIMER)
+    return "\n".join(parts)
+
+
 def format_deals(deals: List[Deal], title: str = "أفضل الصفقات") -> str:
     """قائمة صفقات كاملة مع عنوان وتنبيه."""
     if not deals:
