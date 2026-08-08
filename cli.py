@@ -18,49 +18,26 @@ import argparse
 import sys
 
 import config
-from deals_bot import rank_deals
 from deals_bot.formatter import format_deals
-from deals_bot.providers import fetch_many
-
-
-def _symbols_for(market: str, source: str) -> list[str]:
-    if market == "crypto" and source == "binance":
-        return config.BINANCE_WATCHLIST
-    return config.WATCHLISTS[market]
+from deals_bot.strategy import best_deals
 
 
 def run(market: str, source: str, timeframe: str, top: int, direction: str) -> int:
     markets = ["crypto", "stocks", "forex"] if market == "all" else [market]
 
-    all_deals = []
-    for mkt in markets:
-        # مصدر binance يدعم الكريبتو فقط؛ نرجع لـ yfinance لغيره
-        src = source
-        if mkt != "crypto" and src == "binance":
-            src = "yfinance"
+    total = sum(len(config.WATCHLISTS.get(m, [])) for m in markets)
+    print(
+        f"⏳ جاري تحليل {total} رمزًا في {', '.join(markets)} ({timeframe})، "
+        f"مع فلتر جودة (ثقة ≥ {config.MIN_CONFIDENCE}) وتأكيد من إطار أعلى..."
+    )
 
-        symbols = _symbols_for(mkt, src)
-        print(f"⏳ جاري تحليل {len(symbols)} رمزًا في سوق «{mkt}» (المصدر: {src})...")
-        series = fetch_many(symbols, mkt, src, timeframe)
-        if not series:
-            print(f"  ⚠️  لم أستطع جلب بيانات لسوق «{mkt}».")
-            continue
-        deals = rank_deals(series, top=top, direction=direction)
-        all_deals.extend(deals)
-
-    # عند تحليل كل الأسواق، أعِد الترتيب النهائي حسب الثقة
-    if market == "all":
-        if direction == "buy":
-            all_deals.sort(key=lambda d: d.score, reverse=True)
-        elif direction == "sell":
-            all_deals.sort(key=lambda d: d.score)
-        else:
-            all_deals.sort(key=lambda d: d.confidence, reverse=True)
-        all_deals = all_deals[:top]
+    deals = best_deals(
+        markets, timeframe=timeframe, top=top, direction=direction, source=source
+    )
 
     title = f"أفضل الصفقات — {market} ({timeframe})"
     print()
-    print(format_deals(all_deals, title=title))
+    print(format_deals(deals, title=title))
     return 0
 
 
