@@ -1,0 +1,9 @@
+# متطلبات بوت الصفقات
+# Core CLI (crypto/stocks/forex via Yahoo Finance, no API key needed):
+yfinance>=0.2.40
+
+# واجهة تيليجرام (اختيارية) — احذفها إن كنت تستخدم CLI فقط:
+python-telegram-bot>=20.0
+
+# تحميل التوكن من ملف .env تلقائيًا:
+python-dotenv>=1.0.0

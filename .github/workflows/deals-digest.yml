@@ -1,0 +1,52 @@
+name: إشعارات الصفقات إلى تيليجرام
+
+# يعمل تلقائيًا حسب الجدول + يمكن تشغيله يدويًا من تبويب Actions للتجربة.
+on:
+  schedule:
+    # كل 4 ساعات (بتوقيت UTC). عدّل التوقيت كما تشاء.
+    - cron: "0 */4 * * *"
+  workflow_dispatch:
+    inputs:
+      markets:
+        description: "الأسواق (crypto,stocks,forex)"
+        required: false
+        default: "crypto,stocks,forex"
+      timeframe:
+        description: "الإطار الزمني (1m,5m,15m,1h,1d)"
+        required: false
+        default: "1h"
+      direction:
+        description: "الاتجاه (any,buy,sell)"
+        required: false
+        default: "any"
+
+# لا تشغّل أكثر من نسخة في وقت واحد
+concurrency:
+  group: deals-digest
+  cancel-in-progress: false
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    steps:
+      - name: تنزيل الكود
+        uses: actions/checkout@v4
+
+      - name: تجهيز بايثون
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: تثبيت المتطلبات
+        run: pip install -r requirements.txt
+
+      - name: إرسال أفضل الصفقات
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          MARKETS: ${{ github.event.inputs.markets || 'crypto,stocks,forex' }}
+          TIMEFRAME: ${{ github.event.inputs.timeframe || '1h' }}
+          DIRECTION: ${{ github.event.inputs.direction || 'any' }}
+          TOP: "5"
+        run: python send_digest.py
