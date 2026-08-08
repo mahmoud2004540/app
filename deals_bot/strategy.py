@@ -72,6 +72,7 @@ def best_deals(
     balance: float = None,
     risk_pct: float = None,
     require_confirmed: bool = None,
+    whale_only: bool = None,
 ) -> List[Deal]:
     """
     أرجع أفضل الصفقات عبر الأسواق المطلوبة بعد كل الفلاتر.
@@ -86,6 +87,8 @@ def best_deals(
     risk_pct = config.RISK_PER_TRADE if risk_pct is None else risk_pct
     if require_confirmed is None:
         require_confirmed = config.CONFIRM_HIGHER_TIMEFRAME
+    if whale_only is None:
+        whale_only = getattr(config, "WHALE_ONLY", False)
 
     collected: List[Deal] = []
     for market in markets:
@@ -110,16 +113,20 @@ def best_deals(
     # فلتر التأكيد من الإطار الأعلى (إن وُجد تأكيد صريح بأنها غير مؤكّدة نستبعدها)
     if require_confirmed:
         filtered = [d for d in filtered if d.confirmed is not False]
+    # وضع الحيتان فقط: نعرض الصفقات التي بها نشاط حيتان واضح
+    if whale_only:
+        filtered = [d for d in filtered if d.whale]
 
-    # اتجاه
+    # اتجاه — صفقات الحيتان تتصدّر دائمًا، ثم الأقوى ثقةً
     if direction == "buy":
         filtered = [d for d in filtered if d.direction == "BUY"]
-        filtered.sort(key=lambda d: d.score, reverse=True)
+        filtered.sort(key=lambda d: (d.whale, d.score), reverse=True)
     elif direction == "sell":
         filtered = [d for d in filtered if d.direction == "SELL"]
-        filtered.sort(key=lambda d: d.score)
+        # للبيع: الحيتان أولًا ثم الأكثر سلبية
+        filtered.sort(key=lambda d: (d.whale, -d.score), reverse=True)
     else:
-        filtered.sort(key=lambda d: d.confidence, reverse=True)
+        filtered.sort(key=lambda d: (d.whale, d.confidence), reverse=True)
 
     top_deals = filtered[:top]
     # إدارة المخاطر

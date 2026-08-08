@@ -22,6 +22,9 @@ TARGET_ATR_MULT = 2.5
 # عتبة الحياد: أي درجة أقل من هذه (بالقيمة المطلقة) تُعتبر بلا إشارة واضحة
 NEUTRAL_BAND = 20.0
 
+# نشاط الحيتان: حجم آخر شمعة ≥ هذا المضاعف من متوسط الحجم يعتبر "حوتًا"
+WHALE_VOLUME_MULT = 2.5
+
 
 def analyze_symbol(series: Series, momentum_lookback: int = 10) -> Deal:
     """
@@ -59,6 +62,7 @@ def analyze_symbol(series: Series, momentum_lookback: int = 10) -> Deal:
     macd_v = ind.macd(closes)          # (line, signal, hist) or None
     mom = ind.momentum_pct(closes, momentum_lookback)
     vsurge = ind.volume_surge(volumes, 20)
+    mfi_v = ind.mfi(highs, lows, closes, volumes, 14)
     atr_v = ind.atr(highs, lows, closes, 14)
 
     bull = 0.0
@@ -134,13 +138,50 @@ def analyze_symbol(series: Series, momentum_lookback: int = 10) -> Deal:
             bear += 14
             reasons.append(f"زخم سلبي ({mom:.1f}%)")
 
-    # 5) تدفّق الحجم — يعزّز الإشارة القائمة فقط
+    # 5) تدفّق الأموال (MFI) — أين يتحرّك المال فعلًا (مؤشر ضغط الحيتان)
+    money_flow_bull = money_flow_bear = False
+    if mfi_v is not None:
+        if mfi_v >= 55:
+            money_flow_bull = True
+            bull += 10
+            reasons.append(f"تدفّق أموال إيجابي (MFI={mfi_v:.0f}) — ضغط شراء")
+        elif mfi_v <= 45:
+            money_flow_bear = True
+            bear += 10
+            reasons.append(f"تدفّق أموال سلبي (MFI={mfi_v:.0f}) — ضغط بيع")
+
+    # 6) تدفّق الحجم العادي — يعزّز الإشارة القائمة
     if vsurge is not None and vsurge > 1.3:
         if bull >= bear:
-            bull += 10
+            bull += 8
         else:
-            bear += 10
+            bear += 8
         reasons.append(f"ارتفاع في حجم التداول (×{vsurge:.1f})")
+
+    # 7) نشاط الحيتان — حجم ضخم + اتجاه واضح لتدفّق الأموال/السعر
+    whale = False
+    if vsurge is not None and vsurge >= WHALE_VOLUME_MULT:
+        buy_side = money_flow_bull or (mom is not None and mom > 0)
+        sell_side = money_flow_bear or (mom is not None and mom < 0)
+        if buy_side and not sell_side:
+            whale = True
+            bull += 22
+            reasons.insert(
+                0, f"🐋 نشاط حيتان: حجم ضخم (×{vsurge:.1f}) مع تدفّق شراء قوي"
+            )
+        elif sell_side and not buy_side:
+            whale = True
+            bear += 22
+            reasons.insert(
+                0, f"🐋 نشاط حيتان: حجم ضخم (×{vsurge:.1f}) مع ضغط بيع قوي"
+            )
+        else:
+            # حجم ضخم بلا اتجاه واضح — نعزّز الميل القائم فقط
+            if bull >= bear:
+                bull += 12
+            else:
+                bear += 12
+            reasons.insert(0, f"🐋 حجم ضخم غير معتاد (×{vsurge:.1f})")
 
     score = bull - bear                       # موجب = شراء، سالب = بيع
     score = max(-100.0, min(100.0, score))
@@ -181,6 +222,7 @@ def analyze_symbol(series: Series, momentum_lookback: int = 10) -> Deal:
         take_profit=round(take_profit, 8),
         risk_reward=round(risk_reward, 2),
         reasons=reasons,
+        whale=whale,
         indicators={
             "rsi": round(rsi_v, 1) if rsi_v is not None else None,
             "ema9": round(ema_fast, 6) if ema_fast else None,
@@ -189,6 +231,7 @@ def analyze_symbol(series: Series, momentum_lookback: int = 10) -> Deal:
             "macd_hist": round(macd_v[2], 6) if macd_v else None,
             "momentum_pct": round(mom, 2) if mom is not None else None,
             "volume_surge": round(vsurge, 2) if vsurge is not None else None,
+            "mfi": round(mfi_v, 1) if mfi_v is not None else None,
             "atr": round(atr_v, 6) if atr_v else None,
         },
     )

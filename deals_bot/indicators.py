@@ -175,3 +175,40 @@ def volume_surge(volumes: List[float], period: int = 20) -> Optional[float]:
     if base == 0:
         return None
     return volumes[-1] / base
+
+
+def mfi(
+    highs: List[float],
+    lows: List[float],
+    closes: List[float],
+    volumes: List[float],
+    period: int = 14,
+) -> Optional[float]:
+    """
+    مؤشر تدفّق الأموال (Money Flow Index) — يقيس ضغط الشراء/البيع بالمال.
+
+    Unlike RSI, MFI weights each move by its traded value (price × volume), so it
+    reflects where the *money* is flowing — a good free proxy for institutional /
+    "whale" pressure. Returns 0..100, or None if volume data is unusable
+    (e.g. forex, where yfinance reports zero volume).
+    """
+    n = len(closes)
+    if n < period + 1 or len(highs) != n or len(lows) != n or len(volumes) != n:
+        return None
+
+    typical = [(highs[i] + lows[i] + closes[i]) / 3.0 for i in range(n)]
+    pos_flow = 0.0
+    neg_flow = 0.0
+    for i in range(max(1, n - period), n):
+        raw = typical[i] * volumes[i]
+        if typical[i] > typical[i - 1]:
+            pos_flow += raw
+        elif typical[i] < typical[i - 1]:
+            neg_flow += raw
+
+    if pos_flow + neg_flow == 0:
+        return None
+    if neg_flow == 0:
+        return 100.0
+    ratio = pos_flow / neg_flow
+    return 100.0 - (100.0 / (1.0 + ratio))

@@ -72,6 +72,8 @@ class Deal:
     error: Optional[str] = None
     # تأكيد من إطار زمني أعلى (None = لم يُفحص)
     confirmed: Optional[bool] = None
+    # نشاط حيتان: حجم ضخم + تدفّق أموال قوي في اتجاه الصفقة
+    whale: bool = False
     # إدارة المخاطر (تُملأ عند توفّر رأس المال)
     qty: Optional[float] = None            # حجم الصفقة المقترح (وحدات)
     risk_amount: Optional[float] = None    # المبلغ المخاطَر به بعملتك

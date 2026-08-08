@@ -30,7 +30,8 @@ def _fmt_price(x: float) -> str:
 
 def format_deal(deal: Deal, index: int | None = None) -> str:
     """صفقة واحدة كنص متعدد الأسطر."""
-    head = f"{_ARROW.get(deal.direction, deal.direction)}  {deal.symbol}"
+    whale = "🐋 " if deal.whale else ""
+    head = f"{whale}{_ARROW.get(deal.direction, deal.direction)}  {deal.symbol}"
     if index is not None:
         head = f"{index}. {head}"
 
@@ -89,7 +90,8 @@ def format_digest(deals: List[Deal], title: str = "أفضل الصفقات") -> 
     parts = [f"📊 {title}", ""]
     for i, d in enumerate(deals, 1):
         badge = " ✅" if d.confirmed is True else ""
-        head = f"{i}. {_ARROW.get(d.direction, d.direction)} {d.symbol}  ({d.market}){badge}"
+        whale = "🐋 " if d.whale else ""
+        head = f"{i}. {whale}{_ARROW.get(d.direction, d.direction)} {d.symbol}  ({d.market}){badge}"
         parts.append(head)
         parts.append(
             f"   الثقة {d.confidence:.0f}/100 | السعر {_fmt_price(d.price)}"

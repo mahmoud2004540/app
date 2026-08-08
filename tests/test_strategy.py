@@ -91,3 +91,46 @@ def test_parse_coinbase_maps_and_sorts():
         10.0, 11.0, 9.0, 10.5, 100.0,
     )
     assert s.market == "crypto" and s.symbol == "BTC-USD"
+
+
+# ------------------------------- whales ---------------------------------- #
+def _series_hlcv(symbol, closes, volumes):
+    candles = []
+    ts = 0.0
+    for c, v in zip(closes, volumes):
+        candles.append(
+            Candle(ts=ts, open=c, high=c * 1.01, low=c * 0.99, close=c, volume=v)
+        )
+        ts += 3600
+    return Series(symbol=symbol, market="crypto", candles=candles)
+
+
+def test_whale_detected_on_volume_spike_uptrend():
+    closes = _trend(100.0, 0.6, 120, wiggle=1.0)
+    volumes = [1000.0] * 119 + [6000.0]          # ×6 spike on the last bar
+    d = analyze_symbol(_series_hlcv("WHALE", closes, volumes))
+    assert d.whale is True
+    assert d.direction == "BUY"
+    # السبب الأول يجب أن يكون سبب الحوت المقنع
+    assert "🐋" in d.reasons[0]
+
+
+def test_no_whale_without_volume_spike():
+    closes = _trend(100.0, 0.6, 120, wiggle=1.0)
+    volumes = [1000.0] * 120                      # حجم ثابت — لا حوت
+    d = analyze_symbol(_series_hlcv("CALM", closes, volumes))
+    assert d.whale is False
+
+
+def test_whale_only_filter_and_priority():
+    from deals_bot.strategy import best_deals  # noqa: F401 (import guard)
+
+    whale = analyze_symbol(
+        _series_hlcv("WHALE", _trend(100.0, 0.6, 120, wiggle=1.0),
+                     [1000.0] * 119 + [6000.0])
+    )
+    calm = analyze_symbol(
+        _series_hlcv("CALM", _trend(100.0, 0.6, 120, wiggle=1.0), [1000.0] * 120)
+    )
+    # الحوت يجب أن يحمل ثقة أعلى (بسبب تعزيز +22)
+    assert whale.confidence > calm.confidence
