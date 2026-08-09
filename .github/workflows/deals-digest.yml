@@ -3,8 +3,8 @@ name: إشعارات الصفقات إلى تيليجرام
 # يعمل تلقائيًا حسب الجدول + يمكن تشغيله يدويًا من تبويب Actions للتجربة.
 on:
   schedule:
-    # كل 30 دقيقة (بتوقيت UTC) — يفضل ضمن الحد المجاني لمستودع خاص (~2000 دقيقة/شهر).
-    - cron: "*/30 * * * *"
+    # كل 4 ساعات (بتوقيت UTC) — يناسب فحص نطاق واسع (مئات الرموز) ضمن الحد المجاني.
+    - cron: "0 */4 * * *"
   workflow_dispatch:
     inputs:
       markets:
@@ -46,7 +46,7 @@ jobs:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           MARKETS: ${{ github.event.inputs.markets || 'crypto,stocks,forex' }}
-          TIMEFRAME: ${{ github.event.inputs.timeframe || '15m' }}
+          TIMEFRAME: ${{ github.event.inputs.timeframe || '1h' }}
           DIRECTION: ${{ github.event.inputs.direction || 'any' }}
           TOP: "5"
         run: python send_digest.py

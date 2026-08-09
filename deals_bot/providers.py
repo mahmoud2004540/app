@@ -140,6 +140,33 @@ def fetch_binance(symbol: str, timeframe: str = "1h", limit: int = 300) -> Serie
 _COINBASE_GRAN = {"1m": 60, "5m": 300, "15m": 900, "1h": 3600, "1d": 86400}
 
 
+def list_coinbase_usd_products(quote: str = "USD") -> List[str]:
+    """
+    اجلب قائمة كل أزواج الكريبتو المتاحة بالدولار من Coinbase (ديناميكيًا).
+
+    Returns every online, tradable <BASE>-USD product id — effectively "all
+    crypto" the exchange lists. Falls back to raising on network error.
+    """
+    url = "https://api.exchange.coinbase.com/products"
+    req = urllib.request.Request(
+        url, headers={"User-Agent": "deals-bot/1.0", "Accept": "application/json"}
+    )
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        data = json.loads(resp.read().decode("utf-8"))
+    out: List[str] = []
+    for p in data:
+        if (
+            p.get("quote_currency") == quote
+            and p.get("status") == "online"
+            and not p.get("trading_disabled")
+            and not p.get("post_only")
+            and not p.get("limit_only")
+            and not p.get("cancel_only")
+        ):
+            out.append(p["id"])
+    return sorted(out)
+
+
 def _to_binance_symbol(symbol: str) -> str:
     """حوّل صيغة yfinance/Coinbase إلى صيغة Binance: BTC-USD → BTCUSDT."""
     base = symbol.upper().split("-")[0].replace("USDT", "").replace("USD", "")

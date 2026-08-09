@@ -38,6 +38,35 @@ DEFAULT_TIMEFRAME = "1h"
 DEFAULT_TOP = 5
 DEFAULT_SOURCE = "yfinance"   # or "binance" (crypto only)
 
+# --- نطاق الفحص ---
+# "all" = افحص كل عملات الكريبتو المتاحة بالدولار على Coinbase (مئات العملات،
+#         تُجلب ديناميكيًا) + قوائم الأسهم/الفوركس الموسّعة أدناه.
+# "watchlist" = اكتفِ بالقوائم القصيرة أعلاه (أسرع).
+CRYPTO_UNIVERSE = "all"
+
+# كم عملة كريبتو نفحص كحدّ أقصى عند "all" (حماية من الإفراط في الطلبات/الوقت)
+MAX_CRYPTO_SYMBOLS = 400
+
+# قائمة فوركس موسّعة (رئيسية + ثانوية + بعض المتقاطعات)
+FOREX_UNIVERSE = [
+    "EURUSD=X", "GBPUSD=X", "USDJPY=X", "AUDUSD=X", "USDCHF=X", "USDCAD=X",
+    "NZDUSD=X", "EURGBP=X", "EURJPY=X", "GBPJPY=X", "AUDJPY=X", "EURAUD=X",
+    "EURCHF=X", "EURCAD=X", "GBPCHF=X", "GBPCAD=X", "AUDCAD=X", "AUDNZD=X",
+    "CADJPY=X", "CHFJPY=X", "NZDJPY=X", "USDSGD=X", "USDHKD=X", "USDMXN=X",
+    "USDZAR=X", "USDTRY=X", "USDSEK=X", "USDNOK=X", "EURNZD=X", "GBPAUD=X",
+]
+
+# قائمة أسهم موسّعة (أكبر وأنشط الأسهم الأمريكية) — لا يمكن جلب كل الآلاف مجانًا
+STOCKS_UNIVERSE = [
+    "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA", "AMD", "NFLX", "JPM",
+    "AVGO", "ORCL", "CRM", "ADBE", "INTC", "CSCO", "QCOM", "TXN", "AMAT", "MU",
+    "BAC", "WFC", "GS", "MS", "C", "V", "MA", "PYPL", "SQ", "COIN",
+    "DIS", "CMCSA", "T", "VZ", "KO", "PEP", "MCD", "SBUX", "NKE", "WMT",
+    "COST", "HD", "LOW", "TGT", "PG", "JNJ", "PFE", "MRK", "ABBV", "LLY",
+    "UNH", "CVX", "XOM", "BA", "CAT", "GE", "F", "GM", "UBER", "ABNB",
+    "PLTR", "SNOW", "SHOP", "MRNA", "RIVN", "LCID", "SOFI", "DKNG", "ROKU", "ZM",
+]
+
 # --- فلتر الجودة: لا تُعرض إلا الصفقات القوية ---
 # أقل درجة ثقة (0..100) تُقبل بها الصفقة. ارفعها لصفقات أنضف وأقل عددًا.
 # مضبوطة على 70 لتوازن بين الجودة وعدد الصفقات (كانت 75).

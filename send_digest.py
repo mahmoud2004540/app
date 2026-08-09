@@ -24,7 +24,7 @@ import urllib.request
 
 import config
 from deals_bot.formatter import format_digest
-from deals_bot.strategy import accumulation_deals, best_deals
+from deals_bot.strategy import scan_universe
 
 TELEGRAM_MAX = 4000  # حد أمان أقل من 4096 لتفادي رفض الرسالة
 
@@ -39,17 +39,15 @@ def build_message() -> str:
     top = int(os.environ.get("TOP", config.DEFAULT_TOP))
     direction = os.environ.get("DIRECTION", "any")
 
-    deals = best_deals(markets, timeframe=timeframe, top=top, direction=direction)
+    # فحص واسع بمرور واحد: إشارات الصفقات + عملات التجميع من نفس البيانات
+    signals, accums = scan_universe(
+        markets, timeframe=timeframe, top=top, direction=direction
+    )
     title = f"أفضل الصفقات — {', '.join(markets)} ({timeframe})"
-    message = format_digest(deals, title=title)
-
-    # قسم عملات التجميع (بعد هبوط، بانتظار الاندفاع) — على إطار أعلى
-    if os.environ.get("ACCUMULATION", "1") != "0":
-        acc_tf = os.environ.get("ACCUMULATION_TIMEFRAME", "1h")
-        acc = accumulation_deals(markets, timeframe=acc_tf, top=top)
-        message += "\n\n" + format_digest(
-            acc, title=f"📥 عملات في التجميع — بانتظار الاندفاع ({acc_tf})"
-        )
+    message = format_digest(signals, title=title)
+    message += "\n\n" + format_digest(
+        accums, title=f"📥 عملات في التجميع — بانتظار الاندفاع ({timeframe})"
+    )
     return message
 
 
