@@ -78,6 +78,8 @@ class Deal:
     pump: bool = False
     # مرحلة تجميع بعد هبوط (نطاق عرضي ضيّق بانتظار الاندفاع)
     accumulation: bool = False
+    # بداية اندفاع: كسر أول لقمة النطاق بحجم عالٍ (دخول مبكّر)
+    early_pump: bool = False
     # إدارة المخاطر (تُملأ عند توفّر رأس المال)
     qty: Optional[float] = None            # حجم الصفقة المقترح (وحدات)
     risk_amount: Optional[float] = None    # المبلغ المخاطَر به بعملتك

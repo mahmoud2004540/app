@@ -23,6 +23,7 @@ from .analyzer import (
     add_position_sizing,
     analyze_symbol,
     detect_accumulation,
+    detect_early_pump,
 )
 from .models import Deal
 from .providers import (
@@ -75,6 +76,26 @@ def _accumulation_deal(sym: str, market: str, acc: dict) -> Deal:
     )
 
 
+def _early_pump_deal(sym: str, market: str, ep: dict) -> Deal:
+    """ابنِ صفقة «بداية اندفاع» من نتيجة الكاشف — وقف تحت مستوى الكسر."""
+    price = ep["price"]
+    base_high = ep["base_high"]
+    base_low = ep["base_low"]
+    width = max(base_high - base_low, price * 0.001)
+    # وقف الخسارة تحت مستوى الكسر مباشرةً (المقاومة المكسورة تصبح دعمًا)
+    stop = min(base_high * 0.985, price * 0.97)
+    target = max(base_high + 1.5 * width, price * 1.10)
+    risk = abs(price - stop)
+    reward = abs(target - price)
+    return Deal(
+        symbol=sym, market=market, direction="BUY",
+        score=ep["score"], confidence=ep["score"], price=price,
+        entry=round(price, 8), stop_loss=round(stop, 8), take_profit=round(target, 8),
+        risk_reward=round((reward / risk) if risk > 0 else 0.0, 2),
+        reasons=ep["reasons"], early_pump=True, pump=True,
+    )
+
+
 def scan_universe(
     markets: List[str],
     timeframe: str = None,
@@ -101,6 +122,7 @@ def scan_universe(
 
     signals: List[Deal] = []
     accums: List[Deal] = []
+    earlies: List[Deal] = []
 
     for market in markets:
         if market == "crypto":
@@ -131,18 +153,23 @@ def scan_universe(
             acc = detect_accumulation(series)
             if acc:
                 accums.append(_accumulation_deal(sym, market, acc))
+            ep = detect_early_pump(series)
+            if ep:
+                earlies.append(_early_pump_deal(sym, market, ep))
         print(f"  ✅ «{market}»: فُحص {scanned} رمزًا فعليًا.")
 
     # ترتيب: الاندفاعات/الحيتان أولًا ثم الأقوى ثقةً
     signals.sort(key=lambda d: (d.pump, d.whale, d.confidence), reverse=True)
     accums.sort(key=lambda d: d.confidence, reverse=True)
+    earlies.sort(key=lambda d: d.confidence, reverse=True)
 
     sig_top = signals[:top]
     acc_top = accums[:top]
-    for d in sig_top + acc_top:
+    early_top = earlies[:top]
+    for d in sig_top + acc_top + early_top:
         _refresh_live_price(d)
         add_position_sizing(d, balance, risk_pct)
-    return sig_top, acc_top
+    return sig_top, acc_top, early_top
 
 
 def apply_live_price(deal: Deal, live: float) -> Deal:
