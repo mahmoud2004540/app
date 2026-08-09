@@ -120,6 +120,50 @@ def format_deal(deal: Deal, index: int | None = None) -> str:
     return "\n".join(lines)
 
 
+_DIR_AR = {"bull": "🟢 صاعد", "bear": "🔴 هابط", "neutral": "⚪ حياد", "n/a": "➖ غير متوفّر"}
+
+
+def format_confluence(rep) -> str:
+    """صياغة تقرير تقاطع الأدلة بالشكل المؤسسي المطلوب."""
+    lines = []
+    lines.append(f"📋 الأصل / الإطار الزمني: {rep.symbol} ({rep.market}) — {rep.timeframe}")
+    lines.append(f"السعر الحالي: {_fmt_price(rep.price)}")
+    lines.append("")
+    lines.append("ملخص المدارس:")
+    for s in rep.schools:
+        mark = _DIR_AR.get(s.direction, s.direction)
+        note = f" — {s.note}" if s.note else ""
+        avail = "" if s.available else "  (بيانات غير متوفّرة)"
+        lines.append(f"   • {s.name}: {mark}{note}{avail}")
+    lines.append("")
+    lines.append(
+        f"المدارس المتفقة: صعود {rep.agree_bull} / هبوط {rep.agree_bear} "
+        f"(من {rep.available_count} متاحة)"
+    )
+    lines.append(f"القرار: {rep.decision}")
+
+    if rep.decision in ("شراء", "بيع"):
+        tgts = " ، ".join(_fmt_price(t) for t in rep.targets)
+        lines.append(
+            f"الدخول: {_fmt_price(rep.entry)} | وقف الخسارة: {_fmt_price(rep.stop_loss)} | "
+            f"الأهداف: {tgts}"
+        )
+        lines.append(f"نسبة المخاطرة/العائد (الهدف الأول): 1:{rep.risk_reward:.1f}")
+        lines.append(f"حجم المركز المقترح: {rep.position_pct:g}% من المحفظة")
+    lines.append(
+        f"مستوى الثقة: {rep.confidence} (عدد أدلة التأكيد: {rep.evidence_count})"
+    )
+    if rep.alternative:
+        lines.append(f"سيناريو بديل: {rep.alternative}")
+    if rep.notes:
+        lines.append("ملاحظات المخاطر:")
+        for nt in rep.notes:
+            lines.append(f"   ⚠️ {nt}")
+    lines.append("")
+    lines.append(DISCLAIMER)
+    return "\n".join(lines)
+
+
 def format_digest(deals: List[Deal], title: str = "أفضل الصفقات") -> str:
     """
     نسخة مختصرة مناسبة لرسائل تيليجرام (سطور قليلة لكل صفقة).

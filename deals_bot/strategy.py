@@ -13,6 +13,7 @@ logic lives in one place:
 
 from __future__ import annotations
 
+import time
 from typing import List, Optional
 
 import config
@@ -24,7 +25,124 @@ from .analyzer import (
     detect_accumulation,
 )
 from .models import Deal
-from .providers import fetch, fetch_spot_binance, fetch_spot_coinbase
+from .providers import (
+    fetch,
+    fetch_spot_binance,
+    fetch_spot_coinbase,
+    list_coinbase_usd_products,
+)
+
+
+def resolve_symbols(market: str, source: str) -> List[str]:
+    """
+    حدّد قائمة الرموز للسوق: كل عملات Coinbase عند نطاق "all"، وإلا القوائم المعرّفة.
+    """
+    if market == "crypto":
+        if source == "binance":
+            return config.BINANCE_WATCHLIST
+        if getattr(config, "CRYPTO_UNIVERSE", "watchlist") == "all":
+            try:
+                syms = list_coinbase_usd_products()
+                cap = getattr(config, "MAX_CRYPTO_SYMBOLS", 400)
+                return syms[:cap]
+            except Exception as exc:  # noqa: BLE001 - fall back to the short list
+                print(f"  ⚠️ تعذّر جلب كل عملات Coinbase ({exc}) — استخدام القائمة القصيرة.")
+                return config.WATCHLISTS["crypto"]
+        return config.WATCHLISTS["crypto"]
+    if market == "forex":
+        return getattr(config, "FOREX_UNIVERSE", None) or config.WATCHLISTS["forex"]
+    if market == "stocks":
+        return getattr(config, "STOCKS_UNIVERSE", None) or config.WATCHLISTS["stocks"]
+    return config.WATCHLISTS.get(market, [])
+
+
+def _accumulation_deal(sym: str, market: str, acc: dict) -> Deal:
+    """ابنِ صفقة تجميع من نتيجة الكاشف."""
+    price = acc["price"]
+    base_low = acc["base_low"]
+    base_high = acc["base_high"]
+    width = max(base_high - base_low, price * 0.001)
+    stop = base_low * 0.98
+    target = max(base_high + 2.0 * width, price * 1.12)
+    risk = abs(price - stop)
+    reward = abs(target - price)
+    return Deal(
+        symbol=sym, market=market, direction="BUY",
+        score=acc["score"], confidence=acc["score"], price=price,
+        entry=round(price, 8), stop_loss=round(stop, 8), take_profit=round(target, 8),
+        risk_reward=round((reward / risk) if risk > 0 else 0.0, 2),
+        reasons=acc["reasons"], accumulation=True,
+    )
+
+
+def scan_universe(
+    markets: List[str],
+    timeframe: str = None,
+    top: int = None,
+    direction: str = "any",
+    source: str = None,
+    min_confidence: float = None,
+    balance: float = None,
+    risk_pct: float = None,
+):
+    """
+    فحص واسع بمرور واحد: يجلب كل رمز مرة واحدة ويستخرج منه إشارة صفقة + تجميع.
+
+    Efficient single-pass scan over a large universe: one fetch per symbol feeds
+    both the trade-signal analysis and the accumulation detector. Returns
+    (signals_top, accumulation_top). Designed for hundreds of symbols.
+    """
+    timeframe = timeframe or config.DEFAULT_TIMEFRAME
+    top = top or config.DEFAULT_TOP
+    source = source or config.DEFAULT_SOURCE
+    min_confidence = config.MIN_CONFIDENCE if min_confidence is None else min_confidence
+    balance = config.ACCOUNT_BALANCE if balance is None else balance
+    risk_pct = config.RISK_PER_TRADE if risk_pct is None else risk_pct
+
+    signals: List[Deal] = []
+    accums: List[Deal] = []
+
+    for market in markets:
+        if market == "crypto":
+            src = source if source in ("binance", "coinbase") else "auto"
+        else:
+            src = "yfinance"
+        symbols = resolve_symbols(market, src)
+        print(f"  🔭 فحص {len(symbols)} رمزًا في «{market}» ({timeframe})...")
+        scanned = 0
+        # تباطؤ بسيط بين طلبات الكريبتو لتفادي الحظر المؤقت من Coinbase
+        pause = 0.05 if market == "crypto" else 0.0
+        for sym in symbols:
+            try:
+                series = fetch(sym, market, src, timeframe, limit=300)
+            except Exception:  # noqa: BLE001 - skip unavailable symbols quietly
+                if pause:
+                    time.sleep(pause)
+                continue
+            if pause:
+                time.sleep(pause)
+            if len(series) < 60:
+                continue
+            scanned += 1
+            deal = analyze_symbol(series)
+            if deal.is_actionable() and deal.confidence >= min_confidence:
+                if direction == "any" or deal.direction.lower() == direction:
+                    signals.append(deal)
+            acc = detect_accumulation(series)
+            if acc:
+                accums.append(_accumulation_deal(sym, market, acc))
+        print(f"  ✅ «{market}»: فُحص {scanned} رمزًا فعليًا.")
+
+    # ترتيب: الاندفاعات/الحيتان أولًا ثم الأقوى ثقةً
+    signals.sort(key=lambda d: (d.pump, d.whale, d.confidence), reverse=True)
+    accums.sort(key=lambda d: d.confidence, reverse=True)
+
+    sig_top = signals[:top]
+    acc_top = accums[:top]
+    for d in sig_top + acc_top:
+        _refresh_live_price(d)
+        add_position_sizing(d, balance, risk_pct)
+    return sig_top, acc_top
 
 
 def apply_live_price(deal: Deal, live: float) -> Deal:

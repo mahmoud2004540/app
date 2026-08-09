@@ -17,10 +17,40 @@ from __future__ import annotations
 
 import json
 import time
+import urllib.error
 import urllib.request
 from typing import List
 
 from .models import Candle, Series
+
+
+def _http_json(url: str, timeout: int = 20, retries: int = 4):
+    """
+    GET يُرجع JSON مع إعادة محاولة عند الحظر المؤقت (429) أو أخطاء عابرة.
+
+    Retries with exponential backoff on HTTP 429 (rate limit) and transient
+    network errors — essential when sweeping hundreds of symbols.
+    """
+    headers = {"User-Agent": "deals-bot/1.0", "Accept": "application/json"}
+    last = None
+    for attempt in range(retries):
+        try:
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            last = exc
+            if exc.code in (429, 418, 502, 503) and attempt < retries - 1:
+                time.sleep(0.6 * (2 ** attempt))
+                continue
+            raise
+        except Exception as exc:  # noqa: BLE001 - transient network
+            last = exc
+            if attempt < retries - 1:
+                time.sleep(0.4 * (2 ** attempt))
+                continue
+            raise
+    raise last if last else RuntimeError("فشل الطلب")
 
 # فترات yfinance حسب الإطار الزمني: (interval, period)
 _YF_RANGE = {
@@ -140,6 +170,42 @@ def fetch_binance(symbol: str, timeframe: str = "1h", limit: int = 300) -> Serie
 _COINBASE_GRAN = {"1m": 60, "5m": 300, "15m": 900, "1h": 3600, "1d": 86400}
 
 
+def list_coinbase_usd_products(quote: str = "USD") -> List[str]:
+    """
+    اجلب قائمة كل أزواج الكريبتو المتاحة بالدولار من Coinbase (ديناميكيًا).
+
+    Returns every online, tradable <BASE>-USD product id — effectively "all
+    crypto" the exchange lists. Falls back to raising on network error.
+    """
+    data = _http_json("https://api.exchange.coinbase.com/products", timeout=30, retries=5)
+    out: List[str] = []
+    for p in data:
+        if (
+            p.get("quote_currency") == quote
+            and p.get("status") == "online"
+            and not p.get("trading_disabled")
+            and not p.get("post_only")
+            and not p.get("limit_only")
+            and not p.get("cancel_only")
+        ):
+            out.append(p["id"])
+    return sorted(out)
+
+
+def fetch_fear_greed() -> int:
+    """
+    مؤشر الخوف والطمع للكريبتو (0..100) من alternative.me (مجاني، بدون مفتاح).
+
+    Returns the latest crypto Fear & Greed value. Raises on failure so callers
+    can mark the sentiment school as unavailable instead of guessing.
+    """
+    url = "https://api.alternative.me/fng/?limit=1"
+    req = urllib.request.Request(url, headers={"User-Agent": "deals-bot/1.0"})
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        data = json.loads(resp.read().decode("utf-8"))
+    return int(data["data"][0]["value"])
+
+
 def _to_binance_symbol(symbol: str) -> str:
     """حوّل صيغة yfinance/Coinbase إلى صيغة Binance: BTC-USD → BTCUSDT."""
     base = symbol.upper().split("-")[0].replace("USDT", "").replace("USD", "")
@@ -220,12 +286,8 @@ def fetch_coinbase(symbol: str, timeframe: str = "1h", limit: int = 300) -> Seri
         f"https://api.exchange.coinbase.com/products/{symbol.upper()}/candles"
         f"?granularity={gran}"
     )
-    req = urllib.request.Request(
-        url, headers={"User-Agent": "deals-bot/1.0", "Accept": "application/json"}
-    )
     try:
-        with urllib.request.urlopen(req, timeout=20) as resp:
-            raw = json.loads(resp.read().decode("utf-8"))
+        raw = _http_json(url, timeout=20, retries=4)
     except Exception as exc:  # noqa: BLE001 - surface any network/parse error
         raise RuntimeError(f"فشل جلب {symbol} من Coinbase: {exc}") from exc
     if not isinstance(raw, list) or not raw:

@@ -177,6 +177,50 @@ def volume_surge(volumes: List[float], period: int = 20) -> Optional[float]:
     return volumes[-1] / base
 
 
+def bollinger(values: List[float], period: int = 20, mult: float = 2.0):
+    """نطاقات بولنجر: (السفلي، الوسط، العلوي) لأحدث قيمة، أو None."""
+    if len(values) < period:
+        return None
+    window = values[-period:]
+    mid = sum(window) / period
+    var = sum((x - mid) ** 2 for x in window) / period
+    sd = var ** 0.5
+    return mid - mult * sd, mid, mid + mult * sd
+
+
+def stochastic(
+    highs: List[float], lows: List[float], closes: List[float], k: int = 14
+) -> Optional[float]:
+    """مذبذب ستوكاستك %K لأحدث قيمة (0..100)، أو None."""
+    n = len(closes)
+    if n < k or len(highs) < k or len(lows) < k:
+        return None
+    hh = max(highs[-k:])
+    ll = min(lows[-k:])
+    if hh == ll:
+        return 50.0
+    return (closes[-1] - ll) / (hh - ll) * 100.0
+
+
+def swing_points(highs: List[float], lows: List[float], left: int = 2, right: int = 2):
+    """
+    استخرج نقاط الارتكاز (القمم/القيعان) بطريقة الفراكتال.
+
+    Returns (pivot_highs, pivot_lows) as lists of (index, price), oldest first.
+    A pivot high at i is a high greater than `left` bars before and `right` after.
+    """
+    n = len(highs)
+    ph, pl = [], []
+    for i in range(left, n - right):
+        seg_h = highs[i - left:i + right + 1]
+        seg_l = lows[i - left:i + right + 1]
+        if highs[i] == max(seg_h) and seg_h.count(highs[i]) == 1:
+            ph.append((i, highs[i]))
+        if lows[i] == min(seg_l) and seg_l.count(lows[i]) == 1:
+            pl.append((i, lows[i]))
+    return ph, pl
+
+
 def mfi(
     highs: List[float],
     lows: List[float],
