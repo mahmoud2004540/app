@@ -167,6 +167,20 @@ def list_coinbase_usd_products(quote: str = "USD") -> List[str]:
     return sorted(out)
 
 
+def fetch_fear_greed() -> int:
+    """
+    مؤشر الخوف والطمع للكريبتو (0..100) من alternative.me (مجاني، بدون مفتاح).
+
+    Returns the latest crypto Fear & Greed value. Raises on failure so callers
+    can mark the sentiment school as unavailable instead of guessing.
+    """
+    url = "https://api.alternative.me/fng/?limit=1"
+    req = urllib.request.Request(url, headers={"User-Agent": "deals-bot/1.0"})
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        data = json.loads(resp.read().decode("utf-8"))
+    return int(data["data"][0]["value"])
+
+
 def _to_binance_symbol(symbol: str) -> str:
     """حوّل صيغة yfinance/Coinbase إلى صيغة Binance: BTC-USD → BTCUSDT."""
     base = symbol.upper().split("-")[0].replace("USDT", "").replace("USD", "")
