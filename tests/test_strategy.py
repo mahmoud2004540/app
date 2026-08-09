@@ -139,6 +139,14 @@ def test_no_pump_on_slow_move():
     assert d.pump is False
 
 
+def test_binance_symbol_conversion():
+    from deals_bot.providers import _to_binance_symbol
+
+    assert _to_binance_symbol("BTC-USD") == "BTCUSDT"
+    assert _to_binance_symbol("ETH-USD") == "ETHUSDT"
+    assert _to_binance_symbol("SOL-USD") == "SOLUSDT"
+
+
 def test_apply_live_price_updates_price_and_levels():
     from deals_bot.strategy import apply_live_price
 

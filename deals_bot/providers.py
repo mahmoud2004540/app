@@ -140,6 +140,33 @@ def fetch_binance(symbol: str, timeframe: str = "1h", limit: int = 300) -> Serie
 _COINBASE_GRAN = {"1m": 60, "5m": 300, "15m": 900, "1h": 3600, "1d": 86400}
 
 
+def _to_binance_symbol(symbol: str) -> str:
+    """حوّل صيغة yfinance/Coinbase إلى صيغة Binance: BTC-USD → BTCUSDT."""
+    base = symbol.upper().split("-")[0].replace("USDT", "").replace("USD", "")
+    return f"{base}USDT"
+
+
+def fetch_spot_binance(symbol: str) -> float:
+    """
+    السعر الفوري من Binance (المرجع الأشهر لدى كثير من المتداولين).
+
+    symbol example: "BTC-USD" → يُحوّل إلى "BTCUSDT". قد يُحجب من بعض الخوادم
+    السحابية (يُرجع خطأ فيُستخدم مصدر بديل).
+    """
+    sym = _to_binance_symbol(symbol)
+    url = f"https://api.binance.com/api/v3/ticker/price?symbol={sym}"
+    req = urllib.request.Request(url, headers={"User-Agent": "deals-bot/1.0"})
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except Exception as exc:  # noqa: BLE001
+        raise RuntimeError(f"فشل جلب السعر الفوري لِـ {sym} من Binance: {exc}") from exc
+    price = data.get("price")
+    if price is None:
+        raise RuntimeError(f"لا يوجد سعر فوري لِـ {sym} من Binance.")
+    return float(price)
+
+
 def fetch_spot_coinbase(symbol: str) -> float:
     """
     السعر الفوري (spot) الحالي من Coinbase — أحدث من إغلاق آخر شمعة.

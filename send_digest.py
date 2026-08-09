@@ -84,13 +84,14 @@ def main() -> int:
         )
         return 2
 
-    # فحص تشخيصي: هل مصدر السعر الفوري (Coinbase) متاح من هذا الخادم؟
-    try:
-        from deals_bot.providers import fetch_spot_coinbase
+    # فحص تشخيصي: أي مصادر السعر الفوري متاحة من هذا الخادم؟
+    from deals_bot.providers import fetch_spot_binance, fetch_spot_coinbase
 
-        print(f"🔎 فحص السعر الفوري BTC-USD (Coinbase): {fetch_spot_coinbase('BTC-USD')}")
-    except Exception as exc:  # noqa: BLE001
-        print(f"🔎 ⚠️ تعذّر السعر الفوري من Coinbase: {exc} — سيُستخدم Yahoo (متأخّر).")
+    for _name, _fn in (("Binance", fetch_spot_binance), ("Coinbase", fetch_spot_coinbase)):
+        try:
+            print(f"🔎 فحص السعر الفوري BTC-USD ({_name}): {_fn('BTC-USD')}")
+        except Exception as exc:  # noqa: BLE001
+            print(f"🔎 ⚠️ {_name} غير متاح: {exc}")
 
     message = build_message()
     print("----- محتوى الرسالة -----")

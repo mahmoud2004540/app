@@ -23,7 +23,7 @@ from .analyzer import (
     analyze_symbol,
 )
 from .models import Deal
-from .providers import fetch, fetch_spot_coinbase
+from .providers import fetch, fetch_spot_binance, fetch_spot_coinbase
 
 
 def apply_live_price(deal: Deal, live: float) -> Deal:
@@ -53,16 +53,22 @@ def apply_live_price(deal: Deal, live: float) -> Deal:
 
 
 def _refresh_live_price(deal: Deal) -> None:
-    """اجلب السعر الفوري للكريبتو من Coinbase وطبّقه (بصمت عند الفشل)."""
+    """
+    اجلب السعر الفوري للكريبتو: Binance أولًا (المرجع الأشهر) ثم Coinbase.
+
+    Keeps the candle-based price only if both live sources fail.
+    """
     if deal.market != "crypto" or not deal.is_actionable():
         return
-    try:
-        live = fetch_spot_coinbase(deal.symbol)
-    except Exception as exc:  # noqa: BLE001 - keep the candle-based price on failure
-        print(f"  ⚠️ {deal.symbol}: تعذّر السعر الفوري (Coinbase): {exc}")
+    for name, fn in (("Binance", fetch_spot_binance), ("Coinbase", fetch_spot_coinbase)):
+        try:
+            live = fn(deal.symbol)
+        except Exception as exc:  # noqa: BLE001 - try the next source
+            print(f"  ⚠️ {deal.symbol}: {name} غير متاح: {exc}")
+            continue
+        print(f"  💹 {deal.symbol}: سعر فوري {live} (المصدر: {name})")
+        apply_live_price(deal, live)
         return
-    print(f"  💹 {deal.symbol}: سعر فوري {live}")
-    apply_live_price(deal, live)
 
 
 def _confirm_symbol(
