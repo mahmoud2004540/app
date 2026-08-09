@@ -139,6 +139,37 @@ def test_no_pump_on_slow_move():
     assert d.pump is False
 
 
+def test_detect_accumulation_after_drop_then_base():
+    from deals_bot.analyzer import detect_accumulation
+
+    # هبوط من 100 إلى ~62 ثم نطاق عرضي ضيّق حول 62
+    closes = [100.0 - 0.9 * i for i in range(42)]          # decline ~100 -> 63
+    base = [62.0 + (0.6 if i % 2 else -0.6) for i in range(50)]  # tight base
+    closes += base
+    vols = [1000.0] * len(closes)
+    s = _series_hlcv("ACC", closes, vols)
+    acc = detect_accumulation(s)
+    assert acc is not None
+    assert acc["drop"] <= -15.0
+    assert 0 < acc["score"] <= 100
+
+
+def test_no_accumulation_in_uptrend():
+    from deals_bot.analyzer import detect_accumulation
+
+    closes = _trend(100.0, 0.6, 120, wiggle=1.0)           # rising
+    s = _series_hlcv("UP", closes, [1000.0] * 120)
+    assert detect_accumulation(s) is None
+
+
+def test_no_accumulation_while_still_falling():
+    from deals_bot.analyzer import detect_accumulation
+
+    closes = [200.0 - 1.0 * i for i in range(120)]         # keeps making new lows
+    s = _series_hlcv("DOWN", closes, [1000.0] * 120)
+    assert detect_accumulation(s) is None
+
+
 def test_binance_symbol_conversion():
     from deals_bot.providers import _to_binance_symbol
 

@@ -24,7 +24,7 @@ import urllib.request
 
 import config
 from deals_bot.formatter import format_digest
-from deals_bot.strategy import best_deals
+from deals_bot.strategy import accumulation_deals, best_deals
 
 TELEGRAM_MAX = 4000  # حد أمان أقل من 4096 لتفادي رفض الرسالة
 
@@ -41,7 +41,16 @@ def build_message() -> str:
 
     deals = best_deals(markets, timeframe=timeframe, top=top, direction=direction)
     title = f"أفضل الصفقات — {', '.join(markets)} ({timeframe})"
-    return format_digest(deals, title=title)
+    message = format_digest(deals, title=title)
+
+    # قسم عملات التجميع (بعد هبوط، بانتظار الاندفاع) — على إطار أعلى
+    if os.environ.get("ACCUMULATION", "1") != "0":
+        acc_tf = os.environ.get("ACCUMULATION_TIMEFRAME", "1h")
+        acc = accumulation_deals(markets, timeframe=acc_tf, top=top)
+        message += "\n\n" + format_digest(
+            acc, title=f"📥 عملات في التجميع — بانتظار الاندفاع ({acc_tf})"
+        )
+    return message
 
 
 def send_telegram(token: str, chat_id: str, text: str) -> None:

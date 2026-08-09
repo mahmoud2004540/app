@@ -76,6 +76,8 @@ class Deal:
     whale: bool = False
     # اندفاع (Pump/Dump): قفزة سعرية سريعة مع حجم عالٍ
     pump: bool = False
+    # مرحلة تجميع بعد هبوط (نطاق عرضي ضيّق بانتظار الاندفاع)
+    accumulation: bool = False
     # إدارة المخاطر (تُملأ عند توفّر رأس المال)
     qty: Optional[float] = None            # حجم الصفقة المقترح (وحدات)
     risk_amount: Optional[float] = None    # المبلغ المخاطَر به بعملتك
