@@ -84,6 +84,14 @@ def main() -> int:
         )
         return 2
 
+    # فحص تشخيصي: هل مصدر السعر الفوري (Coinbase) متاح من هذا الخادم؟
+    try:
+        from deals_bot.providers import fetch_spot_coinbase
+
+        print(f"🔎 فحص السعر الفوري BTC-USD (Coinbase): {fetch_spot_coinbase('BTC-USD')}")
+    except Exception as exc:  # noqa: BLE001
+        print(f"🔎 ⚠️ تعذّر السعر الفوري من Coinbase: {exc} — سيُستخدم Yahoo (متأخّر).")
+
     message = build_message()
     send_telegram(token, chat_id, message)
     print("✅ تم إرسال الملخّص إلى تيليجرام بنجاح.")
