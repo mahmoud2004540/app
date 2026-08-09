@@ -208,6 +208,27 @@ def test_parse_trending_extracts_symbols():
     assert t[1]["symbol"] == "BMT" and t[1]["change_24h"] is None
 
 
+def test_pre_pump_squeeze_detected_after_volatility_drop():
+    from deals_bot.analyzer import detect_pre_pump
+
+    # تذبذب عالٍ في البداية ثم انضغاط شديد (نطاق ضيّق جدًا) في النهاية
+    wild = [100.0 + 8.0 * math.sin(i / 2.0) for i in range(40)]
+    calm = [100.0 + 0.2 * math.sin(i) for i in range(40)]     # منضغط
+    closes = wild + calm
+    vols = [1000.0] * 79 + [1200.0]
+    pre = detect_pre_pump(_series_hlcv("SQ", closes, vols))
+    assert pre is not None
+    assert 0 < pre["score"] <= 100
+
+
+def test_no_pre_pump_when_volatility_high():
+    from deals_bot.analyzer import detect_pre_pump
+
+    closes = [100.0 + 8.0 * math.sin(i / 2.0) for i in range(90)]   # تذبذب عالٍ مستمر
+    vols = [1000.0] * 90
+    assert detect_pre_pump(_series_hlcv("WILD", closes, vols)) is None
+
+
 def test_early_pump_on_first_breakout_with_volume():
     from deals_bot.analyzer import detect_early_pump
 

@@ -24,6 +24,7 @@ from .analyzer import (
     analyze_symbol,
     detect_accumulation,
     detect_early_pump,
+    detect_pre_pump,
 )
 from .models import Deal
 from .providers import (
@@ -153,6 +154,11 @@ def scan_universe(
             acc = detect_accumulation(series)
             if acc:
                 accums.append(_accumulation_deal(sym, market, acc))
+            else:
+                # الانضغاط قبل الاندفاع (لا يشترط هبوطًا سابقًا) — نفس قسم «قبل الاندفاع»
+                pre = detect_pre_pump(series)
+                if pre:
+                    accums.append(_accumulation_deal(sym, market, pre))
             ep = detect_early_pump(series)
             if ep:
                 earlies.append(_early_pump_deal(sym, market, ep))
