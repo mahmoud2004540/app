@@ -13,6 +13,7 @@ logic lives in one place:
 
 from __future__ import annotations
 
+import time
 from typing import List, Optional
 
 import config
@@ -109,11 +110,17 @@ def scan_universe(
         symbols = resolve_symbols(market, src)
         print(f"  🔭 فحص {len(symbols)} رمزًا في «{market}» ({timeframe})...")
         scanned = 0
+        # تباطؤ بسيط بين طلبات الكريبتو لتفادي الحظر المؤقت من Coinbase
+        pause = 0.05 if market == "crypto" else 0.0
         for sym in symbols:
             try:
                 series = fetch(sym, market, src, timeframe, limit=300)
             except Exception:  # noqa: BLE001 - skip unavailable symbols quietly
+                if pause:
+                    time.sleep(pause)
                 continue
+            if pause:
+                time.sleep(pause)
             if len(series) < 60:
                 continue
             scanned += 1

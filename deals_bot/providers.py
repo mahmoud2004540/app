@@ -17,10 +17,40 @@ from __future__ import annotations
 
 import json
 import time
+import urllib.error
 import urllib.request
 from typing import List
 
 from .models import Candle, Series
+
+
+def _http_json(url: str, timeout: int = 20, retries: int = 4):
+    """
+    GET يُرجع JSON مع إعادة محاولة عند الحظر المؤقت (429) أو أخطاء عابرة.
+
+    Retries with exponential backoff on HTTP 429 (rate limit) and transient
+    network errors — essential when sweeping hundreds of symbols.
+    """
+    headers = {"User-Agent": "deals-bot/1.0", "Accept": "application/json"}
+    last = None
+    for attempt in range(retries):
+        try:
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            last = exc
+            if exc.code in (429, 418, 502, 503) and attempt < retries - 1:
+                time.sleep(0.6 * (2 ** attempt))
+                continue
+            raise
+        except Exception as exc:  # noqa: BLE001 - transient network
+            last = exc
+            if attempt < retries - 1:
+                time.sleep(0.4 * (2 ** attempt))
+                continue
+            raise
+    raise last if last else RuntimeError("فشل الطلب")
 
 # فترات yfinance حسب الإطار الزمني: (interval, period)
 _YF_RANGE = {
@@ -147,12 +177,7 @@ def list_coinbase_usd_products(quote: str = "USD") -> List[str]:
     Returns every online, tradable <BASE>-USD product id — effectively "all
     crypto" the exchange lists. Falls back to raising on network error.
     """
-    url = "https://api.exchange.coinbase.com/products"
-    req = urllib.request.Request(
-        url, headers={"User-Agent": "deals-bot/1.0", "Accept": "application/json"}
-    )
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        data = json.loads(resp.read().decode("utf-8"))
+    data = _http_json("https://api.exchange.coinbase.com/products", timeout=30, retries=5)
     out: List[str] = []
     for p in data:
         if (
@@ -261,12 +286,8 @@ def fetch_coinbase(symbol: str, timeframe: str = "1h", limit: int = 300) -> Seri
         f"https://api.exchange.coinbase.com/products/{symbol.upper()}/candles"
         f"?granularity={gran}"
     )
-    req = urllib.request.Request(
-        url, headers={"User-Agent": "deals-bot/1.0", "Accept": "application/json"}
-    )
     try:
-        with urllib.request.urlopen(req, timeout=20) as resp:
-            raw = json.loads(resp.read().decode("utf-8"))
+        raw = _http_json(url, timeout=20, retries=4)
     except Exception as exc:  # noqa: BLE001 - surface any network/parse error
         raise RuntimeError(f"فشل جلب {symbol} من Coinbase: {exc}") from exc
     if not isinstance(raw, list) or not raw:
