@@ -139,6 +139,22 @@ def test_no_pump_on_slow_move():
     assert d.pump is False
 
 
+def test_apply_live_price_updates_price_and_levels():
+    from deals_bot.strategy import apply_live_price
+
+    d = analyze_symbol(
+        _series_hlcv("UP", _trend(100.0, 0.6, 120, wiggle=1.0), [1000.0] * 120)
+    )
+    assert d.direction == "BUY"
+    atr = d.indicators["atr"]
+    live = 500.0                                   # سعر فوري مختلف تمامًا
+    apply_live_price(d, live)
+    assert d.price == 500.0 and d.entry == 500.0
+    # الوقف/الهدف يُعاد حسابهما من السعر الفوري + ATR
+    assert math.isclose(d.stop_loss, 500.0 - 1.5 * atr, rel_tol=1e-6)
+    assert math.isclose(d.take_profit, 500.0 + 2.5 * atr, rel_tol=1e-6)
+
+
 def test_expected_moves_match_atr_levels():
     from deals_bot.formatter import expected_moves
 
