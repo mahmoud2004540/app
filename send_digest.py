@@ -93,6 +93,9 @@ def main() -> int:
         print(f"🔎 ⚠️ تعذّر السعر الفوري من Coinbase: {exc} — سيُستخدم Yahoo (متأخّر).")
 
     message = build_message()
+    print("----- محتوى الرسالة -----")
+    print(message)
+    print("-------------------------")
     send_telegram(token, chat_id, message)
     print("✅ تم إرسال الملخّص إلى تيليجرام بنجاح.")
     return 0
