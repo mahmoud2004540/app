@@ -170,6 +170,44 @@ def test_no_accumulation_while_still_falling():
     assert detect_accumulation(s) is None
 
 
+def test_parse_gainers_sorts_and_filters():
+    from deals_bot.providers import _parse_gainers
+
+    raw = [
+        {"symbol": "tut", "name": "Tutorial", "current_price": 0.18, "price_change_percentage_24h": 87.7, "total_volume": 274_000_000},
+        {"symbol": "bmt", "name": "Bubblemaps", "current_price": 0.034, "price_change_percentage_24h": 162.3, "total_volume": 54_000_000},
+        {"symbol": "dead", "name": "Illiquid", "current_price": 1.0, "price_change_percentage_24h": 500.0, "total_volume": 1000},  # low vol → filtered
+        {"symbol": "btc", "name": "Bitcoin", "current_price": 64000, "price_change_percentage_24h": 1.2, "total_volume": 20_000_000_000},
+    ]
+    g = _parse_gainers(raw, top=10, min_vol_usd=3_000_000)
+    syms = [x["symbol"] for x in g]
+    assert "DEAD" not in syms                       # filtered by low volume
+    assert syms[0] == "BMT" and syms[1] == "TUT"    # sorted by 24h change desc
+
+
+def test_format_gainers_flags_chase_risk():
+    from deals_bot.formatter import format_gainers
+
+    text = format_gainers([
+        {"symbol": "BMT", "name": "Bubblemaps", "price": 0.034, "change_24h": 162.3, "volume": 54_000_000},
+    ])
+    assert "BMT" in text and "ملاحقة قمة" in text
+
+
+def test_parse_trending_extracts_symbols():
+    from deals_bot.providers import _parse_trending
+
+    raw = {"coins": [
+        {"item": {"symbol": "tut", "name": "Tutorial", "market_cap_rank": 420,
+                  "data": {"price_change_percentage_24h": {"usd": 87.7}}}},
+        {"item": {"symbol": "bmt", "name": "Bubblemaps", "market_cap_rank": 600,
+                  "data": {}}},
+    ]}
+    t = _parse_trending(raw)
+    assert t[0]["symbol"] == "TUT" and t[0]["change_24h"] == 87.7
+    assert t[1]["symbol"] == "BMT" and t[1]["change_24h"] is None
+
+
 def test_early_pump_on_first_breakout_with_volume():
     from deals_bot.analyzer import detect_early_pump
 

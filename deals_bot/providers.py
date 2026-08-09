@@ -206,6 +206,77 @@ def fetch_fear_greed() -> int:
     return int(data["data"][0]["value"])
 
 
+def _parse_gainers(raw, top: int = 15, min_vol_usd: float = 3_000_000.0):
+    """
+    رتّب استجابة CoinGecko لأكبر الرابحين خلال 24 ساعة (دالة نقية للاختبار).
+
+    Filters by minimum 24h USD volume (to skip illiquid noise), sorts by 24h %
+    change descending, and returns the top movers as simple dicts.
+    """
+    rows = []
+    for c in raw:
+        chg = c.get("price_change_percentage_24h")
+        vol = c.get("total_volume") or 0.0
+        if chg is None or vol < min_vol_usd:
+            continue
+        rows.append({
+            "symbol": (c.get("symbol") or "").upper(),
+            "name": c.get("name") or "",
+            "price": float(c.get("current_price") or 0.0),
+            "change_24h": float(chg),
+            "volume": float(vol),
+        })
+    rows.sort(key=lambda r: r["change_24h"], reverse=True)
+    return rows[:top]
+
+
+def fetch_top_gainers(top: int = 15, min_vol_usd: float = 3_000_000.0):
+    """
+    أكبر العملات ارتفاعًا الآن عبر السوق كله (CoinGecko) — يشمل عملات Binance.
+
+    Surfaces the biggest 24h movers across the whole market (not just one
+    exchange). Free, global source; raises on failure so callers can note it.
+    """
+    url = (
+        "https://api.coingecko.com/api/v3/coins/markets"
+        "?vs_currency=usd&order=volume_desc&per_page=250&page=1"
+        "&price_change_percentage=24h"
+    )
+    raw = _http_json(url, timeout=25, retries=4)
+    if not isinstance(raw, list):
+        raise RuntimeError("استجابة CoinGecko غير متوقعة.")
+    return _parse_gainers(raw, top=top, min_vol_usd=min_vol_usd)
+
+
+def _parse_trending(raw):
+    """رتّب استجابة CoinGecko للعملات الرائجة (الأكثر بحثًا/اهتمامًا)."""
+    out = []
+    for it in raw.get("coins", []):
+        d = it.get("item", {}) or {}
+        data = d.get("data", {}) or {}
+        chg = (data.get("price_change_percentage_24h") or {}).get("usd")
+        out.append({
+            "symbol": (d.get("symbol") or "").upper(),
+            "name": d.get("name") or "",
+            "rank": d.get("market_cap_rank"),
+            "change_24h": float(chg) if chg is not None else None,
+        })
+    return out
+
+
+def fetch_trending():
+    """
+    العملات الرائجة الآن (الأكثر بحثًا) من CoinGecko — غالبًا عملات جديدة/مُهيّجة.
+
+    Trending = the coins people are searching most right now, which usually
+    surfaces newly listed / freshly hyped tokens (the ones that pump). Free.
+    """
+    raw = _http_json("https://api.coingecko.com/api/v3/search/trending", timeout=20)
+    if not isinstance(raw, dict):
+        raise RuntimeError("استجابة CoinGecko غير متوقعة.")
+    return _parse_trending(raw)
+
+
 def _to_binance_symbol(symbol: str) -> str:
     """حوّل صيغة yfinance/Coinbase إلى صيغة Binance: BTC-USD → BTCUSDT."""
     base = symbol.upper().split("-")[0].replace("USDT", "").replace("USD", "")

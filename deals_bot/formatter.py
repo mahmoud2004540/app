@@ -123,6 +123,65 @@ def format_deal(deal: Deal, index: int | None = None) -> str:
 _DIR_AR = {"bull": "🟢 صاعد", "bear": "🔴 هابط", "neutral": "⚪ حياد", "n/a": "➖ غير متوفّر"}
 
 
+def _fmt_vol(v: float) -> str:
+    if v >= 1e9:
+        return f"{v/1e9:.2f}B"
+    if v >= 1e6:
+        return f"{v/1e6:.1f}M"
+    if v >= 1e3:
+        return f"{v/1e3:.0f}K"
+    return f"{v:.0f}"
+
+
+def format_gainers(gainers, title: str = "🔥 الأكثر ارتفاعًا الآن (24س)") -> str:
+    """قائمة أكبر الرابحين مع تحذير صريح من ملاحقة القمة."""
+    if not gainers:
+        return f"— {title} —\nتعذّر جلب قائمة الرابحين الآن.\n\n" + DISCLAIMER
+    parts = [title, ""]
+    for i, g in enumerate(gainers, 1):
+        chg = g["change_24h"]
+        # تحذير من الملاحقة كلما زاد الارتفاع
+        if chg >= 50:
+            risk = "⛔ متأخر جدًا — ملاحقة قمة (خطر عالٍ)"
+        elif chg >= 20:
+            risk = "⚠️ ارتفاع كبير — احذر الدخول المتأخر"
+        else:
+            risk = "🟢 ارتفاع مبكّر نسبيًا"
+        parts.append(f"{i}. {g['symbol']}  +{chg:.1f}%  ({g['name']})")
+        parts.append(
+            f"   السعر {_fmt_price(g['price'])} | حجم 24س {_fmt_vol(g['volume'])} | {risk}"
+        )
+        parts.append("")
+    parts.append(
+        "ℹ️ هذه عملات ارتفعت بالفعل — الدخول الآمن يكون مبكّرًا عبر قسمَي «بداية "
+        "اندفاع» و«التجميع»، لا بمطاردة عملة تشبّعت (RSI مرتفع)."
+    )
+    parts.append("")
+    parts.append(DISCLAIMER)
+    return "\n".join(parts)
+
+
+def format_trending(coins, title: str = "✨ عملات رائجة الآن (Trending)") -> str:
+    """قائمة العملات الرائجة/الجديدة الأكثر اهتمامًا الآن."""
+    if not coins:
+        return f"— {title} —\nتعذّر جلب العملات الرائجة الآن.\n\n" + DISCLAIMER
+    parts = [title, ""]
+    for i, c in enumerate(coins, 1):
+        chg = c.get("change_24h")
+        chg_s = f"  ({chg:+.1f}% 24س)" if chg is not None else ""
+        rank = f"  #ترتيب {c['rank']}" if c.get("rank") else ""
+        parts.append(f"{i}. {c['symbol']} — {c['name']}{chg_s}{rank}")
+    parts.append("")
+    parts.append(
+        "ℹ️ «رائجة» = الأكثر بحثًا/اهتمامًا الآن (غالبًا جديدة أو مُهيّجة). ابحث عن "
+        "سبب الحركة قبل الدخول، ولا تطارد عملة تشبّعت — استخدم قسمَي «بداية اندفاع» "
+        "و«التجميع» للدخول المبكّر بوقف خسارة."
+    )
+    parts.append("")
+    parts.append(DISCLAIMER)
+    return "\n".join(parts)
+
+
 def format_confluence(rep) -> str:
     """صياغة تقرير تقاطع الأدلة بالشكل المؤسسي المطلوب."""
     lines = []
