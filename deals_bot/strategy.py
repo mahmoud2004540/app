@@ -21,9 +21,10 @@ from .analyzer import (
     TARGET_ATR_MULT,
     add_position_sizing,
     analyze_symbol,
+    detect_accumulation,
 )
 from .models import Deal
-from .providers import fetch, fetch_spot_coinbase
+from .providers import fetch, fetch_spot_binance, fetch_spot_coinbase
 
 
 def apply_live_price(deal: Deal, live: float) -> Deal:
@@ -53,16 +54,22 @@ def apply_live_price(deal: Deal, live: float) -> Deal:
 
 
 def _refresh_live_price(deal: Deal) -> None:
-    """اجلب السعر الفوري للكريبتو من Coinbase وطبّقه (بصمت عند الفشل)."""
+    """
+    اجلب السعر الفوري للكريبتو: Binance أولًا (المرجع الأشهر) ثم Coinbase.
+
+    Keeps the candle-based price only if both live sources fail.
+    """
     if deal.market != "crypto" or not deal.is_actionable():
         return
-    try:
-        live = fetch_spot_coinbase(deal.symbol)
-    except Exception as exc:  # noqa: BLE001 - keep the candle-based price on failure
-        print(f"  ⚠️ {deal.symbol}: تعذّر السعر الفوري (Coinbase): {exc}")
+    for name, fn in (("Binance", fetch_spot_binance), ("Coinbase", fetch_spot_coinbase)):
+        try:
+            live = fn(deal.symbol)
+        except Exception as exc:  # noqa: BLE001 - try the next source
+            print(f"  ⚠️ {deal.symbol}: {name} غير متاح: {exc}")
+            continue
+        print(f"  💹 {deal.symbol}: سعر فوري {live} (المصدر: {name})")
+        apply_live_price(deal, live)
         return
-    print(f"  💹 {deal.symbol}: سعر فوري {live}")
-    apply_live_price(deal, live)
 
 
 def _confirm_symbol(
@@ -174,6 +181,83 @@ def best_deals(
 
     top_deals = filtered[:top]
     # تحديث السعر الفوري (للكريبتو) ثم إدارة المخاطر
+    for d in top_deals:
+        _refresh_live_price(d)
+        add_position_sizing(d, balance, risk_pct)
+    return top_deals
+
+
+def accumulation_deals(
+    markets: List[str],
+    timeframe: str = "1h",
+    top: int = None,
+    source: str = None,
+    balance: float = None,
+    risk_pct: float = None,
+) -> List[Deal]:
+    """
+    ابحث عن العملات في مرحلة التجميع بعد هبوط (بانتظار الاندفاع).
+
+    Scans a higher timeframe for accumulation bases and returns them as BUY
+    "watch" setups: entry at the current price, stop below the base, and a
+    measured-move target above the range (the anticipated pump).
+    """
+    top = top or config.DEFAULT_TOP
+    source = source or config.DEFAULT_SOURCE
+    balance = config.ACCOUNT_BALANCE if balance is None else balance
+    risk_pct = config.RISK_PER_TRADE if risk_pct is None else risk_pct
+
+    out: List[Deal] = []
+    for market in markets:
+        if market == "crypto":
+            src = source if source in ("binance", "coinbase") else "auto"
+        else:
+            src = "yfinance"
+        symbols = (
+            config.BINANCE_WATCHLIST
+            if (market == "crypto" and src == "binance")
+            else config.WATCHLISTS.get(market, [])
+        )
+        for sym in symbols:
+            try:
+                series = fetch(sym, market, src, timeframe, limit=300)
+            except Exception as exc:  # noqa: BLE001
+                print(f"  ⚠️  تخطّي {sym}: {exc}")
+                continue
+            acc = detect_accumulation(series)
+            if not acc:
+                continue
+
+            price = acc["price"]
+            base_low = acc["base_low"]
+            base_high = acc["base_high"]
+            width = max(base_high - base_low, price * 0.001)
+            stop = base_low * 0.98                      # أسفل قاع النطاق مباشرةً
+            # هدف الاندفاع: حركة مقيسة من النطاق، وبحدّ أدنى +12٪ (نتوقّع اندفاعًا)
+            target = max(base_high + 2.0 * width, price * 1.12)
+            risk = abs(price - stop)
+            reward = abs(target - price)
+            rr = round((reward / risk) if risk > 0 else 0.0, 2)
+
+            out.append(
+                Deal(
+                    symbol=sym,
+                    market=market,
+                    direction="BUY",
+                    score=acc["score"],
+                    confidence=acc["score"],
+                    price=price,
+                    entry=round(price, 8),
+                    stop_loss=round(stop, 8),
+                    take_profit=round(target, 8),
+                    risk_reward=rr,
+                    reasons=acc["reasons"],
+                    accumulation=True,
+                )
+            )
+
+    out.sort(key=lambda d: d.confidence, reverse=True)
+    top_deals = out[:top]
     for d in top_deals:
         _refresh_live_price(d)
         add_position_sizing(d, balance, risk_pct)

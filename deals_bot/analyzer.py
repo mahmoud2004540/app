@@ -264,6 +264,87 @@ def analyze_symbol(series: Series, momentum_lookback: int = 10) -> Deal:
     )
 
 
+# --- كشف مرحلة التجميع (بعد هبوط، نطاق عرضي ضيّق، بانتظار الاندفاع) ---
+ACC_MIN_DROP = 15.0        # أقل نسبة هبوط (٪) من القمة لاعتبارها بعد هبوط
+ACC_MAX_BASE_RANGE = 12.0  # أقصى عرض للنطاق العرضي (٪) ليُعتبر تجميعًا
+ACC_LOOKBACK = 14          # عدد شموع النطاق الأخير
+
+
+def detect_accumulation(series: Series):
+    """
+    اكتشف مرحلة التجميع: هبوط سابق ثم نطاق عرضي ضيّق مستقر (قيعان صامدة).
+
+    Detects a Wyckoff-style accumulation base: a prior decline, then a tight
+    sideways range holding above its lows with RSI recovering — a setup that
+    often precedes a markup ("pump"). Returns a details dict, or None.
+    """
+    closes = series.closes()
+    if len(closes) < 80:
+        return None
+
+    price = closes[-1]
+    window = closes[-100:] if len(closes) >= 100 else closes
+    swing_high = max(window)
+    if swing_high <= 0:
+        return None
+    drop = (price / swing_high - 1.0) * 100.0            # سالبة = هبوط من القمة
+
+    recent = closes[-ACC_LOOKBACK:]
+    base_low = min(recent)
+    base_high = max(recent)
+    base_range = (base_high - base_low) / price * 100.0 if price else 999.0
+
+    # القيعان صامدة: قاع النطاق الحالي ليس أدنى بكثير من النطاق السابق
+    prior = closes[-2 * ACC_LOOKBACK:-ACC_LOOKBACK] if len(closes) >= 2 * ACC_LOOKBACK else recent
+    prior_low = min(prior)
+    holding = base_low >= prior_low * 0.97
+
+    # الميل قصير المدى مسطّح أو يتجه لأعلى قليلًا
+    first5 = sum(recent[:5]) / 5.0
+    last5 = sum(recent[-5:]) / 5.0
+    slope_pct = (last5 / first5 - 1.0) * 100.0 if first5 else 0.0
+
+    rsi_v = ind.rsi(closes, 14)
+    vsurge = ind.volume_surge(series.volumes(), 20)
+
+    conditions = (
+        drop <= -ACC_MIN_DROP           # حصل هبوط معتبر
+        and base_range <= ACC_MAX_BASE_RANGE   # نطاق ضيّق
+        and holding                      # لا يصنع قيعانًا جديدة
+        and slope_pct >= -1.5            # توقّف الهبوط (مسطّح/يصعد)
+        and (rsi_v is None or rsi_v <= 60)     # لم يندفع بعد
+    )
+    if not conditions:
+        return None
+
+    reasons = [
+        "📥 تجميع بعد هبوط — بانتظار الاندفاع",
+        f"هبوط سابق {drop:.0f}% من القمة",
+        f"نطاق تجميع ضيّق (~{base_range:.1f}%)",
+        "يحافظ على قيعانه (لا قيعان جديدة)",
+    ]
+    if rsi_v is not None:
+        reasons.append(f"RSI في تعافٍ ({rsi_v:.0f})")
+
+    # درجة قوة التجميع
+    score = 55.0
+    score += min(20.0, abs(drop) - ACC_MIN_DROP)          # هبوط أعمق = قاعدة أقوى
+    score += max(0.0, (ACC_MAX_BASE_RANGE - base_range)) * 1.5  # نطاق أضيق = أفضل
+    if vsurge is not None and vsurge > 1.2:
+        score += 10.0
+        reasons.append(f"حجم يبدأ بالارتفاع (×{vsurge:.1f})")
+    score = max(0.0, min(100.0, score))
+
+    return {
+        "reasons": reasons,
+        "score": round(score, 1),
+        "base_low": base_low,
+        "base_high": base_high,
+        "drop": drop,
+        "price": price,
+    }
+
+
 def add_position_sizing(deal: Deal, balance: float, risk_pct: float) -> Deal:
     """
     احسب حجم الصفقة المقترح بناءً على رأس المال ونسبة المخاطرة.
