@@ -411,6 +411,78 @@ def detect_accumulation(series: Series):
     }
 
 
+def _band_width(closes, i, period=20, mult=2.0):
+    """عرض نطاق بولنجر النسبي عند الشمعة i: (العلوي−السفلي)/الوسط."""
+    if i - period + 1 < 0:
+        return None
+    w = closes[i - period + 1:i + 1]
+    mid = sum(w) / period
+    if mid == 0:
+        return None
+    sd = (sum((x - mid) ** 2 for x in w) / period) ** 0.5
+    return (2 * mult * sd) / mid
+
+
+def detect_pre_pump(series: Series):
+    """
+    اكتشف الانضغاط قبل الاندفاع: تذبذب منخفض جدًا (نطاق بولنجر ضيّق) والحجم يبدأ
+    بالتجمّع — «الهدوء الذي يسبق العاصفة»، قبل أن يتحرك السعر.
+
+    Detects a pre-move volatility squeeze: Bollinger bandwidth compressed well
+    below its recent average, a tight range, calm (not overbought) RSI, and
+    volume no longer dead — a classic coil that precedes a breakout. Returns a
+    details dict or None. This is a BEFORE-the-pump signal.
+    """
+    closes = series.closes()
+    if len(closes) < 60:
+        return None
+    price = closes[-1]
+
+    widths = [
+        w for w in (_band_width(closes, i) for i in range(len(closes) - 30, len(closes)))
+        if w is not None
+    ]
+    if len(widths) < 12:
+        return None
+    cur = widths[-1]
+    avg = sum(widths) / len(widths)
+
+    rsi_v = ind.rsi(closes, 14)
+    vsurge = ind.volume_surge(series.volumes(), 20)
+    recent = closes[-15:]
+    base_low = min(recent)
+    base_high = max(recent)
+    range_pct = (base_high - base_low) / price * 100.0 if price else 999.0
+
+    squeeze = cur < 0.70 * avg and cur < 0.15          # منضغط بشدة نسبيًا وصغير مطلقًا
+    calm = rsi_v is None or 42 <= rsi_v <= 66           # لا تشبّع (لم ينفجر بعد)
+    building = vsurge is None or vsurge >= 0.9          # الحجم لم يمت
+    tight = range_pct <= 12.0
+
+    if not (squeeze and calm and building and tight):
+        return None
+
+    reasons = [
+        "🎯 انضغاط قبل الاندفاع — تذبذب منخفض جدًا (الهدوء قبل العاصفة)",
+        f"نطاق ضيّق (~{range_pct:.1f}%)",
+        f"انضغاط بولنجر ({cur*100:.1f}% مقابل متوسط {avg*100:.1f}%)",
+    ]
+    if vsurge is not None and vsurge > 1.1:
+        reasons.append(f"الحجم يبدأ بالتجمّع (×{vsurge:.1f})")
+    if rsi_v is not None:
+        reasons.append(f"RSI هادئ ({rsi_v:.0f})")
+
+    score = 60.0 + min(25.0, (0.70 * avg - cur) / (0.70 * avg) * 50.0)
+    score = max(0.0, min(100.0, score))
+    return {
+        "reasons": reasons,
+        "score": round(score, 1),
+        "base_low": base_low,
+        "base_high": base_high,
+        "price": price,
+    }
+
+
 def add_position_sizing(deal: Deal, balance: float, risk_pct: float) -> Deal:
     """
     احسب حجم الصفقة المقترح بناءً على رأس المال ونسبة المخاطرة.

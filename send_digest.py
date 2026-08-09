@@ -23,8 +23,7 @@ import urllib.parse
 import urllib.request
 
 import config
-from deals_bot.formatter import format_digest, format_gainers, format_trending
-from deals_bot.providers import fetch_top_gainers, fetch_trending
+from deals_bot.formatter import format_digest
 from deals_bot.strategy import scan_universe
 
 TELEGRAM_MAX = 4000  # حد أمان أقل من 4096 لتفادي رفض الرسالة
@@ -44,29 +43,15 @@ def build_message() -> str:
     signals, accums, earlies = scan_universe(
         markets, timeframe=timeframe, top=top, direction=direction
     )
-    title = f"أفضل الصفقات — {', '.join(markets)} ({timeframe})"
-    message = format_digest(signals, title=title)
-    message += "\n\n" + format_digest(
-        earlies, title=f"🚀 بداية اندفاع — كسر مبكّر بحجم ({timeframe})"
+    # التركيز على ما قبل الاندفاع: تجميع/انضغاط أولًا (الأبكر)، ثم بداية الاندفاع.
+    message = format_digest(
+        accums, title=f"🎯 قبل الاندفاع — تجميع/انضغاط (الأبكر) ({timeframe})"
     )
     message += "\n\n" + format_digest(
-        accums, title=f"📥 عملات في التجميع — بانتظار الاندفاع ({timeframe})"
+        earlies, title=f"🚀 بداية اندفاع — أول كسر بحجم ({timeframe})"
     )
-
-    # عملات رائجة/جديدة الآن (الأكثر بحثًا) — تشمل عملات Binance الجديدة
-    if os.environ.get("TRENDING", "1") != "0" and "crypto" in markets:
-        try:
-            message += "\n\n" + format_trending(fetch_trending())
-        except Exception as exc:  # noqa: BLE001
-            print(f"  ⚠️ تعذّر جلب العملات الرائجة (CoinGecko): {exc}")
-
-    # الأكثر ارتفاعًا الآن عبر السوق كله (يشمل عملات Binance) — للعلم مع تحذير
-    if os.environ.get("GAINERS", "1") != "0" and "crypto" in markets:
-        try:
-            gainers = fetch_top_gainers(top=int(os.environ.get("GAINERS_TOP", "12")))
-            message += "\n\n" + format_gainers(gainers)
-        except Exception as exc:  # noqa: BLE001
-            print(f"  ⚠️ تعذّر جلب الأكثر ارتفاعًا (CoinGecko): {exc}")
+    title = f"صفقات أخرى قوية — {', '.join(markets)} ({timeframe})"
+    message += "\n\n" + format_digest(signals, title=title)
     return message
 
 
