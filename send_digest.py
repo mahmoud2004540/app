@@ -39,12 +39,15 @@ def build_message() -> str:
     top = int(os.environ.get("TOP", config.DEFAULT_TOP))
     direction = os.environ.get("DIRECTION", "any")
 
-    # فحص واسع بمرور واحد: إشارات الصفقات + عملات التجميع من نفس البيانات
-    signals, accums = scan_universe(
+    # فحص واسع بمرور واحد: إشارات + بداية اندفاع + تجميع من نفس البيانات
+    signals, accums, earlies = scan_universe(
         markets, timeframe=timeframe, top=top, direction=direction
     )
     title = f"أفضل الصفقات — {', '.join(markets)} ({timeframe})"
     message = format_digest(signals, title=title)
+    message += "\n\n" + format_digest(
+        earlies, title=f"🚀 بداية اندفاع — كسر مبكّر بحجم ({timeframe})"
+    )
     message += "\n\n" + format_digest(
         accums, title=f"📥 عملات في التجميع — بانتظار الاندفاع ({timeframe})"
     )

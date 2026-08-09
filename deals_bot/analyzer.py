@@ -30,6 +30,72 @@ PUMP_LOOKBACK = 3        # عدد الشموع الأخيرة لقياس الا�
 PUMP_MOVE_PCT = 3.0      # نسبة الحركة (٪) التي تعتبر اندفاعًا
 PUMP_VOL_MULT = 2.0      # الحد الأدنى لارتفاع الحجم المصاحب
 
+# بداية اندفاع (Early Breakout): كسر نطاق ضيّق لأول مرة بحجم، قبل أن يجري بعيدًا
+EARLY_BASE_WINDOW = 20      # نافذة النطاق قبل الكسر
+EARLY_MAX_RANGE = 25.0      # أقصى عرض للنطاق (٪) ليُعتبر تجميعًا/انضغاطًا
+EARLY_MAX_EXTENSION = 8.0   # أقصى مسافة فوق قمة النطاق (٪) لتبقى "مبكّرًا"
+EARLY_VOL_MULT = 1.5        # الحد الأدنى لحجم الكسر
+
+
+def detect_early_pump(series: Series):
+    """
+    اكتشف بداية الاندفاع: كسر أول لقمة نطاق ضيّق بحجم عالٍ، قبل أن يجري السعر.
+
+    Detects the *start* of a pump — the first breakout above a tight base with a
+    volume surge, while the move is still small (so you enter early with a tight
+    stop under the breakout level, instead of chasing a candle that already ran).
+    Returns a details dict, or None.
+    """
+    closes = series.closes()
+    highs = series.highs()
+    vols = series.volumes()
+    if len(closes) < 60:
+        return None
+
+    price = closes[-1]
+    base = closes[-EARLY_BASE_WINDOW - 1:-1]      # النطاق المنتهي قبل الشمعة الحالية
+    if not base:
+        return None
+    base_high = max(base)
+    base_low = min(base)
+    if base_high <= 0:
+        return None
+
+    range_pct = (base_high - base_low) / base_high * 100.0
+    move = (price / base_high - 1.0) * 100.0        # كم فوق قمة النطاق
+    vsurge = ind.volume_surge(vols, 20)
+    rsi_v = ind.rsi(closes, 14)
+
+    is_early = (
+        price > base_high                            # كسر فوق النطاق
+        and 0 < move <= EARLY_MAX_EXTENSION          # لسه قريب من الكسر (مبكّر)
+        and range_pct <= EARLY_MAX_RANGE             # النطاق كان مضغوطًا
+        and vsurge is not None and vsurge >= EARLY_VOL_MULT   # حجم الكسر
+        and (rsi_v is None or rsi_v < 80)            # لم ينفجر تمامًا بعد
+    )
+    if not is_early:
+        return None
+
+    reasons = [
+        "🚀 بداية اندفاع: كسر مقاومة النطاق لأول مرة بحجم",
+        f"كسر فوق {base_high:.6g} (+{move:.1f}%)",
+        f"حجم الكسر ×{vsurge:.1f}",
+    ]
+    if rsi_v is not None:
+        reasons.append(f"RSI {rsi_v:.0f}")
+
+    score = 60.0 + min(20.0, (vsurge - 1.5) * 12.0)      # حجم أعلى = أقوى
+    score += max(0.0, (EARLY_MAX_EXTENSION - move))       # كل ما كان أبكر = أفضل
+    score = max(0.0, min(100.0, score))
+
+    return {
+        "reasons": reasons,
+        "score": round(score, 1),
+        "base_high": base_high,
+        "base_low": base_low,
+        "price": price,
+    }
+
 
 def analyze_symbol(series: Series, momentum_lookback: int = 10) -> Deal:
     """

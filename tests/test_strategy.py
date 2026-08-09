@@ -170,6 +170,35 @@ def test_no_accumulation_while_still_falling():
     assert detect_accumulation(s) is None
 
 
+def test_early_pump_on_first_breakout_with_volume():
+    from deals_bot.analyzer import detect_early_pump
+
+    # نطاق ضيّق حول 100 ثم كسر مبكّر إلى ~103 على آخر شمعة بحجم عالٍ
+    closes = [100.0 + 0.3 * math.sin(i) for i in range(59)] + [103.0]
+    vols = [1000.0] * 59 + [2500.0]
+    ep = detect_early_pump(_series_hlcv("EP", closes, vols))
+    assert ep is not None
+    assert ep["base_high"] < ep["price"]
+    assert 0 < ep["score"] <= 100
+
+
+def test_no_early_pump_when_already_extended():
+    from deals_bot.analyzer import detect_early_pump
+
+    # كسر لكن السعر جرى بعيدًا (+30%) → لم يعد مبكّرًا
+    closes = [100.0 + 0.3 * math.sin(i) for i in range(59)] + [130.0]
+    vols = [1000.0] * 59 + [2500.0]
+    assert detect_early_pump(_series_hlcv("LATE", closes, vols)) is None
+
+
+def test_no_early_pump_without_volume():
+    from deals_bot.analyzer import detect_early_pump
+
+    closes = [100.0 + 0.3 * math.sin(i) for i in range(59)] + [103.0]
+    vols = [1000.0] * 60                                    # لا ارتفاع في الحجم
+    assert detect_early_pump(_series_hlcv("NOVOL", closes, vols)) is None
+
+
 def test_binance_symbol_conversion():
     from deals_bot.providers import _to_binance_symbol
 
