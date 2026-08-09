@@ -16,9 +16,53 @@ from __future__ import annotations
 from typing import List, Optional
 
 import config
-from .analyzer import add_position_sizing, analyze_symbol
+from .analyzer import (
+    STOP_ATR_MULT,
+    TARGET_ATR_MULT,
+    add_position_sizing,
+    analyze_symbol,
+)
 from .models import Deal
-from .providers import fetch
+from .providers import fetch, fetch_spot_coinbase
+
+
+def apply_live_price(deal: Deal, live: float) -> Deal:
+    """
+    حدّث سعر الصفقة إلى السعر الفوري وأعِد حساب الدخول/الوقف/الهدف منه.
+
+    Pure helper (offline-testable): sets the displayed price and entry to the
+    live spot price, then rebuilds stop-loss / take-profit from the same ATR so
+    the levels stay consistent with the current price.
+    """
+    if not deal.is_actionable() or live <= 0:
+        return deal
+    atr = deal.indicators.get("atr")
+    deal.price = round(live, 8)
+    deal.entry = round(live, 8)
+    if atr:
+        if deal.direction == "BUY":
+            deal.stop_loss = round(live - STOP_ATR_MULT * atr, 8)
+            deal.take_profit = round(live + TARGET_ATR_MULT * atr, 8)
+        else:  # SELL
+            deal.stop_loss = round(live + STOP_ATR_MULT * atr, 8)
+            deal.take_profit = round(live - TARGET_ATR_MULT * atr, 8)
+        risk = abs(deal.entry - deal.stop_loss)
+        reward = abs(deal.take_profit - deal.entry)
+        deal.risk_reward = round((reward / risk) if risk > 0 else 0.0, 2)
+    return deal
+
+
+def _refresh_live_price(deal: Deal) -> None:
+    """اجلب السعر الفوري للكريبتو من Coinbase وطبّقه (بصمت عند الفشل)."""
+    if deal.market != "crypto" or not deal.is_actionable():
+        return
+    try:
+        live = fetch_spot_coinbase(deal.symbol)
+    except Exception as exc:  # noqa: BLE001 - keep the candle-based price on failure
+        print(f"  ⚠️ {deal.symbol}: تعذّر السعر الفوري (Coinbase): {exc}")
+        return
+    print(f"  💹 {deal.symbol}: سعر فوري {live}")
+    apply_live_price(deal, live)
 
 
 def _confirm_symbol(
@@ -129,7 +173,8 @@ def best_deals(
         filtered.sort(key=lambda d: (d.pump, d.whale, d.confidence), reverse=True)
 
     top_deals = filtered[:top]
-    # إدارة المخاطر
+    # تحديث السعر الفوري (للكريبتو) ثم إدارة المخاطر
     for d in top_deals:
+        _refresh_live_price(d)
         add_position_sizing(d, balance, risk_pct)
     return top_deals

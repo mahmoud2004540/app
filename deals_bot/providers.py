@@ -140,6 +140,28 @@ def fetch_binance(symbol: str, timeframe: str = "1h", limit: int = 300) -> Serie
 _COINBASE_GRAN = {"1m": 60, "5m": 300, "15m": 900, "1h": 3600, "1d": 86400}
 
 
+def fetch_spot_coinbase(symbol: str) -> float:
+    """
+    السعر الفوري (spot) الحالي من Coinbase — أحدث من إغلاق آخر شمعة.
+
+    Returns the live traded price for a product (e.g. "BTC-USD"). Used to display
+    an up-to-the-second price instead of the last completed candle's close.
+    """
+    url = f"https://api.exchange.coinbase.com/products/{symbol.upper()}/ticker"
+    req = urllib.request.Request(
+        url, headers={"User-Agent": "deals-bot/1.0", "Accept": "application/json"}
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except Exception as exc:  # noqa: BLE001
+        raise RuntimeError(f"فشل جلب السعر الفوري لِـ {symbol}: {exc}") from exc
+    price = data.get("price")
+    if price is None:
+        raise RuntimeError(f"لا يوجد سعر فوري لِـ {symbol}.")
+    return float(price)
+
+
 def _parse_coinbase(raw, symbol: str, limit: int = 300) -> Series:
     """حوّل استجابة Coinbase إلى Series (دالة نقية قابلة للاختبار بدون شبكة)."""
     candles: List[Candle] = []
