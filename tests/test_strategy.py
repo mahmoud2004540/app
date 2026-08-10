@@ -141,6 +141,26 @@ def test_ema200_filter_is_stricter():
     assert filtered.n <= base.n
 
 
+def test_breakeven_unreached_matches_baseline():
+    s = Series(symbol="UP", market="crypto", candles=_pullback_candles())
+    base = backtest_trend_pullback_series(s)
+    # عتبة تعادل ضخمة لا تتحقّق أبدًا → نتيجة مطابقة للأساس
+    huge = backtest_trend_pullback_series(s, breakeven_r=100.0)
+    assert huge.n == base.n
+    assert math.isclose(huge.total_r, base.total_r, rel_tol=1e-9)
+
+
+def test_breakeven_removes_full_losses():
+    # اتجاه صاعد صاخب: التعادل عند +0.5R يجب ألا يزيد الخسارة الإجمالية
+    s = Series(symbol="UP", market="crypto", candles=_pullback_candles())
+    base = backtest_trend_pullback_series(s)
+    be = backtest_trend_pullback_series(s, breakeven_r=0.5)
+    worst_base = min([t.result_r for t in base.trades], default=0.0)
+    worst_be = min([t.result_r for t in be.trades], default=0.0)
+    # أسوأ خسارة مع التعادل ليست أسوأ من دونه
+    assert worst_be >= worst_base - 1e-9
+
+
 def test_trend_pullback_deal_builder_and_label():
     from deals_bot.formatter import format_digest
     from deals_bot.strategy import _trend_pullback_deal

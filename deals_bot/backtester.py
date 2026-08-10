@@ -242,6 +242,7 @@ def backtest_trend_pullback_series(
     min_score: float = 0.0,
     regime: Optional[dict] = None,
     require_ema200: bool = False,
+    breakeven_r: float = 0.0,
 ) -> BacktestResult:
     """
     باك-تِست لاستراتيجية «الارتداد داخل الاتجاه الصاعد» (Trend Pullback).
@@ -252,6 +253,8 @@ def backtest_trend_pullback_series(
       - min_score: تجاهل أي إعداد أضعف من هذه الدرجة (نختار الأفضل فقط).
       - regime: خريطة حالة السوق {ts→صاعد؟}؛ لا ندخل إلا لما السوق العام صاعد.
       - require_ema200: لا ندخل إلا لو السعر فوق EMA200 (اتجاه صاعد بعيد المدى).
+      - breakeven_r: بعد تحقيق ربح بمقدار breakeven_r×المخاطرة، ننقل الوقف إلى
+        نقطة الدخول (صفقة بلا خسارة). 0 = معطّل.
     """
     candles = series.candles
     closes = [c.close for c in candles]
@@ -283,15 +286,20 @@ def backtest_trend_pullback_series(
             continue
 
         outcome = None
+        moved = False                              # هل نُقل الوقف لنقطة الدخول؟
+        be_level = entry + breakeven_r * risk if breakeven_r > 0 else None
         j = i + 1
         while j < n:
             hi, lo = candles[j].high, candles[j].low
-            if lo <= stop:                        # long: الوقف أولًا في الأسوأ
-                outcome = (stop, False)
+            cur_stop = entry if moved else stop
+            if lo <= cur_stop:                    # long: الوقف أولًا في الأسوأ
+                outcome = (cur_stop, cur_stop > entry)
                 break
             if hi >= target:
                 outcome = (target, True)
                 break
+            if be_level is not None and not moved and hi >= be_level:
+                moved = True                      # فعّل التعادل بعد بلوغ العتبة
             j += 1
 
         if outcome is None:

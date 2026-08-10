@@ -1,0 +1,37 @@
+name: تنبيه فوري عند ظهور صفقة
+
+# تنبيه شبه-فوري: يفحص كل 30 دقيقة، لكنه رخيص جدًا في السوق الهابط
+# (يخرج بعد فحص البيتكوين فقط في ثوانٍ)، ولا يرسل إلا عند وجود صفقة مؤكّدة.
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: entry-alert
+  cancel-in-progress: false
+
+jobs:
+  alert:
+    runs-on: ubuntu-latest
+    steps:
+      - name: تنزيل الكود
+        uses: actions/checkout@v4
+
+      - name: تجهيز بايثون
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: تثبيت المتطلبات
+        run: pip install -r requirements.txt
+
+      - name: تنبيه عند وجود صفقة مؤكّدة فقط
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          MARKETS: "crypto"
+          TIMEFRAME: "1h"
+          ALERT_ONLY: "1"
+        run: python send_digest.py
