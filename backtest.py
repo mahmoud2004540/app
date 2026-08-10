@@ -136,6 +136,36 @@ def trend_sweep(source: str, timeframe: str) -> int:
         for th in thresholds:
             summarize(th, True)
     print("=" * 64)
+
+    # اختبار المتانة: هل ربح الإعداد الفائز (85 + فلتر سوق) موزّع على عملات كثيرة
+    # أم مركّز في عملة أو اثنتين (حظّ)؟ نطبع توزيع الرابح/الخاسر وأهم المساهمين.
+    win_score, win_reg = 85.0, (regime if regime is not None else None)
+    per_coin = []
+    for s in series:
+        res = backtest_trend_pullback_series(s, min_score=win_score, regime=win_reg)
+        if res.n:
+            per_coin.append((s.symbol, res.n, res.win_rate, res.total_r))
+    if per_coin:
+        pos = [c for c in per_coin if c[3] > 0]
+        neg = [c for c in per_coin if c[3] < 0]
+        per_coin.sort(key=lambda c: c[3], reverse=True)
+        print(f"\n🔬 متانة الإعداد الفائز (درجة ≥{win_score:.0f}"
+              f"{' + فلتر سوق' if win_reg else ''}):")
+        print(f"   عملات دخلت صفقات: {len(per_coin)} | رابحة: {len(pos)} | "
+              f"خاسرة: {len(neg)} | متعادلة: {len(per_coin)-len(pos)-len(neg)}")
+        share = (len(pos) / len(per_coin) * 100.0) if per_coin else 0.0
+        print(f"   نسبة العملات الرابحة: {share:.0f}%")
+        print("   أعلى 5 مساهمين:")
+        for sym, n, wr, tr in per_coin[:5]:
+            print(f"     {sym:<12} صفقات={n:<3} نجاح={wr:4.0f}%  {tr:+.1f}R")
+        print("   أدنى 5 مساهمين:")
+        for sym, n, wr, tr in per_coin[-5:]:
+            print(f"     {sym:<12} صفقات={n:<3} نجاح={wr:4.0f}%  {tr:+.1f}R")
+        print(
+            "\n   ✅ لو النسبة الرابحة ≥55% والربح غير مركّز في عملة واحدة → أفضلية "
+            "حقيقية موزّعة (نثق بها). لو مركّز → حظّ، لا ننشره كإستراتيجية رابحة."
+        )
+    print("=" * 64)
     print(
         "\nℹ️ نبحث عن صفّ توقّعه موجب (+). التوقّع الموجب = أفضلية حقيقية على المدى "
         "الطويل. لو كل الصفوف سالبة، فلا أفضلية في الإشارات الآلية المجّانية عبر كل "
