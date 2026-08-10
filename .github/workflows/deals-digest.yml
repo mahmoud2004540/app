@@ -24,7 +24,7 @@ on:
         required: false
         default: "digest"
       strategy:
-        description: "استراتيجية الباك-تِست (prepump,trend,compare)"
+        description: "استراتيجية الباك-تِست (prepump,trend,compare,trendsweep)"
         required: false
         default: "compare"
 

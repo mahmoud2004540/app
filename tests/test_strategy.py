@@ -3,7 +3,12 @@
 import math
 
 from deals_bot.analyzer import add_position_sizing, analyze_symbol, rank_deals
-from deals_bot.backtester import backtest_series, backtest_trend_pullback_series
+from deals_bot.analyzer import detect_trend_pullback
+from deals_bot.backtester import (
+    backtest_series,
+    backtest_trend_pullback_series,
+    market_uptrend_map,
+)
 from deals_bot.models import Candle, Series
 
 
@@ -94,6 +99,49 @@ def test_trend_pullback_skips_downtrend():
     # اتجاه هابط: لا يجب أن تدخل استراتيجية الاتجاه الصاعد أي صفقة
     closes = _trend(300.0, -0.6, 200, wiggle=1.0)
     res = backtest_trend_pullback_series(_series("DOWN", closes))
+    assert res.n == 0
+
+
+def _pullback_candles(n=400):
+    out = []
+    for i in range(n):
+        base = 100 + i * 0.4 + (-3.0 if (i % 20) in (10, 11) else 0.0)
+        out.append(
+            Candle(ts=i, open=base, high=max(base, base + 0.5) + 0.8,
+                   low=min(base, base + 0.5) - 1.2, close=base + 0.5, volume=1000.0)
+        )
+    return out
+
+
+def test_detect_trend_pullback_returns_levels_in_uptrend():
+    # سلسلة تنتهي على شمعة ارتداد (تلمس المتوسّط) داخل اتجاه صاعد
+    s = Series(symbol="UP", market="crypto", candles=_pullback_candles(412))
+    setup = detect_trend_pullback(s, rr=2.0)
+    assert setup is not None
+    # الهدف فوق السعر والوقف تحته، والهدف = دخول + 2×مخاطرة
+    assert setup["stop"] < setup["price"] < setup["target"]
+    risk = setup["price"] - setup["stop"]
+    assert math.isclose(setup["target"], setup["price"] + 2.0 * risk, rel_tol=1e-9)
+    assert 0.0 <= setup["score"] <= 100.0
+
+
+def test_min_score_filter_reduces_trades():
+    s = Series(symbol="UP", market="crypto", candles=_pullback_candles())
+    loose = backtest_trend_pullback_series(s, min_score=0.0)
+    strict = backtest_trend_pullback_series(s, min_score=95.0)
+    assert strict.n <= loose.n
+
+
+def test_market_regime_map_flags_uptrend_and_gates_entries():
+    candles = _pullback_candles()
+    reg = market_uptrend_map(Series(symbol="BTC", market="crypto", candles=candles), 50)
+    # سوق صاعد: آخر شمعة يجب أن تكون فوق المتوسّط
+    assert reg[round(candles[-1].ts)] is True
+    # بوّابة سوق ترفض كل الصفقات → صفر صفقات
+    dead = {round(c.ts): False for c in candles}
+    res = backtest_trend_pullback_series(
+        Series(symbol="UP", market="crypto", candles=candles), regime=dead
+    )
     assert res.n == 0
 
 

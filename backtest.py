@@ -21,8 +21,9 @@ from deals_bot.backtester import (
     backtest_prepump_series,
     backtest_series,
     backtest_trend_pullback_series,
+    market_uptrend_map,
 )
-from deals_bot.providers import fetch_many
+from deals_bot.providers import fetch, fetch_many
 from deals_bot.strategy import resolve_symbols
 
 # حدّ أقصى لعدد رموز الكريبتو في الباك-تِست (لتحديد الوقت)
@@ -88,6 +89,61 @@ def run(market: str, source: str, timeframe: str, strategy: str = "signals") -> 
     return 0
 
 
+def trend_sweep(source: str, timeframe: str) -> int:
+    """
+    اختبار الانتقائية: هل «اختيار الأفضل فقط» + «فلتر حالة السوق» يقلب التوقّع لموجب؟
+
+    يفحص كل العملات مرّة واحدة، ثم يجرّب استراتيجية الاتجاه عند عتبات درجة متعددة،
+    مرّة بلا فلتر سوق ومرّة مع فلتر (لا ندخل إلا لما البيتكوين فوق متوسّطه).
+    ناتج واحد يجيب سؤال المستخدم: صفقة واحدة أو اثنتان من الأفضل — هل تربح؟
+    """
+    symbols = resolve_symbols("crypto", "auto")[:BACKTEST_MAX_CRYPTO]
+    print(f"⏳ فحص انتقائية الاتجاه على {len(symbols)} عملة ({timeframe})...")
+    series = fetch_many(symbols, "crypto", "auto", timeframe, limit=1000)
+
+    # حالة السوق من البيتكوين
+    regime = None
+    try:
+        btc = fetch("BTC-USD", "crypto", "auto", timeframe, limit=1000)
+        regime = market_uptrend_map(btc, 50)
+        print(f"  ✅ خريطة حالة السوق من BTC ({len(regime)} شمعة).")
+    except Exception as exc:  # noqa: BLE001
+        print(f"  ⚠️ تعذّر بناء فلتر السوق: {exc} — سنعرض بلا فلتر فقط.")
+
+    thresholds = [0.0, 70.0, 80.0, 85.0, 90.0]
+    print("\n" + "=" * 64)
+    print(f"{'عتبة':>6} | {'فلتر سوق':>8} | {'صفقات':>6} | {'نجاح%':>6} | {'توقّع/R':>8} | {'إجمالي':>8}")
+    print("-" * 64)
+
+    def summarize(min_score: float, use_regime: bool):
+        reg = regime if use_regime else None
+        tt = tw = 0
+        tr = 0.0
+        for s in series:
+            res = backtest_trend_pullback_series(s, min_score=min_score, regime=reg)
+            tt += res.n
+            tw += res.wins
+            tr += res.total_r
+        wr = (tw / tt * 100.0) if tt else 0.0
+        exp = (tr / tt) if tt else 0.0
+        tag = "نعم" if use_regime else "لا"
+        print(f"{min_score:>6.0f} | {tag:>8} | {tt:>6} | {wr:>6.1f} | {exp:>+8.2f} | {tr:>+8.1f}")
+
+    for th in thresholds:
+        summarize(th, False)
+    if regime is not None:
+        print("-" * 64)
+        for th in thresholds:
+            summarize(th, True)
+    print("=" * 64)
+    print(
+        "\nℹ️ نبحث عن صفّ توقّعه موجب (+). التوقّع الموجب = أفضلية حقيقية على المدى "
+        "الطويل. لو كل الصفوف سالبة، فلا أفضلية في الإشارات الآلية المجّانية عبر كل "
+        "العملات، وسنكون صرحاء بذلك."
+    )
+    return 0
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description="باك-تِست لاستراتيجية بوت الصفقات.")
     p.add_argument("--market", "-m", choices=["crypto", "stocks", "forex", "all"], default="crypto")
@@ -95,10 +151,11 @@ def main(argv=None) -> int:
     p.add_argument("--timeframe", "-t", choices=["1m", "5m", "15m", "1h", "1d"], default="1h")
     p.add_argument(
         "--strategy",
-        choices=["signals", "prepump", "trend", "compare"],
+        choices=["signals", "prepump", "trend", "compare", "trendsweep"],
         default="signals",
         help="signals=إشارات شراء/بيع؛ prepump=ما قبل الاندفاع؛ "
-        "trend=ارتداد داخل اتجاه صاعد؛ compare=قارن prepump مقابل trend",
+        "trend=ارتداد داخل اتجاه صاعد؛ compare=قارن prepump مقابل trend؛ "
+        "trendsweep=اختبار الانتقائية + فلتر السوق (يجيب: هل الأفضل يربح؟)",
     )
     args = p.parse_args(argv)
     if args.strategy == "compare":
@@ -107,6 +164,8 @@ def main(argv=None) -> int:
         print("\n\n### استراتيجية الارتداد داخل الاتجاه (trend) ###")
         run(args.market, args.source, args.timeframe, "trend")
         return 0
+    if args.strategy == "trendsweep":
+        return trend_sweep(args.source, args.timeframe)
     return run(args.market, args.source, args.timeframe, args.strategy)
 
 
