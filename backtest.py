@@ -191,31 +191,38 @@ def optimize(source: str, timeframe: str) -> int:
     except Exception as exc:  # noqa: BLE001
         print(f"  ⚠️ تعذّر بناء فلتر السوق: {exc}")
 
-    def summarize(label: str, rr: float, ema200: bool):
+    def summarize(label: str, rr: float, ema200: bool, be_r: float = 0.0):
         tt = tw = 0
         tr = 0.0
         for s in series:
             res = backtest_trend_pullback_series(
-                s, rr=rr, min_score=85.0, regime=regime, require_ema200=ema200
+                s, rr=rr, min_score=85.0, regime=regime,
+                require_ema200=ema200, breakeven_r=be_r,
             )
             tt += res.n
             tw += res.wins
             tr += res.total_r
         wr = (tw / tt * 100.0) if tt else 0.0
         exp = (tr / tt) if tt else 0.0
-        print(f"{label:>22} | {tt:>6} | {wr:>6.1f} | {exp:>+8.2f} | {tr:>+8.1f}")
+        print(f"{label:>26} | {tt:>6} | {wr:>6.1f} | {exp:>+8.2f} | {tr:>+8.1f}")
         return exp, tt
 
-    print("\n" + "=" * 60)
-    print(f"{'التهيئة':>22} | {'صفقات':>6} | {'نجاح%':>6} | {'توقّع/R':>8} | {'إجمالي':>8}")
-    print("-" * 60)
+    print("\n" + "=" * 64)
+    print(f"{'التهيئة':>26} | {'صفقات':>6} | {'نجاح%':>6} | {'توقّع/R':>8} | {'إجمالي':>8}")
+    print("-" * 64)
     results = {}
     for rr in (1.5, 2.0, 2.5, 3.0):
         results[f"rr={rr}"] = summarize(f"RR {rr} (أساسي)", rr, False)
-    print("-" * 60)
+    print("-" * 64)
     for rr in (2.0, 2.5, 3.0):
-        results[f"rr={rr}+ema200"] = summarize(f"RR {rr} + فلتر EMA200", rr, True)
-    print("=" * 60)
+        results[f"rr={rr}+ema200"] = summarize(f"RR {rr} + EMA200", rr, True)
+    print("-" * 64)
+    # اختبار نقل الوقف لنقطة التعادل عند +1R (مع أفضل تهيئة: EMA200)
+    for rr in (2.0, 2.5, 3.0):
+        results[f"rr={rr}+ema200+be1"] = summarize(
+            f"RR {rr} + EMA200 + تعادل@1R", rr, True, be_r=1.0
+        )
+    print("=" * 64)
 
     # أفضل تهيئة بالتوقّع (بشرط عدد صفقات معقول ≥20 لتفادي عيّنة صغيرة)
     valid = {k: v for k, v in results.items() if v[1] >= 20}
@@ -235,7 +242,7 @@ def main(argv=None) -> int:
     p = argparse.ArgumentParser(description="باك-تِست لاستراتيجية بوت الصفقات.")
     p.add_argument("--market", "-m", choices=["crypto", "stocks", "forex", "all"], default="crypto")
     p.add_argument("--source", "-s", choices=["yfinance", "binance"], default=config.DEFAULT_SOURCE)
-    p.add_argument("--timeframe", "-t", choices=["1m", "5m", "15m", "1h", "1d"], default="1h")
+    p.add_argument("--timeframe", "-t", choices=["1m", "5m", "15m", "1h", "6h", "1d"], default="1h")
     p.add_argument(
         "--strategy",
         choices=["signals", "prepump", "trend", "compare", "trendsweep", "optimize"],

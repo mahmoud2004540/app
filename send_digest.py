@@ -24,34 +24,55 @@ import urllib.request
 
 import config
 from deals_bot.formatter import DISCLAIMER, format_picks, format_watch
-from deals_bot.strategy import top_picks
+from deals_bot.strategy import market_is_bullish, top_picks
+
+
+def _alert_only() -> bool:
+    return os.environ.get("ALERT_ONLY", "").lower() in ("1", "true", "yes")
 
 TELEGRAM_MAX = 4000  # حد أمان أقل من 4096 لتفادي رفض الرسالة
 
 
-def build_message() -> str:
+def build_message():
+    """يبني نص الرسالة، أو None في وضع التنبيه (ALERT_ONLY) حين لا توجد صفقة."""
     markets = [
         m.strip()
         for m in os.environ.get("MARKETS", "crypto,stocks,forex").split(",")
         if m.strip() in ("crypto", "stocks", "forex")
     ] or ["crypto"]
     timeframe = os.environ.get("TIMEFRAME", config.DEFAULT_TIMEFRAME)
-    top = int(os.environ.get("TOP", config.DEFAULT_TOP))
-    direction = os.environ.get("DIRECTION", "any")
+    alert_only = _alert_only()
+
+    # وضع التنبيه: فحص رخيص أولًا — لو السوق العام هابط لا نفحص كل العملات أصلًا.
+    if alert_only and getattr(config, "TREND_MARKET_REGIME", True) and "crypto" in markets:
+        if market_is_bullish(timeframe) is False:
+            print("🔕 وضع التنبيه: السوق هابط — لا فحص ولا إرسال (توفير موارد).")
+            return None
 
     # المنتج الأساسي: أفضل 1-2 صفقة من فحص كل العملات — الإعداد الرابح المُثبت
-    # بالباك-تِست (ارتداد داخل اتجاه صاعد، درجة ≥85، + فلتر حالة السوق).
+    # بالباك-تِست (ارتداد داخل اتجاه صاعد، درجة ≥85، + فلتر حالة السوق + EMA200).
     picks, candidates, market_bullish = top_picks(markets, timeframe=timeframe)
     min_score = int(getattr(config, "TREND_MIN_SCORE", 85))
 
+    if alert_only and not picks:
+        print("🔕 وضع التنبيه: لا صفقة مؤكّدة الآن — لم تُرسل رسالة.")
+        return None
+
     header = (
         "🏆 أفضل الصفقات — مُنتقاة من فحص كل العملات\n"
-        "(إعداد «ارتداد داخل اتجاه صاعد» — أعطى توقّعًا موجبًا +0.28R "
-        "بنسبة نجاح ~43% في الباك-تِست على بيانات حقيقية)\n\n"
+        "(إعداد «ارتداد داخل اتجاه صاعد» — أفضلية مقاسة +0.38R لكل صفقة "
+        "بالباك-تِست على بيانات حقيقية)\n\n"
     )
     if picks:
         # في صفقة/صفقتين مؤكّدة → نناديها باسمها: «هي دي»
-        return header + format_picks(picks)
+        prefix = "🚨 صفقة جديدة مؤكّدة!\n\n" if alert_only else ""
+        be_r = getattr(config, "TREND_BREAKEVEN_R", 0.0)
+        tip = (
+            f"🔒 إدارة: انقل وقف الخسارة إلى سعر الدخول بمجرّد تحقيق +{be_r:g}R "
+            "(يحوّلها لصفقة بلا خسارة).\n\n"
+            if be_r and be_r > 0 else ""
+        )
+        return prefix + header + tip + format_picks(picks)
 
     # لا صفقة مؤكّدة: نوضّح السبب ونعرض أقرب مرشّح باسمه (مراقبة) إن وُجد
     if market_bullish is False:
@@ -123,6 +144,10 @@ def main() -> int:
             print(f"🔎 ⚠️ {_name} غير متاح: {exc}")
 
     message = build_message()
+    if message is None:
+        # وضع التنبيه: لا صفقة مؤكّدة — لا نرسل شيئًا (نتفادى الإزعاج).
+        print("ℹ️ لا رسالة لإرسالها (وضع التنبيه بلا صفقة).")
+        return 0
     print("----- محتوى الرسالة -----")
     print(message)
     print("-------------------------")

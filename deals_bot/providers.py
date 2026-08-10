@@ -58,11 +58,12 @@ _YF_RANGE = {
     "5m": ("5m", "1mo"),
     "15m": ("15m", "1mo"),
     "1h": ("60m", "3mo"),
+    "6h": ("1h", "6mo"),     # yfinance لا يدعم 6h؛ نقرّبها بـ 1h (Coinbase يدعم 6h فعليًا)
     "1d": ("1d", "2y"),
 }
 
 # فترات Binance
-_BINANCE_INTERVAL = {"1m": "1m", "5m": "5m", "15m": "15m", "1h": "1h", "1d": "1d"}
+_BINANCE_INTERVAL = {"1m": "1m", "5m": "5m", "15m": "15m", "1h": "1h", "6h": "6h", "1d": "1d"}
 
 
 # --------------------------------------------------------------------------- #
@@ -167,7 +168,7 @@ def fetch_binance(symbol: str, timeframe: str = "1h", limit: int = 300) -> Serie
 # Coinbase provider (crypto only, real-time, no API key)
 # --------------------------------------------------------------------------- #
 # دقّة الشموع بالثواني حسب الإطار الزمني
-_COINBASE_GRAN = {"1m": 60, "5m": 300, "15m": 900, "1h": 3600, "1d": 86400}
+_COINBASE_GRAN = {"1m": 60, "5m": 300, "15m": 900, "1h": 3600, "6h": 21600, "1d": 86400}
 
 
 def list_coinbase_usd_products(quote: str = "USD") -> List[str]:
