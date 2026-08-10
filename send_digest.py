@@ -39,19 +39,25 @@ def build_message() -> str:
     top = int(os.environ.get("TOP", config.DEFAULT_TOP))
     direction = os.environ.get("DIRECTION", "any")
 
-    # فحص واسع بمرور واحد: إشارات + بداية اندفاع + تجميع من نفس البيانات
-    signals, accums, earlies = scan_universe(
+    # فحص واسع بمرور واحد. نعرض فقط ما قبل الاندفاع وبدايته (لا صفقات أثناء/بعد).
+    _signals, accums, earlies = scan_universe(
         markets, timeframe=timeframe, top=top, direction=direction
     )
-    # التركيز على ما قبل الاندفاع: تجميع/انضغاط أولًا (الأبكر)، ثم بداية الاندفاع.
-    message = format_digest(
-        accums, title=f"🎯 قبل الاندفاع — تجميع/انضغاط (الأبكر) ({timeframe})"
+    message = (
+        "🎯 صفقات ما قبل الاندفاع فقط (قبل/بداية الـ pump — لا مطاردة)\n\n"
+        + format_digest(
+            accums, title=f"1) قبل الاندفاع — تجميع/انضغاط (الأبكر) ({timeframe})"
+        )
     )
     message += "\n\n" + format_digest(
-        earlies, title=f"🚀 بداية اندفاع — أول كسر بحجم ({timeframe})"
+        earlies, title=f"2) بداية الاندفاع — أول كسر بحجم (في بداية الـ pump) ({timeframe})"
     )
-    title = f"صفقات أخرى قوية — {', '.join(markets)} ({timeframe})"
-    message += "\n\n" + format_digest(signals, title=title)
+    # ملاحظة صريحة إن كان القسمان فارغين
+    if not accums and not earlies:
+        message += (
+            "\n\n📭 لا توجد عملات في وضع «ما قبل الاندفاع» واضح الآن. "
+            "هذا طبيعي — الإعداد الجيد نادر، والبوت ينتظر الفرصة بدل ملاحقة عملة طلعت."
+        )
     return message
 
 
