@@ -23,7 +23,7 @@ import urllib.parse
 import urllib.request
 
 import config
-from deals_bot.formatter import DISCLAIMER, format_digest
+from deals_bot.formatter import DISCLAIMER, format_picks, format_watch
 from deals_bot.strategy import top_picks
 
 TELEGRAM_MAX = 4000  # حد أمان أقل من 4096 لتفادي رفض الرسالة
@@ -41,7 +41,8 @@ def build_message() -> str:
 
     # المنتج الأساسي: أفضل 1-2 صفقة من فحص كل العملات — الإعداد الرابح المُثبت
     # بالباك-تِست (ارتداد داخل اتجاه صاعد، درجة ≥85، + فلتر حالة السوق).
-    picks, market_bullish = top_picks(markets, timeframe=timeframe)
+    picks, candidates, market_bullish = top_picks(markets, timeframe=timeframe)
+    min_score = int(getattr(config, "TREND_MIN_SCORE", 85))
 
     header = (
         "🏆 أفضل الصفقات — مُنتقاة من فحص كل العملات\n"
@@ -49,26 +50,27 @@ def build_message() -> str:
         "بنسبة نجاح ~43% في الباك-تِست على بيانات حقيقية)\n\n"
     )
     if picks:
-        message = header + format_digest(
-            picks, title=f"أقوى {len(picks)} إعداد الآن ({timeframe})"
+        # في صفقة/صفقتين مؤكّدة → نناديها باسمها: «هي دي»
+        return header + format_picks(picks)
+
+    # لا صفقة مؤكّدة: نوضّح السبب ونعرض أقرب مرشّح باسمه (مراقبة) إن وُجد
+    if market_bullish is False:
+        why = (
+            "🛑 السوق العام (BTC) تحت متوسّطه الآن — الشراء ضد التيار خاسر "
+            "(مُثبت بالباك-تِست). الأفضل انتظار عودة السوق فوق متوسّطه.\n\n"
         )
-    elif market_bullish is False:
-        message = (
-            header
-            + "🛑 السوق العام (BTC) تحت متوسّطه الآن — لا صفقات شراء.\n"
-            "هذا *مقصود*: الباك-تِست أثبت أن الشراء في سوق هابط يخسر. البوت ينتظر "
-            "عودة السوق فوق متوسّطه بدل الدخول ضد التيار.\n\n"
-            + DISCLAIMER
-        )
+        missing = "السوق العام هابط"
     else:
-        message = (
-            header
-            + "📭 لا يوجد إعداد قوي (درجة ≥85) في أي عملة الآن.\n"
-            "هذا طبيعي — الإعداد الرابح نادر. أفضل من صفقة ضعيفة: لا صفقة. "
-            "البوت ينتظر الفرصة عالية الاحتمال.\n\n"
-            + DISCLAIMER
+        why = (
+            f"📭 لا يوجد إعداد اكتمل شرطه (درجة ≥{min_score}) الآن. الإعداد الرابح "
+            "نادر — أفضل من صفقة ضعيفة: لا صفقة.\n\n"
         )
-    return message
+        missing = f"الدرجة أقل من {min_score}"
+
+    if candidates:
+        best = candidates[0]
+        return header + why + format_watch(best, missing)
+    return header + why + DISCLAIMER
 
 
 def send_telegram(token: str, chat_id: str, text: str) -> None:

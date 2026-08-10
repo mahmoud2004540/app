@@ -156,7 +156,10 @@ def top_picks(
     the positive-expectancy configuration found via backtest (+0.28R/trade at
     score>=85 with the regime filter on 1h data).
 
-    Returns (picks, market_bullish) so the caller can explain an empty result.
+    Returns (picks, candidates, market_bullish): `picks` are confirmed entries
+    (score>=min_score and market not bearish); `candidates` is every trend setup
+    found sorted by score, so the caller can always name a coin ("هي دي") or show
+    the closest watch candidate when no full entry qualifies.
     """
     timeframe = timeframe or config.DEFAULT_TIMEFRAME
     top = top or getattr(config, "TREND_TOP", 2)
@@ -168,15 +171,14 @@ def top_picks(
     balance = config.ACCOUNT_BALANCE if balance is None else balance
     risk_pct = config.RISK_PER_TRADE if risk_pct is None else risk_pct
 
-    # بوّابة حالة السوق: لا نشتري في سوق هابط (أهم عامل في التوقّع الموجب)
+    # حالة السوق العام: نطبّقها كبوّابة على صفقات الشراء (أهم عامل في التوقّع الموجب)
     market_bullish = None
     if use_regime and "crypto" in markets:
         market_bullish = market_is_bullish(timeframe)
-        if market_bullish is False:
-            print("  🛑 السوق العام (BTC) تحت متوسّطه — لا صفقات شراء الآن (فلتر السوق).")
-            return [], market_bullish
 
-    picks: List[Deal] = []
+    # نفحص كل العملات دائمًا ونجمع كل إعدادات الاتجاه (بأي درجة) لنعرض العملة
+    # باسمها حتى لو لم يكتمل الشرط — «هي دي» أو «أقرب مرشّح للمراقبة».
+    candidates: List[Deal] = []
     for market in markets:
         src = source if (market == "crypto" and source in ("binance", "coinbase")) else \
             ("yfinance" if market != "crypto" else "auto")
@@ -196,17 +198,26 @@ def top_picks(
             if len(series) < 60:
                 continue
             tp = detect_trend_pullback(series, rr=rr)
-            if tp and tp["score"] >= min_score:
-                picks.append(_trend_pullback_deal(sym, market, tp))
-                found += 1
-        print(f"  ✅ «{market}»: {found} إعداد فوق الدرجة {min_score:.0f}.")
+            if tp:
+                candidates.append(_trend_pullback_deal(sym, market, tp))
+                if tp["score"] >= min_score:
+                    found += 1
+        print(f"  ✅ «{market}»: {found} إعداد فوق الدرجة {min_score:.0f} "
+              f"(إجمالي مرشّحين: {len(candidates)}).")
 
-    picks.sort(key=lambda d: d.confidence, reverse=True)
-    picks = picks[:top]
-    for d in picks:
+    candidates.sort(key=lambda d: d.confidence, reverse=True)
+    # الصفقات المؤكّدة: تحقّق شرط الدرجة + فلتر السوق (لا نشتري في سوق هابط)
+    regime_ok = not (use_regime and market_bullish is False)
+    picks = [d for d in candidates if d.confidence >= min_score and regime_ok][:top]
+
+    # حدّث السعر الفوري وحجم المخاطرة لكل ما سنعرضه (الصفقات + أفضل مرشّح للمراقبة)
+    to_price = list(picks)
+    if not picks and candidates:
+        to_price = candidates[:1]                 # أقرب مرشّح للمراقبة
+    for d in to_price:
         _refresh_live_price(d)
         add_position_sizing(d, balance, risk_pct)
-    return picks, market_bullish
+    return picks, candidates, market_bullish
 
 
 def _htf_confirm_prepump(symbol: str, market: str, src: str, base_tf: str) -> bool:

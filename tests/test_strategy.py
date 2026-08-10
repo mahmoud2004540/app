@@ -4,6 +4,7 @@ import math
 
 from deals_bot.analyzer import add_position_sizing, analyze_symbol, rank_deals
 from deals_bot.analyzer import detect_trend_pullback
+from deals_bot.strategy import _trend_pullback_deal
 from deals_bot.backtester import (
     backtest_series,
     backtest_trend_pullback_series,
@@ -144,6 +145,18 @@ def test_trend_pullback_deal_builder_and_label():
     assert math.isclose(d.risk_reward, 2.0, rel_tol=0.05)
     # التصنيف في الملخّص يعكس أنها صفقة اتجاه صاعد
     assert "اتجاه صاعد" in format_digest([d], title="t")
+
+
+def test_format_picks_names_the_coin_loudly():
+    from deals_bot.formatter import format_picks, format_watch
+
+    s = Series(symbol="SOL-USD", market="crypto", candles=_pullback_candles(412))
+    d = _trend_pullback_deal("SOL-USD", "crypto", detect_trend_pullback(s))
+    out = format_picks([d])
+    assert "هي دي" in out and "SOL-USD" in out
+    assert "الدخول" in out and "الهدف" in out
+    watch = format_watch(d, "الدرجة أقل من 85")
+    assert "أقرب مرشّح" in watch and "SOL-USD" in watch
 
 
 def test_market_regime_map_flags_uptrend_and_gates_entries():

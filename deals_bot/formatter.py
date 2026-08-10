@@ -269,6 +269,54 @@ def format_digest(deals: List[Deal], title: str = "أفضل الصفقات") -> 
     return "\n".join(parts)
 
 
+def _pick_body(d: Deal) -> List[str]:
+    """أسطر تفاصيل صفقة واحدة (دخول/وقف/هدف/حجم/سبب)."""
+    tgt, stp = expected_moves(d)
+    lines = [
+        f"   💵 السعر الآن: {_fmt_price(d.price)}",
+        f"   🟢 الدخول: {_fmt_price(d.entry)}",
+        f"   🛑 وقف الخسارة: {_fmt_price(d.stop_loss)}  (−{stp:.1f}%)",
+        f"   🎯 الهدف: {_fmt_price(d.take_profit)}  (+{tgt:.1f}%)",
+        f"   ⚖️ مخاطرة/عائد 1:{d.risk_reward:.1f}  |  الثقة {d.confidence:.0f}/100",
+    ]
+    if d.qty is not None:
+        lines.append(f"   📦 حجم مقترح: {d.qty:g} وحدة (تخاطر بـ {d.risk_amount:g})")
+    if d.reasons:
+        lines.append(f"   • {d.reasons[0]}")
+    return lines
+
+
+def format_picks(picks: List[Deal]) -> str:
+    """
+    صياغة «هي دي» — تنادي على العملة باسمها بوضوح في الأعلى.
+
+    Loud, unambiguous call-out: names the coin first ("👈 هي دي: SYMBOL"),
+    then the entry / stop / target so the user knows exactly what to do.
+    """
+    parts: List[str] = []
+    for i, d in enumerate(picks, 1):
+        num = f" رقم {i}" if len(picks) > 1 else ""
+        parts.append(f"🎯👈 هي دي الصفقة{num}: {d.symbol}")
+        parts.append(f"   📈 اتجاه صاعد (ارتداد للمتوسّط) — {grade(d)}")
+        parts.extend(_pick_body(d))
+        parts.append("")
+    parts.append(DISCLAIMER)
+    return "\n".join(parts)
+
+
+def format_watch(d: Deal, reason_missing: str) -> str:
+    """أقرب مرشّح للمراقبة (لم يكتمل شرط الدخول بعد) — يظهر باسم العملة."""
+    parts = [
+        f"👀 أقرب مرشّح الآن: {d.symbol}",
+        f"   (مراقبة فقط — لسه ما وصلش شرط الدخول: {reason_missing})",
+        f"   📈 اتجاه صاعد (ارتداد) — {grade(d)}",
+    ]
+    parts.extend(_pick_body(d))
+    parts.append("")
+    parts.append(DISCLAIMER)
+    return "\n".join(parts)
+
+
 def format_deals(deals: List[Deal], title: str = "أفضل الصفقات") -> str:
     """قائمة صفقات كاملة مع عنوان وتنبيه."""
     if not deals:
