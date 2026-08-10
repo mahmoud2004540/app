@@ -241,6 +241,7 @@ def backtest_trend_pullback_series(
     rr: float = 2.0,
     min_score: float = 0.0,
     regime: Optional[dict] = None,
+    require_ema200: bool = False,
 ) -> BacktestResult:
     """
     باك-تِست لاستراتيجية «الارتداد داخل الاتجاه الصاعد» (Trend Pullback).
@@ -250,8 +251,10 @@ def backtest_trend_pullback_series(
     فلاتر اختيارية لاختبار الانتقائية:
       - min_score: تجاهل أي إعداد أضعف من هذه الدرجة (نختار الأفضل فقط).
       - regime: خريطة حالة السوق {ts→صاعد؟}؛ لا ندخل إلا لما السوق العام صاعد.
+      - require_ema200: لا ندخل إلا لو السعر فوق EMA200 (اتجاه صاعد بعيد المدى).
     """
     candles = series.candles
+    closes = [c.close for c in candles]
     trades: List[Trade] = []
     n = len(candles)
     i = max(warmup, 55)
@@ -265,6 +268,11 @@ def backtest_trend_pullback_series(
         if regime is not None and not regime.get(round(candles[i].ts), False):
             i += 1
             continue
+        if require_ema200:
+            e200 = ind.ema(closes[: i + 1], 200)
+            if not e200 or candles[i].close <= e200:
+                i += 1
+                continue
 
         entry = setup["price"]
         stop = setup["stop"]

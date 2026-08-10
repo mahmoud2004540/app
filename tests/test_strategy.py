@@ -133,6 +133,14 @@ def test_min_score_filter_reduces_trades():
     assert strict.n <= loose.n
 
 
+def test_ema200_filter_is_stricter():
+    s = Series(symbol="UP", market="crypto", candles=_pullback_candles())
+    base = backtest_trend_pullback_series(s)
+    filtered = backtest_trend_pullback_series(s, require_ema200=True)
+    # فلتر EMA200 لا يزيد عدد الصفقات أبدًا (قيد إضافي)
+    assert filtered.n <= base.n
+
+
 def test_trend_pullback_deal_builder_and_label():
     from deals_bot.formatter import format_digest
     from deals_bot.strategy import _trend_pullback_deal

@@ -175,6 +175,7 @@ def top_picks(
     market_bullish = None
     if use_regime and "crypto" in markets:
         market_bullish = market_is_bullish(timeframe)
+    require_ema200 = getattr(config, "TREND_REQUIRE_EMA200", False)
 
     # نفحص كل العملات دائمًا ونجمع كل إعدادات الاتجاه (بأي درجة) لنعرض العملة
     # باسمها حتى لو لم يكتمل الشرط — «هي دي» أو «أقرب مرشّح للمراقبة».
@@ -199,8 +200,15 @@ def top_picks(
                 continue
             tp = detect_trend_pullback(series, rr=rr)
             if tp:
-                candidates.append(_trend_pullback_deal(sym, market, tp))
-                if tp["score"] >= min_score:
+                d = _trend_pullback_deal(sym, market, tp)
+                # فلتر الاتجاه بعيد المدى (EMA200) — نخزّن النتيجة على الصفقة
+                ema200_ok = True
+                if require_ema200:
+                    e200 = ind.ema(series.closes(), 200)
+                    ema200_ok = bool(e200) and series.closes()[-1] > e200
+                d._ema200_ok = ema200_ok
+                candidates.append(d)
+                if tp["score"] >= min_score and ema200_ok:
                     found += 1
         print(f"  ✅ «{market}»: {found} إعداد فوق الدرجة {min_score:.0f} "
               f"(إجمالي مرشّحين: {len(candidates)}).")
@@ -208,7 +216,10 @@ def top_picks(
     candidates.sort(key=lambda d: d.confidence, reverse=True)
     # الصفقات المؤكّدة: تحقّق شرط الدرجة + فلتر السوق (لا نشتري في سوق هابط)
     regime_ok = not (use_regime and market_bullish is False)
-    picks = [d for d in candidates if d.confidence >= min_score and regime_ok][:top]
+    picks = [
+        d for d in candidates
+        if d.confidence >= min_score and regime_ok and getattr(d, "_ema200_ok", True)
+    ][:top]
 
     # حدّث السعر الفوري وحجم المخاطرة لكل ما سنعرضه (الصفقات + أفضل مرشّح للمراقبة)
     to_price = list(picks)
