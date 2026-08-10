@@ -207,6 +207,9 @@ def top_picks(
                     e200 = ind.ema(series.closes(), 200)
                     ema200_ok = bool(e200) and series.closes()[-1] > e200
                 d._ema200_ok = ema200_ok
+                # زمن شمعة الإشارة (لسجلّ التداول — منع التكرار وتتبّع النتيجة)
+                if series.candles:
+                    d.opened_ts = series.candles[-1].ts
                 candidates.append(d)
                 if tp["score"] >= min_score and ema200_ok:
                     found += 1

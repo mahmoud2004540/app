@@ -19,16 +19,41 @@ from __future__ import annotations
 import json
 import os
 import sys
+import time
 import urllib.parse
 import urllib.request
 
 import config
+from deals_bot import journal
 from deals_bot.formatter import DISCLAIMER, format_picks, format_watch
+from deals_bot.providers import fetch
 from deals_bot.strategy import market_is_bullish, top_picks
 
 
 def _alert_only() -> bool:
     return os.environ.get("ALERT_ONLY", "").lower() in ("1", "true", "yes")
+
+
+def _journal_maintenance(picks, timeframe: str) -> str:
+    """سجّل الصفقات الجديدة، قيّم المفتوحة من الشموع الحقيقية، وأرجع ملاحظة التعلّم."""
+    try:
+        now = time.time()
+        added = journal.record_signals(picks, timeframe, now)
+        if added:
+            print(f"📓 سُجّلت {added} صفقة جديدة في سجل التداول.")
+
+        def _fetch(sym, mkt, tf, lim):
+            src = "auto" if mkt == "crypto" else "yfinance"
+            return fetch(sym, mkt, src, tf, limit=lim)
+
+        closed = journal.evaluate_open(_fetch)
+        if closed:
+            print(f"📓 أُغلقت {closed} صفقة بعد تقييم نتيجتها.")
+        be = getattr(config, "TREND_MIN_SCORE", 85)  # noqa: F841 - reserved for future tuning
+        return journal.learning_note(backtest_expectancy=0.38)
+    except Exception as exc:  # noqa: BLE001 - السجل إضافة، لا يجب أن يُفشل الإرسال
+        print(f"⚠️ سجل التداول: {exc}")
+        return ""
 
 TELEGRAM_MAX = 4000  # حد أمان أقل من 4096 لتفادي رفض الرسالة
 
@@ -63,6 +88,11 @@ def build_message():
         "(إعداد «ارتداد داخل اتجاه صاعد» — أفضلية مقاسة +0.38R لكل صفقة "
         "بالباك-تِست على بيانات حقيقية)\n\n"
     )
+    # المرحلتان 12+13: سجّل الصفقات الجديدة، قيّم المفتوحة، واحصل على ملاحظة التعلّم
+    # (في الوضع العادي فقط — نُبقي وضع التنبيه السريع رخيصًا).
+    note = "" if alert_only else _journal_maintenance(picks, timeframe)
+    tail = ("\n\n" + note) if note else ""
+
     if picks:
         # في صفقة/صفقتين مؤكّدة → نناديها باسمها: «هي دي»
         prefix = "🚨 صفقة جديدة مؤكّدة!\n\n" if alert_only else ""
@@ -72,7 +102,7 @@ def build_message():
             "(يحوّلها لصفقة بلا خسارة).\n\n"
             if be_r and be_r > 0 else ""
         )
-        return prefix + header + tip + format_picks(picks)
+        return prefix + header + tip + format_picks(picks) + tail
 
     # لا صفقة مؤكّدة: نوضّح السبب ونعرض أقرب مرشّح باسمه (مراقبة) إن وُجد
     if market_bullish is False:
@@ -90,8 +120,8 @@ def build_message():
 
     if candidates:
         best = candidates[0]
-        return header + why + format_watch(best, missing)
-    return header + why + DISCLAIMER
+        return header + why + format_watch(best, missing) + tail
+    return header + why + DISCLAIMER + tail
 
 
 def send_telegram(token: str, chat_id: str, text: str) -> None:
