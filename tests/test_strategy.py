@@ -3,7 +3,7 @@
 import math
 
 from deals_bot.analyzer import add_position_sizing, analyze_symbol, rank_deals
-from deals_bot.backtester import backtest_series
+from deals_bot.backtester import backtest_series, backtest_trend_pullback_series
 from deals_bot.models import Candle, Series
 
 
@@ -70,6 +70,31 @@ def test_backtest_result_math_consistent():
     assert math.isclose(res.total_r, sum(t.result_r for t in res.trades), rel_tol=1e-9)
     # العائد المتوقّع = الإجمالي / العدد
     assert math.isclose(res.expectancy_r, res.total_r / res.n, rel_tol=1e-9)
+
+
+def test_trend_pullback_fires_and_targets_hit_2R():
+    # اتجاه صاعد ثابت مع تنفّس دوري يلمس المتوسّط ثم يرتد
+    candles = []
+    for i in range(400):
+        base = 100 + i * 0.4 + (-3.0 if (i % 20) in (10, 11) else 0.0)
+        candles.append(
+            Candle(ts=i, open=base, high=max(base, base + 0.5) + 0.8,
+                   low=min(base, base + 0.5) - 1.2, close=base + 0.5, volume=1000.0)
+        )
+    res = backtest_trend_pullback_series(Series(symbol="UP", market="crypto", candles=candles))
+    assert res.n > 0
+    # كل هدف = 2R، فالفائزون يحققون +2R تقريبًا
+    for t in res.trades:
+        if t.won:
+            assert math.isclose(t.result_r, 2.0, rel_tol=0.05)
+    assert 0 <= res.win_rate <= 100
+
+
+def test_trend_pullback_skips_downtrend():
+    # اتجاه هابط: لا يجب أن تدخل استراتيجية الاتجاه الصاعد أي صفقة
+    closes = _trend(300.0, -0.6, 200, wiggle=1.0)
+    res = backtest_trend_pullback_series(_series("DOWN", closes))
+    assert res.n == 0
 
 
 # ------------------------- coinbase (real-time) parsing ------------------- #

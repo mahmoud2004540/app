@@ -17,17 +17,29 @@ import argparse
 import sys
 
 import config
-from deals_bot.backtester import backtest_prepump_series, backtest_series
+from deals_bot.backtester import (
+    backtest_prepump_series,
+    backtest_series,
+    backtest_trend_pullback_series,
+)
 from deals_bot.providers import fetch_many
 from deals_bot.strategy import resolve_symbols
 
 # حدّ أقصى لعدد رموز الكريبتو في الباك-تِست (لتحديد الوقت)
 BACKTEST_MAX_CRYPTO = 80
 
+_STRATEGIES = {
+    "signals": backtest_series,
+    "prepump": backtest_prepump_series,
+    "trend": backtest_trend_pullback_series,
+}
+# استراتيجيات تفحص نطاقًا واسعًا من الكريبتو (لا لائحة ثابتة)
+_BROAD_CRYPTO = {"prepump", "trend"}
+
 
 def run(market: str, source: str, timeframe: str, strategy: str = "signals") -> int:
     markets = ["crypto", "stocks", "forex"] if market == "all" else [market]
-    bt = backtest_prepump_series if strategy == "prepump" else backtest_series
+    bt = _STRATEGIES[strategy]
 
     total_trades = total_wins = 0
     total_r = 0.0
@@ -35,7 +47,7 @@ def run(market: str, source: str, timeframe: str, strategy: str = "signals") -> 
 
     for mkt in markets:
         src = source if mkt == "crypto" else "yfinance"
-        if mkt == "crypto" and strategy == "prepump":
+        if mkt == "crypto" and strategy in _BROAD_CRYPTO:
             symbols = resolve_symbols("crypto", "auto")[:BACKTEST_MAX_CRYPTO]
         elif mkt == "crypto" and src == "binance":
             symbols = config.BINANCE_WATCHLIST
@@ -81,9 +93,20 @@ def main(argv=None) -> int:
     p.add_argument("--market", "-m", choices=["crypto", "stocks", "forex", "all"], default="crypto")
     p.add_argument("--source", "-s", choices=["yfinance", "binance"], default=config.DEFAULT_SOURCE)
     p.add_argument("--timeframe", "-t", choices=["1m", "5m", "15m", "1h", "1d"], default="1h")
-    p.add_argument("--strategy", choices=["signals", "prepump"], default="signals",
-                   help="signals = إشارات شراء/بيع؛ prepump = إشارات ما قبل الاندفاع")
+    p.add_argument(
+        "--strategy",
+        choices=["signals", "prepump", "trend", "compare"],
+        default="signals",
+        help="signals=إشارات شراء/بيع؛ prepump=ما قبل الاندفاع؛ "
+        "trend=ارتداد داخل اتجاه صاعد؛ compare=قارن prepump مقابل trend",
+    )
     args = p.parse_args(argv)
+    if args.strategy == "compare":
+        print("\n### استراتيجية ما قبل الاندفاع (prepump) ###")
+        run(args.market, args.source, args.timeframe, "prepump")
+        print("\n\n### استراتيجية الارتداد داخل الاتجاه (trend) ###")
+        run(args.market, args.source, args.timeframe, "trend")
+        return 0
     return run(args.market, args.source, args.timeframe, args.strategy)
 
 

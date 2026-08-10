@@ -23,6 +23,10 @@ on:
         description: "digest = إرسال الصفقات؛ backtest = قياس الأداء التاريخي"
         required: false
         default: "digest"
+      strategy:
+        description: "استراتيجية الباك-تِست (prepump,trend,compare)"
+        required: false
+        default: "compare"
 
 # لا تشغّل أكثر من نسخة في وقت واحد
 concurrency:
@@ -58,4 +62,4 @@ jobs:
 
       - name: باك-تِست الأداء التاريخي
         if: ${{ github.event.inputs.mode == 'backtest' }}
-        run: python backtest.py --market crypto --timeframe ${{ github.event.inputs.timeframe || '1h' }} --strategy prepump
+        run: python backtest.py --market crypto --timeframe ${{ github.event.inputs.timeframe || '1h' }} --strategy ${{ github.event.inputs.strategy || 'compare' }}
