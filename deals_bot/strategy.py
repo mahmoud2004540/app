@@ -17,6 +17,7 @@ import time
 from typing import List, Optional
 
 import config
+from . import indicators as ind
 from .analyzer import (
     STOP_ATR_MULT,
     TARGET_ATR_MULT,
@@ -25,6 +26,7 @@ from .analyzer import (
     detect_accumulation,
     detect_early_pump,
     detect_pre_pump,
+    detect_trend_pullback,
 )
 from .models import Deal
 from .providers import (
@@ -95,6 +97,116 @@ def _early_pump_deal(sym: str, market: str, ep: dict) -> Deal:
         risk_reward=round((reward / risk) if risk > 0 else 0.0, 2),
         reasons=ep["reasons"], early_pump=True, pump=True,
     )
+
+
+def _trend_pullback_deal(sym: str, market: str, tp: dict) -> Deal:
+    """ابنِ صفقة «ارتداد داخل اتجاه صاعد» من نتيجة الكاشف (الإعداد الرابح)."""
+    price = tp["price"]
+    stop = tp["stop"]
+    target = tp["target"]
+    risk = abs(price - stop)
+    reward = abs(target - price)
+    return Deal(
+        symbol=sym, market=market, direction="BUY",
+        score=tp["score"], confidence=tp["score"], price=price,
+        entry=round(price, 8), stop_loss=round(stop, 8), take_profit=round(target, 8),
+        risk_reward=round((reward / risk) if risk > 0 else 0.0, 2),
+        reasons=tp["reasons"], trend=True,
+    )
+
+
+def market_is_bullish(timeframe: str, source: str = "auto", symbol: str = "BTC-USD") -> Optional[bool]:
+    """
+    حالة السوق العام: هل البيتكوين فوق متوسّطه (EMA50) على هذا الإطار؟
+
+    Market-regime gate (matches the backtested filter): returns True if BTC is
+    trading above its EMA50 — a tailwind for long setups on other coins. Returns
+    None if it can't be determined (then callers shouldn't hard-block on it).
+    """
+    try:
+        s = fetch(symbol, "crypto", source, timeframe, limit=200)
+    except Exception:  # noqa: BLE001
+        return None
+    closes = s.closes()
+    if len(closes) < 55:
+        return None
+    e50 = ind.ema(closes, 50)
+    if not e50:
+        return None
+    return closes[-1] > e50
+
+
+def top_picks(
+    markets: List[str],
+    timeframe: str = None,
+    top: int = None,
+    source: str = None,
+    min_score: float = None,
+    use_regime: bool = None,
+    rr: float = None,
+    balance: float = None,
+    risk_pct: float = None,
+):
+    """
+    أفضل 1-2 صفقة من فحص كل العملات — الإعداد الرابح المُثبت بالباك-تِست.
+
+    Scans the whole universe once, keeps only high-conviction trend-pullback
+    setups (score >= min_score), optionally gated by market regime (only when
+    BTC is above its EMA50), then returns the single best `top` picks. This is
+    the positive-expectancy configuration found via backtest (+0.28R/trade at
+    score>=85 with the regime filter on 1h data).
+
+    Returns (picks, market_bullish) so the caller can explain an empty result.
+    """
+    timeframe = timeframe or config.DEFAULT_TIMEFRAME
+    top = top or getattr(config, "TREND_TOP", 2)
+    source = source or config.DEFAULT_SOURCE
+    min_score = getattr(config, "TREND_MIN_SCORE", 85) if min_score is None else min_score
+    if use_regime is None:
+        use_regime = getattr(config, "TREND_MARKET_REGIME", True)
+    rr = getattr(config, "TREND_RR", 2.0) if rr is None else rr
+    balance = config.ACCOUNT_BALANCE if balance is None else balance
+    risk_pct = config.RISK_PER_TRADE if risk_pct is None else risk_pct
+
+    # بوّابة حالة السوق: لا نشتري في سوق هابط (أهم عامل في التوقّع الموجب)
+    market_bullish = None
+    if use_regime and "crypto" in markets:
+        market_bullish = market_is_bullish(timeframe)
+        if market_bullish is False:
+            print("  🛑 السوق العام (BTC) تحت متوسّطه — لا صفقات شراء الآن (فلتر السوق).")
+            return [], market_bullish
+
+    picks: List[Deal] = []
+    for market in markets:
+        src = source if (market == "crypto" and source in ("binance", "coinbase")) else \
+            ("yfinance" if market != "crypto" else "auto")
+        symbols = resolve_symbols(market, src)
+        print(f"  🔭 فحص {len(symbols)} رمزًا في «{market}» ({timeframe}) عن أقوى الإعدادات...")
+        pause = 0.05 if market == "crypto" else 0.0
+        found = 0
+        for sym in symbols:
+            try:
+                series = fetch(sym, market, src, timeframe, limit=300)
+            except Exception:  # noqa: BLE001
+                if pause:
+                    time.sleep(pause)
+                continue
+            if pause:
+                time.sleep(pause)
+            if len(series) < 60:
+                continue
+            tp = detect_trend_pullback(series, rr=rr)
+            if tp and tp["score"] >= min_score:
+                picks.append(_trend_pullback_deal(sym, market, tp))
+                found += 1
+        print(f"  ✅ «{market}»: {found} إعداد فوق الدرجة {min_score:.0f}.")
+
+    picks.sort(key=lambda d: d.confidence, reverse=True)
+    picks = picks[:top]
+    for d in picks:
+        _refresh_live_price(d)
+        add_position_sizing(d, balance, risk_pct)
+    return picks, market_bullish
 
 
 def _htf_confirm_prepump(symbol: str, market: str, src: str, base_tf: str) -> bool:
