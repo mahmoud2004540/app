@@ -16,7 +16,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import List
 
-from .analyzer import analyze_symbol
+from .analyzer import (
+    analyze_symbol,
+    detect_accumulation,
+    detect_early_pump,
+    detect_pre_pump,
+)
 from .models import Series
 
 
@@ -135,6 +140,76 @@ def backtest_series(series: Series, warmup: int = 60) -> BacktestResult:
             Trade(series.symbol, deal.direction, entry, stop, target, exit_price, r, won)
         )
         # استأنف التحليل بعد إغلاق الصفقة
+        i = j + 1
+
+    return BacktestResult(symbol=series.symbol, trades=trades)
+
+
+def _prepump_levels(setup: dict, kind: str):
+    """احسب الدخول/الوقف/الهدف لإعداد قبل الاندفاع (نفس منطق بناة الصفقات)."""
+    price = setup["price"]
+    base_high = setup.get("base_high", price)
+    base_low = setup.get("base_low", price)
+    width = max(base_high - base_low, price * 0.001)
+    if kind == "early":
+        stop = min(base_high * 0.985, price * 0.97)
+        target = max(base_high + 1.5 * width, price * 1.10)
+    else:  # accumulation / squeeze
+        stop = base_low * 0.98
+        target = max(base_high + 2.0 * width, price * 1.12)
+    return price, stop, target
+
+
+def backtest_prepump_series(series: Series, warmup: int = 80) -> BacktestResult:
+    """
+    باك-تِست مخصّص لإشارات «ما قبل الاندفاع» (بداية اندفاع / تجميع / انضغاط).
+
+    Measures whether the pre-pump detectors actually precede up-moves: at each
+    bar, if a setup fires, open a long at that price with the same stop/target
+    the bot would use, then check forward bars for the outcome.
+    """
+    candles = series.candles
+    trades: List[Trade] = []
+    i = warmup
+    n = len(candles)
+
+    while i < n - 1:
+        sub = Series(symbol=series.symbol, market=series.market, candles=candles[: i + 1])
+        setup = detect_early_pump(sub)
+        kind = "early"
+        if not setup:
+            setup = detect_accumulation(sub) or detect_pre_pump(sub)
+            kind = "base"
+        if not setup:
+            i += 1
+            continue
+
+        entry, stop, target = _prepump_levels(setup, kind)
+        risk = abs(entry - stop)
+        if risk <= 0:
+            i += 1
+            continue
+
+        outcome = None
+        j = i + 1
+        while j < n:
+            hi, lo = candles[j].high, candles[j].low
+            if lo <= stop:          # long: الوقف أولًا في الأسوأ
+                outcome = (stop, False)
+                break
+            if hi >= target:
+                outcome = (target, True)
+                break
+            j += 1
+
+        if outcome is None:
+            i += 1
+            continue
+        exit_price, won = outcome
+        r = (exit_price - entry) / risk
+        trades.append(
+            Trade(series.symbol, "BUY", entry, stop, target, exit_price, r, won)
+        )
         i = j + 1
 
     return BacktestResult(symbol=series.symbol, trades=trades)
