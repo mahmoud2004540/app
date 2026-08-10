@@ -16,14 +16,33 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import List
 
+from typing import Optional
+
 from . import indicators as ind
 from .analyzer import (
     analyze_symbol,
     detect_accumulation,
     detect_early_pump,
     detect_pre_pump,
+    detect_trend_pullback,
 )
 from .models import Series
+
+
+def market_uptrend_map(btc: Series, period: int = 50) -> dict:
+    """
+    ابنِ خريطة «حالة السوق»: لكل شمعة بيتكوين، هل السعر فوق متوسّطه (سوق صاعد)؟
+
+    Maps each BTC candle timestamp → True if BTC closed above its EMA(period).
+    Used as a market-regime gate: only take long setups on other coins when the
+    overall market has a tailwind. Longs into a market-wide downtrend bleed.
+    """
+    closes = btc.closes()
+    ema_s = ind.ema_series(closes, period)
+    out = {}
+    for c, e in zip(btc.candles, ema_s):
+        out[round(c.ts)] = c.close > e if e else False
+    return out
 
 
 @dataclass
@@ -217,53 +236,43 @@ def backtest_prepump_series(series: Series, warmup: int = 80) -> BacktestResult:
 
 
 def backtest_trend_pullback_series(
-    series: Series, warmup: int = 60, rr: float = 2.0
+    series: Series,
+    warmup: int = 60,
+    rr: float = 2.0,
+    min_score: float = 0.0,
+    regime: Optional[dict] = None,
 ) -> BacktestResult:
     """
     باك-تِست لاستراتيجية «الارتداد داخل الاتجاه الصاعد» (Trend Pullback).
 
-    فكرة الاستراتيجية (اتّجاه رابح إحصائيًا أكثر من مطاردة الاندفاع):
-      - نتداول *مع* الاتجاه لا ضدّه: نطلب اتجاهًا صاعدًا مؤكّدًا EMA9>EMA21>EMA50.
-      - ندخل على «تنفّس» السعر (pullback): الشمعة تلمس EMA21 من أعلى ثم تغلق فوقه،
-        أي ارتداد صحّي لا كسر.
-      - نطلب RSI ≥ 40 (زخم لم ينهَر) وأن يكون EMA50 صاعدًا فعلًا.
-      - الوقف تحت قاع الارتداد بهامش بسيط، والهدف = الدخول + rr × المخاطرة.
+    يستخدم نفس كاشف البوت الحيّ `detect_trend_pullback` (مصدر واحد للحقيقة).
 
-    هذا يقيس ما إذا كان شراء الارتدادات في اتجاه صاعد يعطي أفضليّة حقيقية
-    (توقّع موجب) مقارنةً باستراتيجية ما قبل الاندفاع.
+    فلاتر اختيارية لاختبار الانتقائية:
+      - min_score: تجاهل أي إعداد أضعف من هذه الدرجة (نختار الأفضل فقط).
+      - regime: خريطة حالة السوق {ts→صاعد؟}؛ لا ندخل إلا لما السوق العام صاعد.
     """
     candles = series.candles
     trades: List[Trade] = []
-    closes = [c.close for c in candles]
     n = len(candles)
     i = max(warmup, 55)
 
     while i < n - 1:
-        window = closes[: i + 1]
-        e9 = ind.ema(window, 9)
-        e21 = ind.ema(window, 21)
-        e50 = ind.ema(window, 50)
-        e50_prev = ind.ema(closes[: i - 2], 50) if i - 2 > 50 else None
-        r = ind.rsi(window, 14)
-        if None in (e9, e21, e50, e50_prev, r):
+        sub = Series(symbol=series.symbol, market=series.market, candles=candles[: i + 1])
+        setup = detect_trend_pullback(sub, rr=rr)
+        if not setup or setup["score"] < min_score:
+            i += 1
+            continue
+        if regime is not None and not regime.get(round(candles[i].ts), False):
             i += 1
             continue
 
-        c = candles[i]
-        uptrend = e9 > e21 > e50 and e50 > e50_prev
-        touched_ma = c.low <= e21 <= c.close      # ارتداد: لمس المتوسّط ثم أغلق فوقه
-        healthy = r >= 40.0
-        if not (uptrend and touched_ma and healthy):
-            i += 1
-            continue
-
-        entry = c.close
-        stop = min(c.low, e21) * 0.995            # تحت قاع الارتداد بهامش بسيط
+        entry = setup["price"]
+        stop = setup["stop"]
+        target = setup["target"]
         risk = entry - stop
         if risk <= 0:
             i += 1
             continue
-        target = entry + rr * risk
 
         outcome = None
         j = i + 1
