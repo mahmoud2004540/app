@@ -97,6 +97,56 @@ def _early_pump_deal(sym: str, market: str, ep: dict) -> Deal:
     )
 
 
+def _htf_confirm_prepump(symbol: str, market: str, src: str, base_tf: str) -> bool:
+    """
+    تأكيد من إطار زمني أعلى: استبعد «السكينة الساقطة».
+
+    Rejects setups where the higher timeframe is still crashing / making fresh
+    lows (a falling knife). Returns True to keep, False to reject. On any fetch
+    problem it returns True (don't penalize on missing data).
+    """
+    htf = config.HIGHER_TIMEFRAME.get(base_tf, base_tf)
+    if htf == base_tf:
+        return True
+    try:
+        hs = fetch(symbol, market, src, htf, limit=200)
+    except Exception:  # noqa: BLE001
+        return True
+    hc = hs.closes()
+    if len(hc) < 30:
+        return True
+    from .analyzer import ind  # reuse indicators module
+    mom = ind.momentum_pct(hc, 5)
+    if mom is not None and mom < -12.0:          # الفريم الأعلى ينهار → ارفض
+        return False
+    # قاع جديد على آخر شمعة في الفريم الأعلى = ما زال يهبط
+    if hc[-1] <= min(hc[-15:-1]) * 1.001:
+        return False
+    return True
+
+
+def _finalize_prepump(deals: List[Deal], timeframe: str, top: int,
+                      min_score: float, htf_confirm: bool) -> List[Deal]:
+    """بوابة الجودة + تأكيد الإطار الأعلى + الترتيب، لقوائم «ما قبل الاندفاع»."""
+    # بوابة الجودة أولًا
+    cand = [d for d in deals if d.confidence >= min_score]
+    cand.sort(key=lambda d: d.confidence, reverse=True)
+    if not htf_confirm:
+        return cand[:top]
+    out: List[Deal] = []
+    for d in cand[: top * 3]:                     # نؤكّد أقوى المرشّحين فقط (توفير طلبات)
+        src = "auto" if d.market == "crypto" else "yfinance"
+        if _htf_confirm_prepump(d.symbol, d.market, src, timeframe):
+            d.confirmed = True
+            d.confidence = min(100.0, d.confidence + 6.0)
+            d.score = d.confidence
+            out.append(d)
+        if len(out) >= top:
+            break
+    out.sort(key=lambda d: d.confidence, reverse=True)
+    return out[:top]
+
+
 def scan_universe(
     markets: List[str],
     timeframe: str = None,
@@ -164,14 +214,15 @@ def scan_universe(
                 earlies.append(_early_pump_deal(sym, market, ep))
         print(f"  ✅ «{market}»: فُحص {scanned} رمزًا فعليًا.")
 
-    # ترتيب: الاندفاعات/الحيتان أولًا ثم الأقوى ثقةً
     signals.sort(key=lambda d: (d.pump, d.whale, d.confidence), reverse=True)
-    accums.sort(key=lambda d: d.confidence, reverse=True)
-    earlies.sort(key=lambda d: d.confidence, reverse=True)
-
     sig_top = signals[:top]
-    acc_top = accums[:top]
-    early_top = earlies[:top]
+
+    # دقة أعلى لإشارات «ما قبل الاندفاع»: بوابة جودة + تأكيد إطار أعلى + ترتيب
+    prepump_min = getattr(config, "PREPUMP_MIN_SCORE", 70)
+    htf = getattr(config, "PREPUMP_HTF_CONFIRM", True)
+    acc_top = _finalize_prepump(accums, timeframe, top, prepump_min, htf)
+    early_top = _finalize_prepump(earlies, timeframe, top, prepump_min, htf)
+
     for d in sig_top + acc_top + early_top:
         _refresh_live_price(d)
         add_position_sizing(d, balance, risk_pct)
