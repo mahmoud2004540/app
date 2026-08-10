@@ -23,8 +23,8 @@ import urllib.parse
 import urllib.request
 
 import config
-from deals_bot.formatter import format_digest
-from deals_bot.strategy import scan_universe
+from deals_bot.formatter import DISCLAIMER, format_digest
+from deals_bot.strategy import top_picks
 
 TELEGRAM_MAX = 4000  # حد أمان أقل من 4096 لتفادي رفض الرسالة
 
@@ -39,24 +39,34 @@ def build_message() -> str:
     top = int(os.environ.get("TOP", config.DEFAULT_TOP))
     direction = os.environ.get("DIRECTION", "any")
 
-    # فحص واسع بمرور واحد. نعرض فقط ما قبل الاندفاع وبدايته (لا صفقات أثناء/بعد).
-    _signals, accums, earlies = scan_universe(
-        markets, timeframe=timeframe, top=top, direction=direction
+    # المنتج الأساسي: أفضل 1-2 صفقة من فحص كل العملات — الإعداد الرابح المُثبت
+    # بالباك-تِست (ارتداد داخل اتجاه صاعد، درجة ≥85، + فلتر حالة السوق).
+    picks, market_bullish = top_picks(markets, timeframe=timeframe)
+
+    header = (
+        "🏆 أفضل الصفقات — مُنتقاة من فحص كل العملات\n"
+        "(إعداد «ارتداد داخل اتجاه صاعد» — أعطى توقّعًا موجبًا +0.28R "
+        "بنسبة نجاح ~43% في الباك-تِست على بيانات حقيقية)\n\n"
     )
-    message = (
-        "🎯 صفقات ما قبل الاندفاع فقط (قبل/بداية الـ pump — لا مطاردة)\n\n"
-        + format_digest(
-            accums, title=f"1) قبل الاندفاع — تجميع/انضغاط (الأبكر) ({timeframe})"
+    if picks:
+        message = header + format_digest(
+            picks, title=f"أقوى {len(picks)} إعداد الآن ({timeframe})"
         )
-    )
-    message += "\n\n" + format_digest(
-        earlies, title=f"2) بداية الاندفاع — أول كسر بحجم (في بداية الـ pump) ({timeframe})"
-    )
-    # ملاحظة صريحة إن كان القسمان فارغين
-    if not accums and not earlies:
-        message += (
-            "\n\n📭 لا توجد عملات في وضع «ما قبل الاندفاع» واضح الآن. "
-            "هذا طبيعي — الإعداد الجيد نادر، والبوت ينتظر الفرصة بدل ملاحقة عملة طلعت."
+    elif market_bullish is False:
+        message = (
+            header
+            + "🛑 السوق العام (BTC) تحت متوسّطه الآن — لا صفقات شراء.\n"
+            "هذا *مقصود*: الباك-تِست أثبت أن الشراء في سوق هابط يخسر. البوت ينتظر "
+            "عودة السوق فوق متوسّطه بدل الدخول ضد التيار.\n\n"
+            + DISCLAIMER
+        )
+    else:
+        message = (
+            header
+            + "📭 لا يوجد إعداد قوي (درجة ≥85) في أي عملة الآن.\n"
+            "هذا طبيعي — الإعداد الرابح نادر. أفضل من صفقة ضعيفة: لا صفقة. "
+            "البوت ينتظر الفرصة عالية الاحتمال.\n\n"
+            + DISCLAIMER
         )
     return message
 

@@ -132,6 +132,20 @@ def test_min_score_filter_reduces_trades():
     assert strict.n <= loose.n
 
 
+def test_trend_pullback_deal_builder_and_label():
+    from deals_bot.formatter import format_digest
+    from deals_bot.strategy import _trend_pullback_deal
+
+    s = Series(symbol="UP", market="crypto", candles=_pullback_candles(412))
+    tp = detect_trend_pullback(s, rr=2.0)
+    d = _trend_pullback_deal("UP", "crypto", tp)
+    assert d.trend is True and d.direction == "BUY"
+    assert d.stop_loss < d.entry < d.take_profit
+    assert math.isclose(d.risk_reward, 2.0, rel_tol=0.05)
+    # التصنيف في الملخّص يعكس أنها صفقة اتجاه صاعد
+    assert "اتجاه صاعد" in format_digest([d], title="t")
+
+
 def test_market_regime_map_flags_uptrend_and_gates_entries():
     candles = _pullback_candles()
     reg = market_uptrend_map(Series(symbol="BTC", market="crypto", candles=candles), 50)

@@ -239,7 +239,9 @@ def format_digest(deals: List[Deal], title: str = "أفضل الصفقات") -> 
     for i, d in enumerate(deals, 1):
         badge = " ✅" if d.confirmed is True else ""
         tags = ("🚀 " if d.pump else "") + ("🐋 " if d.whale else "")
-        if d.accumulation:
+        if d.trend:
+            label = "📈 اتجاه صاعد (ارتداد)"
+        elif d.accumulation:
             label = "📥 تجميع"
         elif d.early_pump:
             label = "بداية اندفاع"
