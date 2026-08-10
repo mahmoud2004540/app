@@ -84,8 +84,15 @@ def detect_early_pump(series: Series):
     if rsi_v is not None:
         reasons.append(f"RSI {rsi_v:.0f}")
 
-    score = 60.0 + min(20.0, (vsurge - 1.5) * 12.0)      # حجم أعلى = أقوى
+    score = 55.0 + min(20.0, (vsurge - 1.5) * 12.0)      # حجم أعلى = أقوى
     score += max(0.0, (EARLY_MAX_EXTENSION - move))       # كل ما كان أبكر = أفضل
+    # تأكيد تدفّق الأموال: OBV صاعد يؤكد أن الكسر مدعوم بشراء حقيقي (دقة أعلى)
+    obv_up = ind.obv_rising(closes, series.volumes(), 10)
+    if obv_up:
+        score += 15.0
+        reasons.append("💰 OBV صاعد — الكسر مدعوم بتدفّق شراء")
+    elif obv_up is False:
+        score -= 15.0        # كسر بلا تدفّق أموال حقيقي → غالبًا كاذب
     score = max(0.0, min(100.0, score))
 
     return {
@@ -94,6 +101,7 @@ def detect_early_pump(series: Series):
         "base_high": base_high,
         "base_low": base_low,
         "price": price,
+        "obv_ok": bool(obv_up),
     }
 
 
@@ -393,12 +401,19 @@ def detect_accumulation(series: Series):
         reasons.append(f"RSI في تعافٍ ({rsi_v:.0f})")
 
     # درجة قوة التجميع
-    score = 55.0
-    score += min(20.0, abs(drop) - ACC_MIN_DROP)          # هبوط أعمق = قاعدة أقوى
+    score = 50.0
+    score += min(18.0, abs(drop) - ACC_MIN_DROP)          # هبوط أعمق = قاعدة أقوى
     score += max(0.0, (ACC_MAX_BASE_RANGE - base_range)) * 1.5  # نطاق أضيق = أفضل
     if vsurge is not None and vsurge > 1.2:
-        score += 10.0
+        score += 8.0
         reasons.append(f"حجم يبدأ بالارتفاع (×{vsurge:.1f})")
+    # تأكيد تدفّق الأموال: OBV صاعد أثناء القاعدة = تجميع حقيقي (دقة أعلى)
+    obv_up = ind.obv_rising(closes, series.volumes(), ACC_LOOKBACK)
+    if obv_up:
+        score += 15.0
+        reasons.append("💰 تدفّق أموال يتجمّع بهدوء (OBV صاعد)")
+    elif obv_up is False:
+        score -= 12.0        # المال يخرج أثناء القاعدة → احتمال أضعف
     score = max(0.0, min(100.0, score))
 
     return {
@@ -408,6 +423,7 @@ def detect_accumulation(series: Series):
         "base_high": base_high,
         "drop": drop,
         "price": price,
+        "obv_ok": bool(obv_up),
     }
 
 

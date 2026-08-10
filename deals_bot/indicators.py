@@ -221,6 +221,36 @@ def swing_points(highs: List[float], lows: List[float], left: int = 2, right: in
     return ph, pl
 
 
+def obv_series(closes: List[float], volumes: List[float]) -> List[float]:
+    """
+    سلسلة الحجم على الرصيد (On-Balance Volume).
+
+    OBV adds volume on up-closes and subtracts it on down-closes. A rising OBV
+    while price is flat is quiet accumulation (smart money buying) — a strong
+    confirmation for pre-pump setups.
+    """
+    n = len(closes)
+    if n < 2 or len(volumes) != n:
+        return []
+    out = [0.0]
+    o = 0.0
+    for i in range(1, n):
+        if closes[i] > closes[i - 1]:
+            o += volumes[i]
+        elif closes[i] < closes[i - 1]:
+            o -= volumes[i]
+        out.append(o)
+    return out
+
+
+def obv_rising(closes: List[float], volumes: List[float], lookback: int = 10) -> Optional[bool]:
+    """هل OBV أعلى مما كان قبل `lookback` شمعة؟ (تجميع تدفّق أموال)."""
+    s = obv_series(closes, volumes)
+    if len(s) < lookback + 1:
+        return None
+    return s[-1] > s[-lookback - 1]
+
+
 def mfi(
     highs: List[float],
     lows: List[float],

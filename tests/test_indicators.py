@@ -94,3 +94,19 @@ def test_mfi_none_when_no_volume():
     n = 30
     seq = [10 + i * 0.5 for i in range(n)]
     assert ind.mfi(seq, seq, seq, [0.0] * n, 14) is None
+
+
+def test_obv_rising_on_up_closes():
+    closes = [10 + i for i in range(20)]      # strictly rising
+    vols = [100.0] * 20
+    assert ind.obv_rising(closes, vols, 10) is True
+
+
+def test_obv_falling_on_down_closes():
+    closes = [30 - i for i in range(20)]      # strictly falling
+    vols = [100.0] * 20
+    assert ind.obv_rising(closes, vols, 10) is False
+
+
+def test_obv_rising_none_when_short():
+    assert ind.obv_rising([1, 2, 3], [1, 1, 1], 10) is None
