@@ -174,6 +174,63 @@ def trend_sweep(source: str, timeframe: str) -> int:
     return 0
 
 
+def optimize(source: str, timeframe: str) -> int:
+    """
+    تحسين مقاس بالدليل: عند الإعداد الفائز (درجة ≥85 + فلتر سوق)، جرّب نِسَب
+    هدف/مخاطرة مختلفة وفلتر EMA200، واطبع التوقّع لكلٍّ لاختيار الأفضل.
+    """
+    symbols = resolve_symbols("crypto", "auto")[:BACKTEST_MAX_CRYPTO]
+    print(f"⏳ تحسين إعداد الاتجاه على {len(symbols)} عملة ({timeframe})...")
+    series = fetch_many(symbols, "crypto", "auto", timeframe, limit=1000)
+
+    regime = None
+    try:
+        btc = fetch("BTC-USD", "crypto", "auto", timeframe, limit=1000)
+        regime = market_uptrend_map(btc, 50)
+        print(f"  ✅ خريطة حالة السوق من BTC ({len(regime)} شمعة).")
+    except Exception as exc:  # noqa: BLE001
+        print(f"  ⚠️ تعذّر بناء فلتر السوق: {exc}")
+
+    def summarize(label: str, rr: float, ema200: bool):
+        tt = tw = 0
+        tr = 0.0
+        for s in series:
+            res = backtest_trend_pullback_series(
+                s, rr=rr, min_score=85.0, regime=regime, require_ema200=ema200
+            )
+            tt += res.n
+            tw += res.wins
+            tr += res.total_r
+        wr = (tw / tt * 100.0) if tt else 0.0
+        exp = (tr / tt) if tt else 0.0
+        print(f"{label:>22} | {tt:>6} | {wr:>6.1f} | {exp:>+8.2f} | {tr:>+8.1f}")
+        return exp, tt
+
+    print("\n" + "=" * 60)
+    print(f"{'التهيئة':>22} | {'صفقات':>6} | {'نجاح%':>6} | {'توقّع/R':>8} | {'إجمالي':>8}")
+    print("-" * 60)
+    results = {}
+    for rr in (1.5, 2.0, 2.5, 3.0):
+        results[f"rr={rr}"] = summarize(f"RR {rr} (أساسي)", rr, False)
+    print("-" * 60)
+    for rr in (2.0, 2.5, 3.0):
+        results[f"rr={rr}+ema200"] = summarize(f"RR {rr} + فلتر EMA200", rr, True)
+    print("=" * 60)
+
+    # أفضل تهيئة بالتوقّع (بشرط عدد صفقات معقول ≥20 لتفادي عيّنة صغيرة)
+    valid = {k: v for k, v in results.items() if v[1] >= 20}
+    if valid:
+        best = max(valid, key=lambda k: valid[k][0])
+        exp, tt = valid[best]
+        print(f"\n🏆 الأفضل: {best} → توقّع {exp:+.2f}R على {tt} صفقة.")
+        print("   ثبّتها في config.py لو أعلى بوضوح من التهيئة الحالية (RR 2.0).")
+    print(
+        "\nℹ️ نختار أعلى توقّع مع عدد صفقات كافٍ. زيادة RR ترفع الربح لكن تقلّل نسبة "
+        "النجاح؛ فلتر EMA200 يقلّل الصفقات مقابل جودة أعلى."
+    )
+    return 0
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description="باك-تِست لاستراتيجية بوت الصفقات.")
     p.add_argument("--market", "-m", choices=["crypto", "stocks", "forex", "all"], default="crypto")
@@ -181,11 +238,12 @@ def main(argv=None) -> int:
     p.add_argument("--timeframe", "-t", choices=["1m", "5m", "15m", "1h", "1d"], default="1h")
     p.add_argument(
         "--strategy",
-        choices=["signals", "prepump", "trend", "compare", "trendsweep"],
+        choices=["signals", "prepump", "trend", "compare", "trendsweep", "optimize"],
         default="signals",
         help="signals=إشارات شراء/بيع؛ prepump=ما قبل الاندفاع؛ "
         "trend=ارتداد داخل اتجاه صاعد؛ compare=قارن prepump مقابل trend؛ "
-        "trendsweep=اختبار الانتقائية + فلتر السوق (يجيب: هل الأفضل يربح؟)",
+        "trendsweep=اختبار الانتقائية + فلتر السوق؛ "
+        "optimize=اختر أفضل RR وفلتر EMA200 بالدليل",
     )
     args = p.parse_args(argv)
     if args.strategy == "compare":
@@ -196,6 +254,8 @@ def main(argv=None) -> int:
         return 0
     if args.strategy == "trendsweep":
         return trend_sweep(args.source, args.timeframe)
+    if args.strategy == "optimize":
+        return optimize(args.source, args.timeframe)
     return run(args.market, args.source, args.timeframe, args.strategy)
 
 
