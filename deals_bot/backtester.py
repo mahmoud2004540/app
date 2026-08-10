@@ -16,6 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import List
 
+from . import indicators as ind
 from .analyzer import (
     analyze_symbol,
     detect_accumulation,
@@ -209,6 +210,80 @@ def backtest_prepump_series(series: Series, warmup: int = 80) -> BacktestResult:
         r = (exit_price - entry) / risk
         trades.append(
             Trade(series.symbol, "BUY", entry, stop, target, exit_price, r, won)
+        )
+        i = j + 1
+
+    return BacktestResult(symbol=series.symbol, trades=trades)
+
+
+def backtest_trend_pullback_series(
+    series: Series, warmup: int = 60, rr: float = 2.0
+) -> BacktestResult:
+    """
+    باك-تِست لاستراتيجية «الارتداد داخل الاتجاه الصاعد» (Trend Pullback).
+
+    فكرة الاستراتيجية (اتّجاه رابح إحصائيًا أكثر من مطاردة الاندفاع):
+      - نتداول *مع* الاتجاه لا ضدّه: نطلب اتجاهًا صاعدًا مؤكّدًا EMA9>EMA21>EMA50.
+      - ندخل على «تنفّس» السعر (pullback): الشمعة تلمس EMA21 من أعلى ثم تغلق فوقه،
+        أي ارتداد صحّي لا كسر.
+      - نطلب RSI ≥ 40 (زخم لم ينهَر) وأن يكون EMA50 صاعدًا فعلًا.
+      - الوقف تحت قاع الارتداد بهامش بسيط، والهدف = الدخول + rr × المخاطرة.
+
+    هذا يقيس ما إذا كان شراء الارتدادات في اتجاه صاعد يعطي أفضليّة حقيقية
+    (توقّع موجب) مقارنةً باستراتيجية ما قبل الاندفاع.
+    """
+    candles = series.candles
+    trades: List[Trade] = []
+    closes = [c.close for c in candles]
+    n = len(candles)
+    i = max(warmup, 55)
+
+    while i < n - 1:
+        window = closes[: i + 1]
+        e9 = ind.ema(window, 9)
+        e21 = ind.ema(window, 21)
+        e50 = ind.ema(window, 50)
+        e50_prev = ind.ema(closes[: i - 2], 50) if i - 2 > 50 else None
+        r = ind.rsi(window, 14)
+        if None in (e9, e21, e50, e50_prev, r):
+            i += 1
+            continue
+
+        c = candles[i]
+        uptrend = e9 > e21 > e50 and e50 > e50_prev
+        touched_ma = c.low <= e21 <= c.close      # ارتداد: لمس المتوسّط ثم أغلق فوقه
+        healthy = r >= 40.0
+        if not (uptrend and touched_ma and healthy):
+            i += 1
+            continue
+
+        entry = c.close
+        stop = min(c.low, e21) * 0.995            # تحت قاع الارتداد بهامش بسيط
+        risk = entry - stop
+        if risk <= 0:
+            i += 1
+            continue
+        target = entry + rr * risk
+
+        outcome = None
+        j = i + 1
+        while j < n:
+            hi, lo = candles[j].high, candles[j].low
+            if lo <= stop:                        # long: الوقف أولًا في الأسوأ
+                outcome = (stop, False)
+                break
+            if hi >= target:
+                outcome = (target, True)
+                break
+            j += 1
+
+        if outcome is None:
+            i += 1
+            continue
+        exit_price, won = outcome
+        result_r = (exit_price - entry) / risk
+        trades.append(
+            Trade(series.symbol, "BUY", entry, stop, target, exit_price, result_r, won)
         )
         i = j + 1
 
