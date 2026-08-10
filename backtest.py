@@ -17,12 +17,17 @@ import argparse
 import sys
 
 import config
-from deals_bot.backtester import backtest_series
+from deals_bot.backtester import backtest_prepump_series, backtest_series
 from deals_bot.providers import fetch_many
+from deals_bot.strategy import resolve_symbols
+
+# حدّ أقصى لعدد رموز الكريبتو في الباك-تِست (لتحديد الوقت)
+BACKTEST_MAX_CRYPTO = 80
 
 
-def run(market: str, source: str, timeframe: str) -> int:
+def run(market: str, source: str, timeframe: str, strategy: str = "signals") -> int:
     markets = ["crypto", "stocks", "forex"] if market == "all" else [market]
+    bt = backtest_prepump_series if strategy == "prepump" else backtest_series
 
     total_trades = total_wins = 0
     total_r = 0.0
@@ -30,15 +35,16 @@ def run(market: str, source: str, timeframe: str) -> int:
 
     for mkt in markets:
         src = source if mkt == "crypto" else "yfinance"
-        symbols = (
-            config.BINANCE_WATCHLIST
-            if (mkt == "crypto" and src == "binance")
-            else config.WATCHLISTS[mkt]
-        )
-        print(f"⏳ باك-تِست {len(symbols)} رمزًا في «{mkt}» ({timeframe})...")
+        if mkt == "crypto" and strategy == "prepump":
+            symbols = resolve_symbols("crypto", "auto")[:BACKTEST_MAX_CRYPTO]
+        elif mkt == "crypto" and src == "binance":
+            symbols = config.BINANCE_WATCHLIST
+        else:
+            symbols = config.WATCHLISTS[mkt]
+        print(f"⏳ باك-تِست ({strategy}) {len(symbols)} رمزًا في «{mkt}» ({timeframe})...")
         series = fetch_many(symbols, mkt, src, timeframe, limit=1000)
         for s in series:
-            res = backtest_series(s)
+            res = bt(s)
             if res.n == 0:
                 continue
             rows.append(res)
@@ -75,8 +81,10 @@ def main(argv=None) -> int:
     p.add_argument("--market", "-m", choices=["crypto", "stocks", "forex", "all"], default="crypto")
     p.add_argument("--source", "-s", choices=["yfinance", "binance"], default=config.DEFAULT_SOURCE)
     p.add_argument("--timeframe", "-t", choices=["1m", "5m", "15m", "1h", "1d"], default="1h")
+    p.add_argument("--strategy", choices=["signals", "prepump"], default="signals",
+                   help="signals = إشارات شراء/بيع؛ prepump = إشارات ما قبل الاندفاع")
     args = p.parse_args(argv)
-    return run(args.market, args.source, args.timeframe)
+    return run(args.market, args.source, args.timeframe, args.strategy)
 
 
 if __name__ == "__main__":
