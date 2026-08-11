@@ -43,11 +43,15 @@ def grade(deal: Deal) -> str:
 def _fmt_price(x: float) -> str:
     if x == 0:
         return "0"
-    if abs(x) >= 100:
+    ax = abs(x)
+    if ax >= 100:
         return f"{x:,.2f}"
-    if abs(x) >= 1:
+    if ax >= 1:
         return f"{x:,.4f}"
-    return f"{x:.6f}"
+    if ax >= 0.001:
+        return f"{x:.6f}"
+    # عملات متناهية الصغر (ميم كوينز): أظهر أرقامًا معنوية كافية بدل أصفار
+    return f"{x:.10f}".rstrip("0").rstrip(".")
 
 
 def expected_moves(deal: Deal):
