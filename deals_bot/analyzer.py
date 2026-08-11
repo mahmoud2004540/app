@@ -499,16 +499,17 @@ def detect_pre_pump(series: Series):
     }
 
 
-def detect_trend_pullback(series: Series, rr: float = 2.0):
+def detect_trend_pullback(series: Series, rr: float = 2.0, direction: str = "long"):
     """
-    اكتشف «الارتداد داخل الاتجاه الصاعد» (Trend Pullback) — دخول مع الاتجاه لا ضدّه.
+    اكتشف «الارتداد داخل الاتجاه» — دخول مع الاتجاه لا ضدّه (Long أو Short).
 
-    Buy pullbacks inside a confirmed uptrend: EMA9>EMA21>EMA50 with EMA50 itself
-    rising, the bar taps EMA21 from above and closes back above it (a healthy
-    breather, not a breakdown), and RSI hasn't collapsed. Stop below the pullback
-    low, target = entry + rr × risk. Returns a details dict (with score + levels)
-    or None. Shared by the live bot and the backtester so both use identical
-    logic (single source of truth).
+    LONG : اتجاه صاعد مؤكّد EMA9>EMA21>EMA50 وEMA50 يصعد، السعر يلمس EMA21 من
+           أعلى ثم يغلق فوقه، RSI لم ينهَر. الوقف تحت قاع الارتداد، الهدف أعلى.
+    SHORT: عكسه تمامًا — اتجاه هابط EMA9<EMA21<EMA50 وEMA50 يهبط، السعر يرتفع
+           ليلمس EMA21 من أسفل ثم يغلق تحته، RSI لم ينفجر. الوقف فوق قمة الارتداد.
+
+    Returns a details dict (score + levels + direction) or None. Single source of
+    truth shared by the live bot and the backtester.
     """
     closes = series.closes()
     n = len(closes)
@@ -516,6 +517,7 @@ def detect_trend_pullback(series: Series, rr: float = 2.0):
         return None
     price = closes[-1]
     low = series.lows()[-1]
+    high = series.highs()[-1]
     e9 = ind.ema(closes, 9)
     e21 = ind.ema(closes, 21)
     e50 = ind.ema(closes, 50)
@@ -524,6 +526,47 @@ def detect_trend_pullback(series: Series, rr: float = 2.0):
     if None in (e9, e21, e50, e50_prev, rsi_v):
         return None
 
+    vs = ind.volume_surge(series.volumes(), 20)
+    obv_up = ind.obv_rising(closes, series.volumes(), 10)
+    slope_pct = (e50 / e50_prev - 1.0) * 100.0
+
+    if direction == "short":
+        downtrend = e9 < e21 < e50 and e50 < e50_prev
+        touched_ma = high >= e21 >= price      # ارتد لأعلى للمتوسّط ثم أغلق تحته
+        healthy = rsi_v <= 60.0
+        if not (downtrend and touched_ma and healthy):
+            return None
+        stop = max(high, e21) * 1.005
+        risk = stop - price
+        if risk <= 0:
+            return None
+        target = price - rr * risk
+        reasons = [
+            "📉 ارتداد داخل اتجاه هابط — بيع مع الاتجاه (Short)",
+            "ترتيب هابط: EMA9<EMA21<EMA50 وEMA50 يهبط",
+            f"ارتداد لأعلى على EMA21 ثم إغلاق تحته (RSI {rsi_v:.0f})",
+        ]
+        score = 60.0
+        score += min(14.0, max(0.0, -slope_pct * 6.0))   # هبوط أقوى ميلًا = أفضل
+        if 40.0 <= rsi_v <= 55.0:
+            score += 8.0
+            reasons.append("RSI في منطقة ارتداد صحّية للهبوط")
+        if vs is not None and vs > 1.2:
+            score += 6.0
+            reasons.append(f"ارتفاع حجم عند الارتداد (×{vs:.1f})")
+        if obv_up is False:
+            score += 12.0
+            reasons.append("💧 OBV هابط — تدفّق بيع يدعم الاتجاه")
+        elif obv_up:
+            score -= 10.0
+        score = max(0.0, min(100.0, score))
+        return {
+            "reasons": reasons, "score": round(score, 1), "direction": "SELL",
+            "price": price, "stop": stop, "target": target,
+            "base_low": price, "base_high": high, "rsi": rsi_v,
+        }
+
+    # --- LONG (افتراضي) ---
     uptrend = e9 > e21 > e50 and e50 > e50_prev
     touched_ma = low <= e21 <= price          # ارتداد: لمس المتوسّط ثم أغلق فوقه
     healthy = rsi_v >= 40.0
@@ -536,23 +579,19 @@ def detect_trend_pullback(series: Series, rr: float = 2.0):
         return None
     target = price + rr * risk
 
-    slope_pct = (e50 / e50_prev - 1.0) * 100.0
     reasons = [
         "📈 ارتداد داخل اتجاه صاعد — دخول مع الاتجاه (أقوى إحصائيًا)",
         "ترتيب صاعد: EMA9>EMA21>EMA50 وEMA50 يصعد",
         f"ارتداد على EMA21 ثم إغلاق فوقه (RSI {rsi_v:.0f})",
     ]
-
     score = 60.0
     score += min(14.0, max(0.0, slope_pct * 6.0))        # اتجاه أقوى ميلًا = أفضل
     if 45.0 <= rsi_v <= 60.0:
         score += 8.0
         reasons.append("RSI في منطقة ارتداد صحّية")
-    vs = ind.volume_surge(series.volumes(), 20)
     if vs is not None and vs > 1.2:
         score += 6.0
         reasons.append(f"ارتفاع حجم عند الارتداد (×{vs:.1f})")
-    obv_up = ind.obv_rising(closes, series.volumes(), 10)
     if obv_up:
         score += 12.0
         reasons.append("💰 OBV صاعد — تدفّق شراء يدعم الاتجاه")
@@ -561,14 +600,9 @@ def detect_trend_pullback(series: Series, rr: float = 2.0):
     score = max(0.0, min(100.0, score))
 
     return {
-        "reasons": reasons,
-        "score": round(score, 1),
-        "price": price,
-        "stop": stop,
-        "target": target,
-        "base_low": low,
-        "base_high": price,
-        "rsi": rsi_v,
+        "reasons": reasons, "score": round(score, 1), "direction": "BUY",
+        "price": price, "stop": stop, "target": target,
+        "base_low": low, "base_high": price, "rsi": rsi_v,
     }
 
 
