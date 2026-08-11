@@ -25,6 +25,8 @@ from deals_bot.backtester import (
 )
 from deals_bot.providers import fetch, fetch_many
 from deals_bot.strategy import resolve_symbols
+from deals_bot.walkforward import summarize as wf_summarize
+from deals_bot.walkforward import walk_forward
 
 # حدّ أقصى لعدد رموز الكريبتو في الباك-تِست (لتحديد الوقت)
 BACKTEST_MAX_CRYPTO = 80
@@ -238,6 +240,34 @@ def optimize(source: str, timeframe: str) -> int:
     return 0
 
 
+def walk_forward_run(source: str, timeframe: str) -> int:
+    """
+    اختبار المشي الأمامي: يدرّب العتبة داخل العيّنة ويختبرها خارجها عبر عدة طيّات.
+    يجيب سؤال: هل الأفضلية تصمد على بيانات لم تُضبط عليها؟
+    """
+    symbols = resolve_symbols("crypto", "auto")[:BACKTEST_MAX_CRYPTO]
+    print(f"⏳ Walk-Forward على {len(symbols)} عملة ({timeframe})...")
+    series = fetch_many(symbols, "crypto", "auto", timeframe, limit=1000)
+    results = walk_forward(series, folds=4, thresholds=(80.0, 85.0, 90.0), require_ema200=True)
+
+    print("\n" + "=" * 60)
+    print(f"{'طيّة':>5} | {'عتبة تدريب':>10} | {'توقّع تدريب':>11} | "
+          f"{'صفقات اختبار':>12} | {'توقّع اختبار':>12}")
+    print("-" * 60)
+    for r in results:
+        print(f"{r.fold:>5} | {r.train_best_score:>10.0f} | {r.train_expectancy:>+11.2f} | "
+              f"{r.test_trades:>12} | {r.test_expectancy:>+12.2f}")
+    print("=" * 60)
+    s = wf_summarize(results)
+    print(f"خارج العيّنة (OOS): {s['oos_trades']} صفقة | "
+          f"توقّع {s['oos_expectancy']:+.2f}R | إجمالي {s['oos_total_r']:+.1f}R")
+    print(
+        "\nℹ️ التوقّع الموجب خارج العيّنة = الأفضلية تصمد على بيانات لم تُضبط عليها "
+        "(تعميم حقيقي، لا مبالغة في المطابقة)."
+    )
+    return 0
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description="باك-تِست لاستراتيجية بوت الصفقات.")
     p.add_argument("--market", "-m", choices=["crypto", "stocks", "forex", "all"], default="crypto")
@@ -245,12 +275,14 @@ def main(argv=None) -> int:
     p.add_argument("--timeframe", "-t", choices=["1m", "5m", "15m", "1h", "6h", "1d"], default="1h")
     p.add_argument(
         "--strategy",
-        choices=["signals", "prepump", "trend", "compare", "trendsweep", "optimize"],
+        choices=["signals", "prepump", "trend", "compare", "trendsweep",
+                 "optimize", "walkforward"],
         default="signals",
         help="signals=إشارات شراء/بيع؛ prepump=ما قبل الاندفاع؛ "
         "trend=ارتداد داخل اتجاه صاعد؛ compare=قارن prepump مقابل trend؛ "
         "trendsweep=اختبار الانتقائية + فلتر السوق؛ "
-        "optimize=اختر أفضل RR وفلتر EMA200 بالدليل",
+        "optimize=اختر أفضل RR وفلتر EMA200؛ "
+        "walkforward=اختبار خارج العيّنة (تعميم الأفضلية)",
     )
     args = p.parse_args(argv)
     if args.strategy == "compare":
@@ -263,6 +295,8 @@ def main(argv=None) -> int:
         return trend_sweep(args.source, args.timeframe)
     if args.strategy == "optimize":
         return optimize(args.source, args.timeframe)
+    if args.strategy == "walkforward":
+        return walk_forward_run(args.source, args.timeframe)
     return run(args.market, args.source, args.timeframe, args.strategy)
 
 

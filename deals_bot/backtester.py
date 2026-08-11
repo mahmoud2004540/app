@@ -243,6 +243,8 @@ def backtest_trend_pullback_series(
     regime: Optional[dict] = None,
     require_ema200: bool = False,
     breakeven_r: float = 0.0,
+    entry_min_ts: Optional[float] = None,
+    entry_max_ts: Optional[float] = None,
 ) -> BacktestResult:
     """
     باك-تِست لاستراتيجية «الارتداد داخل الاتجاه الصاعد» (Trend Pullback).
@@ -263,6 +265,13 @@ def backtest_trend_pullback_series(
     i = max(warmup, 55)
 
     while i < n - 1:
+        # نافذة الدخول (للـ walk-forward): لا نفتح إلا داخل المدى الزمني المطلوب.
+        ts = candles[i].ts
+        if entry_min_ts is not None and ts < entry_min_ts:
+            i += 1
+            continue
+        if entry_max_ts is not None and ts >= entry_max_ts:
+            break
         sub = Series(symbol=series.symbol, market=series.market, candles=candles[: i + 1])
         setup = detect_trend_pullback(sub, rr=rr)
         if not setup or setup["score"] < min_score:

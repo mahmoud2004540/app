@@ -55,6 +55,31 @@ class PaperAccount:
     starting_equity: float
     positions: List[PaperPosition] = field(default_factory=list)
     closed: List[ClosedTrade] = field(default_factory=list)
+    day: int = 0                      # رقم اليوم (ts // 86400) لإعادة ضبط الحدّ اليومي
+    day_start_equity: float = 0.0     # رأس المال عند بداية اليوم
+
+
+def roll_day(acc: PaperAccount, now_ts: float) -> bool:
+    """أعِد ضبط أساس اليوم عند تغيّر التاريخ. يُرجع True إذا بدأ يوم جديد."""
+    today = int(now_ts // 86400)
+    if acc.day != today:
+        acc.day = today
+        acc.day_start_equity = acc.equity
+        return True
+    if acc.day_start_equity <= 0:
+        acc.day_start_equity = acc.equity
+    return False
+
+
+def trailing_consecutive_losses(acc: PaperAccount) -> int:
+    """عدد الخسائر المتتالية في ذيل الصفقات المغلقة."""
+    n = 0
+    for t in reversed(acc.closed):
+        if t.pnl < 0:
+            n += 1
+        else:
+            break
+    return n
 
 
 # --------------------------------------------------------------------------- #
@@ -70,6 +95,8 @@ def load_account(equity: float = 1000.0, path: str = DEFAULT_STATE) -> PaperAcco
         starting_equity=raw.get("starting_equity", raw["equity"]),
         positions=[PaperPosition(**p) for p in raw.get("positions", [])],
         closed=[ClosedTrade(**c) for c in raw.get("closed", [])],
+        day=raw.get("day", 0),
+        day_start_equity=raw.get("day_start_equity", raw["equity"]),
     )
 
 
@@ -82,6 +109,8 @@ def save_account(acc: PaperAccount, path: str = DEFAULT_STATE) -> None:
             {
                 "equity": acc.equity,
                 "starting_equity": acc.starting_equity,
+                "day": acc.day,
+                "day_start_equity": acc.day_start_equity,
                 "positions": [asdict(p) for p in acc.positions],
                 "closed": [asdict(c) for c in acc.closed],
             },
