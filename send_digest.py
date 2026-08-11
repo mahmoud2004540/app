@@ -25,9 +25,9 @@ import urllib.request
 
 import config
 from deals_bot import journal
-from deals_bot.formatter import DISCLAIMER, format_picks, format_watch
+from deals_bot.formatter import DISCLAIMER, format_digest, format_picks, format_watch
 from deals_bot.providers import fetch
-from deals_bot.strategy import market_is_bullish, top_picks
+from deals_bot.strategy import market_is_bullish, scan_universe, top_picks
 
 
 def _alert_only() -> bool:
@@ -89,6 +89,42 @@ def _journal_maintenance(picks, timeframe: str) -> str:
 TELEGRAM_MAX = 4000  # حد أمان أقل من 4096 لتفادي رفض الرسالة
 
 
+def build_prepump_message(markets, timeframe: str) -> str:
+    """
+    رسالة «ما قبل الاندفاع» — عملة أو اثنتان لكل قسم، بأعلى جودة (درجة ≥85).
+
+    قسمان: (1) تجميع/انضغاط قبل الاندفاع، (2) بداية الاندفاع (أول كسر بحجم).
+    مع بوّابة حالة السوق لرفع نسبة النجاح، وملاحظة أمينة عن طبيعة الدخول المبكّر.
+    """
+    _signals, accums, earlies = scan_universe(markets, timeframe=timeframe)
+
+    banner = ""
+    if getattr(config, "PREPUMP_MARKET_REGIME", True) and "crypto" in markets:
+        if market_is_bullish(timeframe) is False:
+            banner = ("⚠️ السوق العام (BTC) تحت متوسّطه — إشارات الكسر أضعف الآن؛ "
+                      "تعامل بحذر أو انتظر عودة السوق.\n\n")
+
+    head = (
+        "🎯 صفقات ما قبل الاندفاع فقط (قبل/بداية الـ pump — لا مطاردة)\n"
+        f"أقوى {getattr(config, 'PREPUMP_TOP', 2)} فقط لكل قسم (درجة ≥"
+        f"{int(getattr(config, 'PREPUMP_MIN_SCORE', 85))})\n\n"
+    )
+    msg = head + banner
+    msg += format_digest(accums, title=f"1) قبل الاندفاع — تجميع/انضغاط (الأبكر) ({timeframe})")
+    msg += "\n\n" + format_digest(
+        earlies, title=f"2) بداية الاندفاع — أول كسر بحجم ({timeframe})")
+    if not accums and not earlies:
+        msg += ("\n\n📭 لا يوجد إعداد قوي (درجة ≥"
+                f"{int(getattr(config, 'PREPUMP_MIN_SCORE', 85))}) الآن. "
+                "الإعداد النادر أفضل من صفقة ضعيفة — البوت ينتظر.")
+    msg += (
+        "\n\nℹ️ صدق تام: «ما قبل الاندفاع» دخول مبكّر — أعلى مكافأة لكن نسبة نجاحه "
+        "أقل بطبيعته من استراتيجية الاتجاه المؤكّدة (+0.38R). رفعنا العتبة وفلتر "
+        "السوق لأعلى جودة ممكنة، لكن استخدم وقف الخسارة دائمًا."
+    )
+    return msg
+
+
 def build_message():
     """يبني نص الرسالة، أو None في وضع التنبيه (ALERT_ONLY) حين لا توجد صفقة."""
     markets = [
@@ -98,6 +134,10 @@ def build_message():
     ] or ["crypto"]
     timeframe = os.environ.get("TIMEFRAME", config.DEFAULT_TIMEFRAME)
     alert_only = _alert_only()
+
+    # وضع «ما قبل الاندفاع» (تجميع/انضغاط + بداية اندفاع) — عملة أو اثنتان لكل قسم
+    if os.environ.get("DIGEST_MODE", "trend").lower() == "prepump" and not alert_only:
+        return build_prepump_message(markets, timeframe)
 
     # وضع التنبيه: فحص رخيص أولًا — لو السوق العام هابط لا نفحص كل العملات أصلًا.
     if alert_only and getattr(config, "TREND_MARKET_REGIME", True) and "crypto" in markets:

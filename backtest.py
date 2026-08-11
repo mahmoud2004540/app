@@ -58,8 +58,10 @@ def run(market: str, source: str, timeframe: str, strategy: str = "signals") -> 
             symbols = config.WATCHLISTS[mkt]
         print(f"⏳ باك-تِست ({strategy}) {len(symbols)} رمزًا في «{mkt}» ({timeframe})...")
         series = fetch_many(symbols, mkt, src, timeframe, limit=1000)
+        # للـ prepump: طبّق نفس عتبة الجودة المستخدمة حيًّا (لقياس النسخة الصارمة)
+        pre_min = getattr(config, "PREPUMP_MIN_SCORE", 85) if strategy == "prepump" else 0.0
         for s in series:
-            res = bt(s)
+            res = bt(s, min_score=pre_min) if strategy == "prepump" else bt(s)
             if res.n == 0:
                 continue
             rows.append(res)

@@ -355,10 +355,12 @@ def scan_universe(
     sig_top = signals[:top]
 
     # دقة أعلى لإشارات «ما قبل الاندفاع»: بوابة جودة + تأكيد إطار أعلى + ترتيب
-    prepump_min = getattr(config, "PREPUMP_MIN_SCORE", 70)
+    # حدّ 1-2 لكل قسم (جودة لا كمية) عبر PREPUMP_TOP.
+    prepump_min = getattr(config, "PREPUMP_MIN_SCORE", 85)
     htf = getattr(config, "PREPUMP_HTF_CONFIRM", True)
-    acc_top = _finalize_prepump(accums, timeframe, top, prepump_min, htf)
-    early_top = _finalize_prepump(earlies, timeframe, top, prepump_min, htf)
+    pre_top = getattr(config, "PREPUMP_TOP", top)
+    acc_top = _finalize_prepump(accums, timeframe, pre_top, prepump_min, htf)
+    early_top = _finalize_prepump(earlies, timeframe, pre_top, prepump_min, htf)
 
     for d in sig_top + acc_top + early_top:
         _refresh_live_price(d)
