@@ -28,6 +28,10 @@ on:
         description: "نوع الصفقات (trend = هي دي؛ prepump = ما قبل الاندفاع)"
         required: false
         default: "trend"
+      alert_only:
+        description: "1 = صفقات الدخول فقط؛ 0 = اعرض المرشّحين للمراقبة أيضًا"
+        required: false
+        default: "1"
       strategy:
         description: "استراتيجية الباك-تِست (prepump,trend,compare,trendsweep,optimize)"
         required: false
@@ -67,6 +71,8 @@ jobs:
           TIMEFRAME: ${{ github.event.inputs.timeframe || '1h' }}
           DIRECTION: ${{ github.event.inputs.direction || 'any' }}
           DIGEST_MODE: ${{ github.event.inputs.digest_mode || 'trend' }}
+          # لا يُرسل إلا الصفقات المكتملة الشرط («ادخل») — بلا رسائل «مراقبة»
+          ALERT_ONLY: ${{ github.event.inputs.alert_only || '1' }}
           TOP: "5"
         run: python send_digest.py
 
