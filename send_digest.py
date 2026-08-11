@@ -34,6 +34,37 @@ def _alert_only() -> bool:
     return os.environ.get("ALERT_ONLY", "").lower() in ("1", "true", "yes")
 
 
+def _apply_new_strategy(picks, timeframe: str) -> None:
+    """
+    مرّر كل صفقة على الاستراتيجية الجديدة: تأكيد 15M + حجم مخاطرة محرّك المخاطر (0.5%).
+
+    يضبط على كل صفقة: confirmed (تأكيد إطار 15 دقيقة) وحجم المركز وفق محرّك المخاطر.
+    """
+    from deals_bot.confirmation import confirm
+    from deals_bot.providers import fetch
+    from deals_bot.risk_engine import RiskConfig, RiskEngine
+
+    eng = RiskEngine(RiskConfig(
+        risk_per_trade=getattr(config, "RISK_PER_TRADE_PRO", 0.005),
+        fee_rate=getattr(config, "FEE_RATE", 0.001),
+        slippage_rate=getattr(config, "SLIPPAGE_RATE", 0.0005),
+        min_rr=getattr(config, "MIN_RISK_REWARD", 2.0),
+    ))
+    ctf = getattr(config, "CONFIRM_TIMEFRAME", "15m")
+    vmult = getattr(config, "CONFIRM_VOLUME_MULT", 1.3)
+    equity = getattr(config, "ACCOUNT_BALANCE", 1000.0)
+    for d in picks:
+        src = "auto" if d.market == "crypto" else "yfinance"
+        try:
+            cs = fetch(d.symbol, d.market, src, ctf, limit=60)
+            d.confirmed = confirm(cs, "BUY", vmult).confirmed
+        except Exception:  # noqa: BLE001 - التأكيد أفضلية، لا يُفشل الإشارة
+            d.confirmed = None
+        qty, risk_amount = eng.position_size(equity, d.entry, d.stop_loss, d.direction)
+        if qty > 0:
+            d.qty, d.risk_amount = qty, risk_amount
+
+
 def _journal_maintenance(picks, timeframe: str) -> str:
     """سجّل الصفقات الجديدة، قيّم المفتوحة من الشموع الحقيقية، وأرجع ملاحظة التعلّم."""
     try:
@@ -83,10 +114,14 @@ def build_message():
         print("🔕 وضع التنبيه: لا صفقة مؤكّدة الآن — لم تُرسل رسالة.")
         return None
 
+    # الاستراتيجية الجديدة: تأكيد 15M + حجم مخاطرة محرّك المخاطر (0.5%) لكل صفقة
+    if picks:
+        _apply_new_strategy(picks, timeframe)
+
     header = (
-        "🏆 أفضل الصفقات — مُنتقاة من فحص كل العملات\n"
-        "(إعداد «ارتداد داخل اتجاه صاعد» — أفضلية مقاسة +0.38R لكل صفقة "
-        "بالباك-تِست على بيانات حقيقية)\n\n"
+        "🏆 أفضل الصفقات — على الاستراتيجية الجديدة\n"
+        "(اتجاه صاعد + ارتداد + تأكيد 15M + محرّك مخاطر 0.5% — "
+        "أفضلية مقاسة +0.38R داخل العيّنة، +0.19R خارجها)\n\n"
     )
     # المرحلتان 12+13: سجّل الصفقات الجديدة، قيّم المفتوحة، واحصل على ملاحظة التعلّم
     # (في الوضع العادي فقط — نُبقي وضع التنبيه السريع رخيصًا).

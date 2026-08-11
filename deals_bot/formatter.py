@@ -277,7 +277,7 @@ def _pick_body(d: Deal) -> List[str]:
         f"   🟢 الدخول: {_fmt_price(d.entry)}",
         f"   🛑 وقف الخسارة: {_fmt_price(d.stop_loss)}  (−{stp:.1f}%)",
         f"   🎯 الهدف: {_fmt_price(d.take_profit)}  (+{tgt:.1f}%)",
-        f"   ⚖️ مخاطرة/عائد 1:{d.risk_reward:.1f}  |  الثقة {d.confidence:.0f}/100",
+        f"   ⚖️ مخاطرة/عائد 1:{d.risk_reward:.1f}  |  درجة AI {d.confidence:.0f}/100",
     ]
     if d.qty is not None:
         lines.append(f"   📦 حجم مقترح: {d.qty:g} وحدة (تخاطر بـ {d.risk_amount:g})")
@@ -298,6 +298,10 @@ def format_picks(picks: List[Deal]) -> str:
         num = f" رقم {i}" if len(picks) > 1 else ""
         parts.append(f"🎯👈 هي دي الصفقة{num}: {d.symbol}")
         parts.append(f"   📈 اتجاه صاعد (ارتداد للمتوسّط) — {grade(d)}")
+        if d.confirmed is True:
+            parts.append("   ✅ مؤكّدة على 15M (انغلاف + حجم + كسر بنية)")
+        elif d.confirmed is False:
+            parts.append("   ⏳ بانتظار تأكيد 15M — راقبها قبل الدخول")
         parts.extend(_pick_body(d))
         parts.append("")
     parts.append(DISCLAIMER)
