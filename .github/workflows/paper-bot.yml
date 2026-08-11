@@ -1,0 +1,56 @@
+name: بوت التداول الورقي (Paper Trading)
+
+# حلقة تداول ورقي (لا أموال حقيقية): تراقب الصفقات المفتوحة وتفتح المعتمدة عبر
+# خط القرار، وتحفظ الحساب + السجل في المستودع. تعمل كل ساعة.
+on:
+  schedule:
+    - cron: "5 * * * *"
+  workflow_dispatch:
+    inputs:
+      timeframe:
+        description: "الإطار الأساسي"
+        required: false
+        default: "1h"
+
+concurrency:
+  group: paper-bot
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  paper:
+    runs-on: ubuntu-latest
+    steps:
+      - name: تنزيل الكود
+        uses: actions/checkout@v4
+
+      - name: تجهيز بايثون
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: تثبيت المتطلبات
+        run: pip install -r requirements.txt
+
+      - name: دورة تداول ورقي
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          MARKETS: "crypto"
+          TIMEFRAME: ${{ github.event.inputs.timeframe || '1h' }}
+        run: python paper_bot.py
+
+      - name: حفظ حساب التداول الورقي + السجل
+        run: |
+          if [ -n "$(git status --porcelain journal/)" ]; then
+            git config user.name "paper-bot"
+            git config user.email "bot@users.noreply.github.com"
+            git add journal/
+            git commit -m "chore(paper): update paper account + journal [skip ci]"
+            git push
+          else
+            echo "لا تغييرات."
+          fi
