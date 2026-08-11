@@ -1,0 +1,33 @@
+name: تقرير الأداء إلى تيليجرام
+
+# يرسل نفس محتوى لوحة الأداء كرسالة تيليجرام — يوميًا + عند الطلب.
+on:
+  schedule:
+    - cron: "0 6 * * *"      # 06:00 UTC يوميًا
+  workflow_dispatch:
+
+concurrency:
+  group: report
+  cancel-in-progress: false
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - name: تنزيل الكود
+        uses: actions/checkout@v4
+
+      - name: تجهيز بايثون
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: تثبيت المتطلبات
+        run: pip install -r requirements.txt
+
+      - name: إرسال تقرير الأداء
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python telegram_report.py
