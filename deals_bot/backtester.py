@@ -180,13 +180,14 @@ def _prepump_levels(setup: dict, kind: str):
     return price, stop, target
 
 
-def backtest_prepump_series(series: Series, warmup: int = 80) -> BacktestResult:
+def backtest_prepump_series(series: Series, warmup: int = 80,
+                            min_score: float = 0.0) -> BacktestResult:
     """
     باك-تِست مخصّص لإشارات «ما قبل الاندفاع» (بداية اندفاع / تجميع / انضغاط).
 
     Measures whether the pre-pump detectors actually precede up-moves: at each
-    bar, if a setup fires, open a long at that price with the same stop/target
-    the bot would use, then check forward bars for the outcome.
+    bar, if a setup fires (and passes min_score), open a long at that price with
+    the same stop/target the bot would use, then check forward bars for outcome.
     """
     candles = series.candles
     trades: List[Trade] = []
@@ -200,7 +201,7 @@ def backtest_prepump_series(series: Series, warmup: int = 80) -> BacktestResult:
         if not setup:
             setup = detect_accumulation(sub) or detect_pre_pump(sub)
             kind = "base"
-        if not setup:
+        if not setup or setup.get("score", 0.0) < min_score:
             i += 1
             continue
 
