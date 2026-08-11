@@ -103,6 +103,33 @@ def test_trend_pullback_skips_downtrend():
     assert res.n == 0
 
 
+def _downtrend_candles(n=420):
+    out = []
+    for i in range(n):
+        base = 300 - i * 0.4 + (3.0 if (i % 20) in (10, 11) else 0.0)
+        out.append(Candle(ts=i, open=base, high=max(base, base - 0.5) + 1.2,
+                          low=min(base, base - 0.5) - 0.8, close=base - 0.5, volume=1000.0))
+    return out
+
+
+def test_short_fires_in_downtrend_with_correct_levels():
+    s = Series(symbol="DN-USD", market="crypto", candles=_downtrend_candles())
+    res = backtest_trend_pullback_series(s, direction="short")
+    assert res.n > 0
+    for t in res.trades:
+        assert t.direction == "SELL"
+        assert t.stop > t.entry > t.target        # short: الوقف فوق، الهدف تحت
+        if t.won:
+            assert math.isclose(t.result_r, 2.0, rel_tol=0.05)
+
+
+def test_short_skips_uptrend():
+    # اتجاه صاعد: استراتيجية Short لا تدخل أي صفقة
+    res = backtest_trend_pullback_series(
+        _series("UP", _trend(100.0, 0.6, 200, wiggle=1.0)), direction="short")
+    assert res.n == 0
+
+
 def _pullback_candles(n=400):
     out = []
     for i in range(n):

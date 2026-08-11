@@ -270,6 +270,57 @@ def walk_forward_run(source: str, timeframe: str) -> int:
     return 0
 
 
+def short_test(source: str, timeframe: str) -> int:
+    """
+    قياس استراتيجية Short (نفس منطق الاتجاه لكن معكوس): درجة ≥85 + فلتر سوق هابط
+    + السعر تحت EMA200. نجيب نسبة النجاح والتوقّع الحقيقيين قبل أي تفعيل حيّ.
+    """
+    symbols = resolve_symbols("crypto", "auto")[:BACKTEST_MAX_CRYPTO]
+    print(f"⏳ قياس Short على {len(symbols)} عملة ({timeframe})...")
+    series = fetch_many(symbols, "crypto", "auto", timeframe, limit=1000)
+
+    # فلتر السوق للـ Short = عكس الصعود (البيتكوين تحت متوسّطه)
+    bearish = None
+    try:
+        btc = fetch("BTC-USD", "crypto", "auto", timeframe, limit=1000)
+        up = market_uptrend_map(btc, 50)
+        bearish = {ts: (not v) for ts, v in up.items()}
+        print(f"  ✅ خريطة السوق الهابط من BTC ({len(bearish)} شمعة).")
+    except Exception as exc:  # noqa: BLE001
+        print(f"  ⚠️ تعذّر بناء فلتر السوق: {exc}")
+
+    def summarize(label, min_score, use_regime, ema200):
+        reg = bearish if use_regime else None
+        tt = tw = 0
+        tr = 0.0
+        for s in series:
+            res = backtest_trend_pullback_series(
+                s, direction="short", min_score=min_score, regime=reg,
+                require_ema200=ema200,
+            )
+            tt += res.n
+            tw += res.wins
+            tr += res.total_r
+        wr = (tw / tt * 100.0) if tt else 0.0
+        exp = (tr / tt) if tt else 0.0
+        print(f"{label:>28} | {tt:>6} | {wr:>6.1f} | {exp:>+8.2f} | {tr:>+8.1f}")
+        return exp, tt
+
+    print("\n" + "=" * 66)
+    print(f"{'تهيئة Short':>28} | {'صفقات':>6} | {'نجاح%':>6} | {'توقّع/R':>8} | {'إجمالي':>8}")
+    print("-" * 66)
+    summarize("درجة≥0 بلا فلاتر", 0.0, False, False)
+    summarize("درجة≥85", 85.0, False, False)
+    summarize("درجة≥85 + سوق هابط", 85.0, True, False)
+    summarize("درجة≥85 + سوق + EMA200", 85.0, True, True)
+    print("=" * 66)
+    print(
+        "\nℹ️ نبحث عن توقّع موجب (+). لو موجب → نفعّل Short في السوق الهابط. "
+        "لو سالب → لا نفعّله ونقولها بصراحة."
+    )
+    return 0
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description="باك-تِست لاستراتيجية بوت الصفقات.")
     p.add_argument("--market", "-m", choices=["crypto", "stocks", "forex", "all"], default="crypto")
@@ -278,7 +329,7 @@ def main(argv=None) -> int:
     p.add_argument(
         "--strategy",
         choices=["signals", "prepump", "trend", "compare", "trendsweep",
-                 "optimize", "walkforward"],
+                 "optimize", "walkforward", "short"],
         default="signals",
         help="signals=إشارات شراء/بيع؛ prepump=ما قبل الاندفاع؛ "
         "trend=ارتداد داخل اتجاه صاعد؛ compare=قارن prepump مقابل trend؛ "
@@ -299,6 +350,8 @@ def main(argv=None) -> int:
         return optimize(args.source, args.timeframe)
     if args.strategy == "walkforward":
         return walk_forward_run(args.source, args.timeframe)
+    if args.strategy == "short":
+        return short_test(args.source, args.timeframe)
     return run(args.market, args.source, args.timeframe, args.strategy)
 
 

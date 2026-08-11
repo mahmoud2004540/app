@@ -246,24 +246,27 @@ def backtest_trend_pullback_series(
     breakeven_r: float = 0.0,
     entry_min_ts: Optional[float] = None,
     entry_max_ts: Optional[float] = None,
+    direction: str = "long",
 ) -> BacktestResult:
     """
-    باك-تِست لاستراتيجية «الارتداد داخل الاتجاه الصاعد» (Trend Pullback).
+    باك-تِست لاستراتيجية «الارتداد داخل الاتجاه» (Long أو Short).
 
     يستخدم نفس كاشف البوت الحيّ `detect_trend_pullback` (مصدر واحد للحقيقة).
 
     فلاتر اختيارية لاختبار الانتقائية:
       - min_score: تجاهل أي إعداد أضعف من هذه الدرجة (نختار الأفضل فقط).
-      - regime: خريطة حالة السوق {ts→صاعد؟}؛ لا ندخل إلا لما السوق العام صاعد.
-      - require_ema200: لا ندخل إلا لو السعر فوق EMA200 (اتجاه صاعد بعيد المدى).
-      - breakeven_r: بعد تحقيق ربح بمقدار breakeven_r×المخاطرة، ننقل الوقف إلى
-        نقطة الدخول (صفقة بلا خسارة). 0 = معطّل.
+      - regime: خريطة حالة السوق {ts→مناسب؟}؛ لا ندخل إلا لما السوق في صالحنا.
+      - require_ema200: Long لا يدخل إلا فوق EMA200؛ Short لا يدخل إلا تحته.
+      - breakeven_r: بعد ربح breakeven_r×المخاطرة، ننقل الوقف إلى نقطة الدخول.
+      - direction: "long" (شراء) أو "short" (بيع).
     """
     candles = series.candles
     closes = [c.close for c in candles]
     trades: List[Trade] = []
     n = len(candles)
     i = max(warmup, 55)
+    is_short = direction == "short"
+    side = "SELL" if is_short else "BUY"
 
     while i < n - 1:
         # نافذة الدخول (للـ walk-forward): لا نفتح إلا داخل المدى الزمني المطلوب.
@@ -274,7 +277,7 @@ def backtest_trend_pullback_series(
         if entry_max_ts is not None and ts >= entry_max_ts:
             break
         sub = Series(symbol=series.symbol, market=series.market, candles=candles[: i + 1])
-        setup = detect_trend_pullback(sub, rr=rr)
+        setup = detect_trend_pullback(sub, rr=rr, direction=direction)
         if not setup or setup["score"] < min_score:
             i += 1
             continue
@@ -283,42 +286,59 @@ def backtest_trend_pullback_series(
             continue
         if require_ema200:
             e200 = ind.ema(closes[: i + 1], 200)
-            if not e200 or candles[i].close <= e200:
+            if not e200:
+                i += 1
+                continue
+            if is_short and candles[i].close >= e200:      # Short: لازم تحت EMA200
+                i += 1
+                continue
+            if not is_short and candles[i].close <= e200:  # Long: لازم فوق EMA200
                 i += 1
                 continue
 
         entry = setup["price"]
         stop = setup["stop"]
         target = setup["target"]
-        risk = entry - stop
+        risk = abs(entry - stop)
         if risk <= 0:
             i += 1
             continue
 
         outcome = None
         moved = False                              # هل نُقل الوقف لنقطة الدخول؟
-        be_level = entry + breakeven_r * risk if breakeven_r > 0 else None
+        be_level = (entry - breakeven_r * risk if is_short
+                    else entry + breakeven_r * risk) if breakeven_r > 0 else None
         j = i + 1
         while j < n:
             hi, lo = candles[j].high, candles[j].low
             cur_stop = entry if moved else stop
-            if lo <= cur_stop:                    # long: الوقف أولًا في الأسوأ
-                outcome = (cur_stop, cur_stop > entry)
-                break
-            if hi >= target:
-                outcome = (target, True)
-                break
-            if be_level is not None and not moved and hi >= be_level:
-                moved = True                      # فعّل التعادل بعد بلوغ العتبة
+            if is_short:
+                if hi >= cur_stop:                # short: الوقف فوق — الأسوأ أولًا
+                    outcome = (cur_stop, cur_stop < entry)
+                    break
+                if lo <= target:                  # الهدف تحت
+                    outcome = (target, True)
+                    break
+                if be_level is not None and not moved and lo <= be_level:
+                    moved = True
+            else:
+                if lo <= cur_stop:                # long: الوقف تحت — الأسوأ أولًا
+                    outcome = (cur_stop, cur_stop > entry)
+                    break
+                if hi >= target:
+                    outcome = (target, True)
+                    break
+                if be_level is not None and not moved and hi >= be_level:
+                    moved = True
             j += 1
 
         if outcome is None:
             i += 1
             continue
         exit_price, won = outcome
-        result_r = (exit_price - entry) / risk
+        result_r = ((entry - exit_price) if is_short else (exit_price - entry)) / risk
         trades.append(
-            Trade(series.symbol, "BUY", entry, stop, target, exit_price, result_r, won)
+            Trade(series.symbol, side, entry, stop, target, exit_price, result_r, won)
         )
         i = j + 1
 
