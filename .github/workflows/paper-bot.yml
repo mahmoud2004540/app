@@ -43,13 +43,16 @@ jobs:
           TIMEFRAME: ${{ github.event.inputs.timeframe || '1h' }}
         run: python paper_bot.py
 
-      - name: حفظ حساب التداول الورقي + السجل
+      - name: توليد لوحة الأداء
+        run: python dashboard.py
+
+      - name: حفظ الحساب + السجل + لوحة الأداء
         run: |
-          if [ -n "$(git status --porcelain journal/)" ]; then
+          if [ -n "$(git status --porcelain journal/ dashboard.html)" ]; then
             git config user.name "paper-bot"
             git config user.email "bot@users.noreply.github.com"
-            git add journal/
-            git commit -m "chore(paper): update paper account + journal [skip ci]"
+            git add journal/ dashboard.html
+            git commit -m "chore(paper): update account + journal + dashboard [skip ci]"
             git push
           else
             echo "لا تغييرات."
