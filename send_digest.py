@@ -193,9 +193,17 @@ def build_message():
         )
         missing = f"الدرجة أقل من {min_score}"
 
+    # زي الأول: نعرض أفضل عدة عملات (5) بالتفاصيل بدل واحدة — كلها مراقبة الآن.
     if candidates:
-        best = candidates[0]
-        return header + why + format_watch(best, missing) + tail
+        show_n = int(getattr(config, "DIGEST_WATCH_TOP", 5))
+        top = candidates[:show_n]
+        _apply_new_strategy(top, timeframe)
+        for d in top:
+            d.confirmed = None          # لا نضع «مؤكّدة» — الظرف العام مراقبة
+        watch_head = (
+            f"👀 أقرب {len(top)} مرشّحين الآن (مراقبة — {missing}):\n\n"
+        )
+        return header + why + watch_head + format_picks(top) + tail
     return header + why + DISCLAIMER + tail
 
 

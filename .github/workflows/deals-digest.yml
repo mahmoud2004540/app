@@ -71,8 +71,8 @@ jobs:
           TIMEFRAME: ${{ github.event.inputs.timeframe || '1h' }}
           DIRECTION: ${{ github.event.inputs.direction || 'any' }}
           DIGEST_MODE: ${{ github.event.inputs.digest_mode || 'trend' }}
-          # لا يُرسل إلا الصفقات المكتملة الشرط («ادخل») — بلا رسائل «مراقبة»
-          ALERT_ONLY: ${{ github.event.inputs.alert_only || '1' }}
+          # يبعت دائمًا أفضل الصفقات (زي الأول) — مراقبة في السوق الهابط، دخول في الصاعد
+          ALERT_ONLY: ${{ github.event.inputs.alert_only || '0' }}
           TOP: "5"
         run: python send_digest.py
 
