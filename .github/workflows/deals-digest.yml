@@ -24,6 +24,10 @@ on:
         description: "digest = إرسال الصفقات؛ backtest = قياس الأداء التاريخي"
         required: false
         default: "digest"
+      digest_mode:
+        description: "نوع الصفقات (trend = هي دي؛ prepump = ما قبل الاندفاع)"
+        required: false
+        default: "trend"
       strategy:
         description: "استراتيجية الباك-تِست (prepump,trend,compare,trendsweep,optimize)"
         required: false
@@ -62,6 +66,7 @@ jobs:
           MARKETS: ${{ github.event.inputs.markets || 'crypto,stocks,forex' }}
           TIMEFRAME: ${{ github.event.inputs.timeframe || '1h' }}
           DIRECTION: ${{ github.event.inputs.direction || 'any' }}
+          DIGEST_MODE: ${{ github.event.inputs.digest_mode || 'trend' }}
           TOP: "5"
         run: python send_digest.py
 
