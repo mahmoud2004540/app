@@ -4,6 +4,7 @@ import { I18nProvider } from './i18n/I18nProvider';
 import { AppLayout } from './components/layout/AppLayout';
 import { PagePlaceholder } from './components/PagePlaceholder';
 import { DashboardPage } from './pages/DashboardPage';
+import { AdbPage } from './pages/AdbPage';
 import { NAV_ITEMS } from './config/navigation';
 
 /**
@@ -14,6 +15,18 @@ import { NAV_ITEMS } from './config/navigation';
  * Each route currently renders a placeholder; feature pages replace them in
  * their respective phases (Dashboard in PHASE 3, and so on).
  */
+/** Map a nav id to its implemented page, or null to fall back to a placeholder. */
+function pageForItem(id: string): JSX.Element | null {
+  switch (id) {
+    case 'dashboard':
+      return <DashboardPage />;
+    case 'adb':
+      return <AdbPage />;
+    default:
+      return null;
+  }
+}
+
 export function App(): JSX.Element {
   return (
     <ThemeProvider>
@@ -25,9 +38,7 @@ export function App(): JSX.Element {
                 <Route
                   key={item.id}
                   path={item.path}
-                  element={
-                    item.id === 'dashboard' ? <DashboardPage /> : <PagePlaceholder item={item} />
-                  }
+                  element={pageForItem(item.id) ?? <PagePlaceholder item={item} />}
                 />
               ))}
               <Route path="*" element={<Navigate to="/" replace />} />

@@ -20,7 +20,8 @@ logs and reports together in one interface.
 | **PHASE 3** | Dashboard | ✅ complete |
 | **PHASE 4** | SQLite database | ✅ complete |
 | **PHASE 5** | USB / device detection | ✅ complete |
-| PHASE 6 | ADB Manager | ⏳ pending |
+| **PHASE 6** | ADB Manager | ✅ complete |
+| PHASE 7 | Fastboot Manager | ⏳ pending |
 | … | (see the development prompt) | ⏳ pending |
 
 PHASE 1 delivered the tooling foundation and architecture skeleton (Electron +
@@ -41,7 +42,11 @@ clients over a testable `CommandRunner` abstraction, pure output parsers, and a
 `DeviceDetectionService` that probes USB and enriches devices (brand, model,
 Android version, battery, RAM, bootloader/OEM state — FRP is diagnosed only).
 It is wired to the Dashboard over the secure IPC bridge, degrading gracefully
-when `adb`/`fastboot` are not installed. Other sections still show placeholders.
+when `adb`/`fastboot` are not installed. PHASE 6 adds the **ADB Manager** page:
+reboot (system/recovery/bootloader), connect/disconnect, install/uninstall APK,
+list packages, push/pull files, shell, logcat and screenshot — each input
+validated in the service and every sensitive action gated behind a confirmation
+dialog, with a live output console. Other sections still show placeholders.
 
 ## Technology stack
 
