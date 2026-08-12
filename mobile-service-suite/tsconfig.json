@@ -32,9 +32,10 @@
       "@core/*": ["core/*"],
       "@shared/*": ["shared/*"],
       "@modules/*": ["modules/*"],
+      "@backend/*": ["backend/*"],
       "@frontend/*": ["frontend/src/*"]
     }
   },
-  "include": ["frontend/src", "core", "shared", "modules", "tests"],
+  "include": ["frontend/src", "core", "shared", "modules", "backend", "tests"],
   "exclude": ["node_modules", "dist", "release"]
 }

@@ -4,14 +4,15 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "lib": ["ES2022"],
-    "outDir": "../dist/electron",
-    "rootDir": ".",
+    "outDir": "../dist",
+    "rootDir": "..",
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noImplicitReturns": true,
     "noFallthroughCasesInSwitch": true,
     "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "resolveJsonModule": true,
@@ -24,6 +25,6 @@
       "@shared/*": ["shared/*"]
     }
   },
-  "include": ["."],
-  "exclude": ["node_modules"]
+  "include": ["../electron", "../backend", "../core", "../shared"],
+  "exclude": ["../node_modules", "../dist"]
 }

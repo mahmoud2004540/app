@@ -7,6 +7,7 @@ export default defineConfig({
       '@core': fileURLToPath(new URL('./core', import.meta.url)),
       '@shared': fileURLToPath(new URL('./shared', import.meta.url)),
       '@modules': fileURLToPath(new URL('./modules', import.meta.url)),
+      '@backend': fileURLToPath(new URL('./backend', import.meta.url)),
       '@frontend': fileURLToPath(new URL('./frontend/src', import.meta.url)),
     },
   },
@@ -18,7 +19,7 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       reportsDirectory: './coverage',
-      include: ['core/**', 'shared/**', 'modules/**'],
+      include: ['core/**', 'shared/**', 'modules/**', 'backend/**'],
     },
   },
 });

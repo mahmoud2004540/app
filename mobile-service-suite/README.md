@@ -18,7 +18,8 @@ logs and reports together in one interface.
 | **PHASE 1** | Project Setup | ✅ complete |
 | **PHASE 2** | Electron + React shell | ✅ complete |
 | **PHASE 3** | Dashboard | ✅ complete |
-| PHASE 4 | SQLite | ⏳ pending |
+| **PHASE 4** | SQLite database | ✅ complete |
+| PHASE 5 | USB / device detection | ⏳ pending |
 | … | (see the development prompt) | ⏳ pending |
 
 PHASE 1 delivered the tooling foundation and architecture skeleton (Electron +
@@ -30,7 +31,11 @@ builds the main **Dashboard**: device overview, information grid, protection &
 status panel (ADB / Fastboot / Bootloader / OEM Lock / FRP — reported only),
 quick actions, and a connection checklist for the no-device state. It runs
 against a swappable `useDeviceStatus` hook; live ADB/Fastboot detection arrives
-in PHASE 5. Other sections still show placeholders.
+in PHASE 5. PHASE 4 adds the **SQLite persistence layer** (better-sqlite3): a
+forward-only migration runner, the full 11-table schema (users, devices,
+repair_sessions, tools, drivers, firmwares, operations, logs, backups, reports,
+settings), and typed repositories (Repository Pattern) exposed through an
+`AppDatabase` facade. Other sections still show placeholders.
 
 ## Technology stack
 
