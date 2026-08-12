@@ -23,7 +23,8 @@ logs and reports together in one interface.
 | **PHASE 6** | ADB Manager | ✅ complete |
 | **PHASE 7** | Fastboot Manager | ✅ complete |
 | **PHASE 8** | Driver Manager | ✅ complete |
-| PHASE 9 | Tool Manager | ⏳ pending |
+| **PHASE 9** | Tool Manager | ✅ complete |
+| PHASE 10 | Brand Modules | ⏳ pending |
 | … | (see the development prompt) | ⏳ pending |
 
 PHASE 1 delivered the tooling foundation and architecture skeleton (Electron +
@@ -56,7 +57,12 @@ technician action; account protection is never bypassed. PHASE 8 adds the
 **Driver Manager**: a data-driven catalog (ADB, Fastboot, Google USB, Samsung,
 Qualcomm, MediaTek, Unisoc) with real installed-status detection via `pnputil`
 on Windows, an "Open Device Manager" action, and official download links. The
-suite never installs drivers automatically. Other sections still show
+suite never installs drivers automatically. PHASE 9 adds the **Tool Manager**: a
+catalog of CLI and external tools (ADB, Fastboot, Odin, Mi Flash, QFIL, SP Flash
+Tool, ResearchDownload, UpgradeDownload, HiSuite) with version detection, a
+persisted per-tool path (SQLite `tools` table), and an External Tool Launcher
+that runs the technician's own installed copy and records the launch — it never
+bundles, modifies, or circumvents commercial software. Other sections still show
 placeholders.
 
 ## Technology stack

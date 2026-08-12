@@ -1,13 +1,29 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { DeviceDetectionService } from '../backend/services/detection/DeviceDetectionService';
 import { AdbManagerService } from '../backend/services/adb/AdbManagerService';
 import { FastbootManagerService } from '../backend/services/fastboot/FastbootManagerService';
 import { DriverManagerService } from '../backend/services/drivers/DriverManagerService';
+import { NodeCommandRunner } from '../backend/services/process/CommandRunner';
+import { ToolManagerService } from '../backend/services/tools/ToolManagerService';
+import { AppDatabase } from '../backend/database/Database';
+import { ToolRepository } from '../backend/database/repositories/ToolRepository';
+import { ok, err, type Result } from '../shared/types/result';
 
 const asString = (value: unknown): string => (typeof value === 'string' ? value : '');
+
+function launchExecutable(execPath: string): Result<string> {
+  try {
+    const child = spawn(execPath, [], { detached: true, stdio: 'ignore' });
+    child.unref();
+    return ok('launched');
+  } catch (e) {
+    return err(e instanceof Error ? e.message : String(e));
+  }
+}
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -19,7 +35,7 @@ const DEV_SERVER_URL = 'http://localhost:5173';
 const APP_INFO = {
   name: 'Mobile Service Suite',
   version: app.getVersion(),
-  phase: 'PHASE 8 — Driver Manager',
+  phase: 'PHASE 9 — Tool Manager',
 } as const;
 
 // Shared services. Both are safe to construct when the CLIs are absent.
@@ -27,6 +43,11 @@ const detectionService = new DeviceDetectionService();
 const adbManager = new AdbManagerService();
 const fastbootManager = new FastbootManagerService();
 const driverManager = new DriverManagerService();
+
+// Initialized on app-ready (needs the userData path).
+let database: AppDatabase | null = null;
+let toolStore: ToolRepository | null = null;
+let toolManager: ToolManagerService | null = null;
 
 function createMainWindow(): BrowserWindow {
   const window = new BrowserWindow({
@@ -65,6 +86,18 @@ function createMainWindow(): BrowserWindow {
   }
 
   return window;
+}
+
+function initDatabase(): void {
+  database = AppDatabase.open(path.join(app.getPath('userData'), 'mss.sqlite'));
+  toolStore = new ToolRepository(database.connection);
+  toolManager = new ToolManagerService({
+    runner: new NodeCommandRunner(),
+    store: toolStore,
+    fileExists: existsSync,
+    launch: launchExecutable,
+    log: database.logs,
+  });
 }
 
 function registerIpcHandlers(): void {
@@ -132,6 +165,25 @@ function registerIpcHandlers(): void {
     return { ok: false as const, error: 'Only http/https URLs may be opened' };
   });
 
+  // Tool Manager (PHASE 9). Launches the technician's own installed tools; never
+  // bundles or modifies commercial software.
+  ipcMain.handle('tools:list', () => toolManager?.list() ?? { tools: [] });
+  ipcMain.handle('tools:setPath', (_e, key, p) =>
+    toolManager?.setPath(asString(key), asString(p)) ?? { ok: false, error: 'not ready' },
+  );
+  ipcMain.handle('tools:checkVersion', (_e, key) =>
+    toolManager?.checkVersion(asString(key)) ?? { ok: false, error: 'not ready' },
+  );
+  ipcMain.handle('tools:launch', (_e, key) =>
+    toolManager?.launch(asString(key)) ?? { ok: false, error: 'not ready' },
+  );
+  ipcMain.handle('tools:openFolder', (_e, key) => {
+    const p = toolStore?.getPath(asString(key));
+    if (!p) return { ok: false as const, error: 'Tool path is not set' };
+    shell.showItemInFolder(p);
+    return { ok: true as const, value: p };
+  });
+
   // Native file dialogs used by file-oriented ADB/Fastboot actions.
   ipcMain.handle('dialog:openFile', async (_e, filters) => {
     const result = await dialog.showOpenDialog({
@@ -149,6 +201,7 @@ function registerIpcHandlers(): void {
 }
 
 app.whenReady().then(() => {
+  initDatabase();
   registerIpcHandlers();
   createMainWindow();
 
@@ -159,4 +212,9 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
+});
+
+app.on('will-quit', () => {
+  database?.close();
+  database = null;
 });

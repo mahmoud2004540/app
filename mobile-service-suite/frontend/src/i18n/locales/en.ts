@@ -137,4 +137,15 @@ export const en: Dictionary = {
   'drivers.statusNotInstalled': 'Not installed',
   'drivers.statusUnknown': 'Unknown',
   'drivers.needsApp': 'Driver detection runs inside the desktop app.',
+  'tools.subtitle': 'Detect, configure and launch flashing and service tools.',
+  'tools.launcherNote':
+    'The suite launches your own installed copy of each tool. It never bundles, modifies, or circumvents licensing of commercial software.',
+  'tools.run': 'Run',
+  'tools.openFolder': 'Open Folder',
+  'tools.changePath': 'Change Path',
+  'tools.checkVersion': 'Check Version',
+  'tools.official': 'Official Site',
+  'tools.path': 'Path',
+  'tools.notSet': 'not set',
+  'tools.needsApp': 'Tool detection runs inside the desktop app.',
 };

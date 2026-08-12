@@ -7,6 +7,7 @@ import { DashboardPage } from './pages/DashboardPage';
 import { AdbPage } from './pages/AdbPage';
 import { FastbootPage } from './pages/FastbootPage';
 import { DriversPage } from './pages/DriversPage';
+import { ToolsPage } from './pages/ToolsPage';
 import { NAV_ITEMS } from './config/navigation';
 
 /**
@@ -28,6 +29,8 @@ function pageForItem(id: string): JSX.Element | null {
       return <FastbootPage />;
     case 'drivers':
       return <DriversPage />;
+    case 'tools':
+      return <ToolsPage />;
     default:
       return null;
   }

@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { DetectionResult } from '@shared/types/device';
 import type { DriverReport } from '@shared/types/driver';
+import type { ToolReport, ToolStatus } from '@shared/types/tool';
 import type { Result } from '@shared/types/result';
 
 /**
@@ -67,6 +68,17 @@ const drivers = {
   list: (): Promise<DriverReport> => ipcRenderer.invoke('drivers:list'),
 };
 
+const tools = {
+  list: (): Promise<ToolReport> => ipcRenderer.invoke('tools:list'),
+  setPath: (key: string, path: string): Promise<Result<ToolStatus>> =>
+    ipcRenderer.invoke('tools:setPath', key, path),
+  checkVersion: (key: string): Promise<Result<string>> =>
+    ipcRenderer.invoke('tools:checkVersion', key),
+  launch: (key: string): Promise<Result<string>> => ipcRenderer.invoke('tools:launch', key),
+  openFolder: (key: string): Promise<Result<string>> =>
+    ipcRenderer.invoke('tools:openFolder', key),
+};
+
 const system = {
   openDeviceManager: (): Promise<Result<string>> =>
     ipcRenderer.invoke('system:openDeviceManager'),
@@ -92,6 +104,8 @@ const api = {
   fastboot,
   /** Driver Manager (PHASE 8). */
   drivers,
+  /** Tool Manager (PHASE 9). */
+  tools,
   /** System integrations (open Device Manager, external links). */
   system,
   /** Native file dialogs. */

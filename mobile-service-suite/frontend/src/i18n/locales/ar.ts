@@ -137,4 +137,15 @@ export const ar: Dictionary = {
   'drivers.statusNotInstalled': 'غير مثبّت',
   'drivers.statusUnknown': 'غير معروف',
   'drivers.needsApp': 'فحص التعريفات يعمل داخل تطبيق سطح المكتب.',
+  'tools.subtitle': 'اكتشف وأعدّ وشغّل أدوات الفلاشة والصيانة.',
+  'tools.launcherNote':
+    'البرنامج يشغّل نسختك المثبّتة من كل أداة. لا يدمج أو يعدّل أو يتجاوز تراخيص أي برنامج تجاري إطلاقًا.',
+  'tools.run': 'تشغيل',
+  'tools.openFolder': 'فتح المجلد',
+  'tools.changePath': 'تغيير المسار',
+  'tools.checkVersion': 'فحص الإصدار',
+  'tools.official': 'الموقع الرسمي',
+  'tools.path': 'المسار',
+  'tools.notSet': 'غير محدد',
+  'tools.needsApp': 'فحص الأدوات يعمل داخل تطبيق سطح المكتب.',
 };

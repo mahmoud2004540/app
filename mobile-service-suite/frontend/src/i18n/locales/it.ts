@@ -137,4 +137,15 @@ export const it: Dictionary = {
   'drivers.statusNotInstalled': 'Non installato',
   'drivers.statusUnknown': 'Sconosciuto',
   'drivers.needsApp': 'Il rilevamento driver funziona nell\'app desktop.',
+  'tools.subtitle': 'Rileva, configura e avvia gli strumenti di flash e assistenza.',
+  'tools.launcherNote':
+    'Il programma avvia la tua copia installata di ogni strumento. Non include, modifica né elude le licenze di software commerciali.',
+  'tools.run': 'Avvia',
+  'tools.openFolder': 'Apri cartella',
+  'tools.changePath': 'Cambia percorso',
+  'tools.checkVersion': 'Verifica versione',
+  'tools.official': 'Sito ufficiale',
+  'tools.path': 'Percorso',
+  'tools.notSet': 'non impostato',
+  'tools.needsApp': 'Il rilevamento strumenti funziona nell\'app desktop.',
 };

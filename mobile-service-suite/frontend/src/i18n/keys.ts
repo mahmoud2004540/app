@@ -147,6 +147,17 @@ export const TRANSLATION_KEYS = [
   'drivers.statusNotInstalled',
   'drivers.statusUnknown',
   'drivers.needsApp',
+  // Tool Manager (PHASE 9)
+  'tools.subtitle',
+  'tools.launcherNote',
+  'tools.run',
+  'tools.openFolder',
+  'tools.changePath',
+  'tools.checkVersion',
+  'tools.official',
+  'tools.path',
+  'tools.notSet',
+  'tools.needsApp',
 ] as const;
 
 export type TranslationKey = (typeof TRANSLATION_KEYS)[number];
