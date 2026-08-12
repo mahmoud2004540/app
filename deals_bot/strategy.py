@@ -198,6 +198,13 @@ def top_picks(
                 time.sleep(pause)
             if len(series) < 60:
                 continue
+            # فلتر السيولة: استبعد العملات التي يصعب تداولها فعليًا (حجم دولاري ضعيف)
+            min_dv = getattr(config, "MIN_DOLLAR_VOL", 0)
+            if min_dv > 0:
+                recent = series.candles[-20:]
+                dv = sum(c.close * c.volume for c in recent) / len(recent)
+                if dv < min_dv:
+                    continue
             tp = detect_trend_pullback(series, rr=rr)
             if tp:
                 d = _trend_pullback_deal(sym, market, tp)
