@@ -13,7 +13,7 @@ import { ConnectionChecklist } from '../components/dashboard/ConnectionChecklist
  * to `useDeviceStatus`, which becomes a live ADB/Fastboot probe in PHASE 5.
  */
 export function DashboardPage(): JSX.Element {
-  const { state, device, detect } = useDeviceStatus();
+  const { state, device, availability, detect } = useDeviceStatus();
   const connected = device !== null;
 
   return (
@@ -24,7 +24,13 @@ export function DashboardPage(): JSX.Element {
         <div className="lg:col-span-2">
           <DeviceInfoGrid device={device} />
         </div>
-        <div>{connected ? <ProtectionStatus device={device} /> : <ConnectionChecklist />}</div>
+        <div>
+          {connected ? (
+            <ProtectionStatus device={device} />
+          ) : (
+            <ConnectionChecklist availability={availability} />
+          )}
+        </div>
       </div>
 
       <QuickActions onDetect={detect} detecting={state === 'detecting'} />

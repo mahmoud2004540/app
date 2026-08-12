@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, shell } from 'electron';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { DeviceDetectionService } from '../backend/services/detection/DeviceDetectionService';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -12,8 +13,11 @@ const DEV_SERVER_URL = 'http://localhost:5173';
 const APP_INFO = {
   name: 'Mobile Service Suite',
   version: app.getVersion(),
-  phase: 'PHASE 1 — Project Setup',
+  phase: 'PHASE 5 — Device Detection',
 } as const;
+
+// Shared detection service (probes adb/fastboot). Safe when the tools are absent.
+const detectionService = new DeviceDetectionService();
 
 function createMainWindow(): BrowserWindow {
   const window = new BrowserWindow({
@@ -55,8 +59,9 @@ function createMainWindow(): BrowserWindow {
 }
 
 function registerIpcHandlers(): void {
-  // Minimal, read-only handler for PHASE 1. Real device/tool handlers arrive in later phases.
   ipcMain.handle('app:getInfo', () => APP_INFO);
+  // Device detection (PHASE 5). Read-only probe; returns tool availability + devices.
+  ipcMain.handle('devices:detect', () => detectionService.detect());
 }
 
 app.whenReady().then(() => {

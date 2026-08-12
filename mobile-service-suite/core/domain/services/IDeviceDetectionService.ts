@@ -1,16 +1,13 @@
-import type { Device } from '../entities/Device';
-import type { Result } from '@shared/types/result';
+import type { DetectionResult } from '@shared/types/device';
 
 /**
  * Service-layer contract for device detection (Service Layer pattern).
  *
- * Implemented in PHASE 5 against ADB/Fastboot. Declared here so the UI and other
- * services can be built and tested against the abstraction.
+ * Implemented in PHASE 5 against ADB/Fastboot. Declared in the domain so the UI
+ * and other services can depend on the abstraction rather than the concrete
+ * process-driven implementation.
  */
 export interface IDeviceDetectionService {
-  /** Enumerate all currently connected devices across USB / ADB / Fastboot. */
-  listConnectedDevices(): Promise<Result<Device[]>>;
-
-  /** Read detailed information for a single device by id. */
-  getDeviceInfo(deviceId: string): Promise<Result<Device>>;
+  /** Probe USB via ADB and Fastboot, returning tool availability + devices. */
+  detect(): Promise<DetectionResult>;
 }

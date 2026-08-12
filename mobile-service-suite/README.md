@@ -19,7 +19,8 @@ logs and reports together in one interface.
 | **PHASE 2** | Electron + React shell | ✅ complete |
 | **PHASE 3** | Dashboard | ✅ complete |
 | **PHASE 4** | SQLite database | ✅ complete |
-| PHASE 5 | USB / device detection | ⏳ pending |
+| **PHASE 5** | USB / device detection | ✅ complete |
+| PHASE 6 | ADB Manager | ⏳ pending |
 | … | (see the development prompt) | ⏳ pending |
 
 PHASE 1 delivered the tooling foundation and architecture skeleton (Electron +
@@ -35,7 +36,12 @@ in PHASE 5. PHASE 4 adds the **SQLite persistence layer** (better-sqlite3): a
 forward-only migration runner, the full 11-table schema (users, devices,
 repair_sessions, tools, drivers, firmwares, operations, logs, backups, reports,
 settings), and typed repositories (Repository Pattern) exposed through an
-`AppDatabase` facade. Other sections still show placeholders.
+`AppDatabase` facade. PHASE 5 adds **live device detection**: ADB and Fastboot
+clients over a testable `CommandRunner` abstraction, pure output parsers, and a
+`DeviceDetectionService` that probes USB and enriches devices (brand, model,
+Android version, battery, RAM, bootloader/OEM state — FRP is diagnosed only).
+It is wired to the Dashboard over the secure IPC bridge, degrading gracefully
+when `adb`/`fastboot` are not installed. Other sections still show placeholders.
 
 ## Technology stack
 

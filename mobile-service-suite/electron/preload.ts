@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
+import type { DetectionResult } from '@shared/types/device';
 
 /**
  * Secure bridge between the isolated renderer and the main process.
@@ -16,6 +17,8 @@ export interface AppInfo {
 const api = {
   /** Returns static application metadata from the main process. */
   getAppInfo: (): Promise<AppInfo> => ipcRenderer.invoke('app:getInfo'),
+  /** Probe connected devices over ADB and Fastboot. */
+  detectDevices: (): Promise<DetectionResult> => ipcRenderer.invoke('devices:detect'),
 };
 
 export type MobileServiceSuiteApi = typeof api;
