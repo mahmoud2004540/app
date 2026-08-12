@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { DetectionResult } from '@shared/types/device';
+import type { DriverReport } from '@shared/types/driver';
 import type { Result } from '@shared/types/result';
 
 /**
@@ -62,6 +63,17 @@ const fastboot = {
     ipcRenderer.invoke('fastboot:flash', serial, partition, imagePath),
 };
 
+const drivers = {
+  list: (): Promise<DriverReport> => ipcRenderer.invoke('drivers:list'),
+};
+
+const system = {
+  openDeviceManager: (): Promise<Result<string>> =>
+    ipcRenderer.invoke('system:openDeviceManager'),
+  openExternal: (url: string): Promise<Result<string>> =>
+    ipcRenderer.invoke('system:openExternal', url),
+};
+
 const dialogApi = {
   openFile: (filters?: FileFilter[]): Promise<string | null> =>
     ipcRenderer.invoke('dialog:openFile', filters),
@@ -78,6 +90,10 @@ const api = {
   adb,
   /** Fastboot Manager operations (PHASE 7). */
   fastboot,
+  /** Driver Manager (PHASE 8). */
+  drivers,
+  /** System integrations (open Device Manager, external links). */
+  system,
   /** Native file dialogs. */
   dialog: dialogApi,
 };

@@ -124,4 +124,17 @@ export const it: Dictionary = {
   'fastboot.erase': 'Cancella partizione',
   'fastboot.flash': 'Flash partizione',
   'fastboot.partition': 'Partizione (es. boot, userdata)',
+  'drivers.subtitle': 'Controlla lo stato dei driver e apri i download ufficiali.',
+  'drivers.noAutoInstall':
+    'Il programma non installa mai i driver automaticamente. Usa i link ufficiali e installa con il tuo consenso.',
+  'drivers.openDeviceManager': 'Apri Gestione dispositivi',
+  'drivers.download': 'Download ufficiale',
+  'drivers.info': 'Dettagli',
+  'drivers.version': 'Versione',
+  'drivers.vendor': 'Produttore',
+  'drivers.supported': 'Supportati',
+  'drivers.statusInstalled': 'Installato',
+  'drivers.statusNotInstalled': 'Non installato',
+  'drivers.statusUnknown': 'Sconosciuto',
+  'drivers.needsApp': 'Il rilevamento driver funziona nell\'app desktop.',
 };

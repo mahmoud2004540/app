@@ -134,6 +134,19 @@ export const TRANSLATION_KEYS = [
   'fastboot.erase',
   'fastboot.flash',
   'fastboot.partition',
+  // Driver Manager (PHASE 8)
+  'drivers.subtitle',
+  'drivers.noAutoInstall',
+  'drivers.openDeviceManager',
+  'drivers.download',
+  'drivers.info',
+  'drivers.version',
+  'drivers.vendor',
+  'drivers.supported',
+  'drivers.statusInstalled',
+  'drivers.statusNotInstalled',
+  'drivers.statusUnknown',
+  'drivers.needsApp',
 ] as const;
 
 export type TranslationKey = (typeof TRANSLATION_KEYS)[number];

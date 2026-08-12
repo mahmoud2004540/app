@@ -124,4 +124,17 @@ export const ar: Dictionary = {
   'fastboot.erase': 'مسح قسم',
   'fastboot.flash': 'تفليش قسم',
   'fastboot.partition': 'القسم (مثال boot، userdata)',
+  'drivers.subtitle': 'تحقّق من حالة التعريفات وافتح روابط التنزيل الرسمية.',
+  'drivers.noAutoInstall':
+    'البرنامج لا يثبّت التعريفات تلقائيًا أبدًا. استخدم روابط التنزيل الرسمية ثم ثبّتها بموافقتك.',
+  'drivers.openDeviceManager': 'فتح إدارة الأجهزة',
+  'drivers.download': 'تنزيل رسمي',
+  'drivers.info': 'التفاصيل',
+  'drivers.version': 'الإصدار',
+  'drivers.vendor': 'المُصنّع',
+  'drivers.supported': 'المدعوم',
+  'drivers.statusInstalled': 'مثبّت',
+  'drivers.statusNotInstalled': 'غير مثبّت',
+  'drivers.statusUnknown': 'غير معروف',
+  'drivers.needsApp': 'فحص التعريفات يعمل داخل تطبيق سطح المكتب.',
 };

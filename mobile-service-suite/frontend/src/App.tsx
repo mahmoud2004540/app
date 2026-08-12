@@ -6,6 +6,7 @@ import { PagePlaceholder } from './components/PagePlaceholder';
 import { DashboardPage } from './pages/DashboardPage';
 import { AdbPage } from './pages/AdbPage';
 import { FastbootPage } from './pages/FastbootPage';
+import { DriversPage } from './pages/DriversPage';
 import { NAV_ITEMS } from './config/navigation';
 
 /**
@@ -25,6 +26,8 @@ function pageForItem(id: string): JSX.Element | null {
       return <AdbPage />;
     case 'fastboot':
       return <FastbootPage />;
+    case 'drivers':
+      return <DriversPage />;
     default:
       return null;
   }

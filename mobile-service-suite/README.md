@@ -22,7 +22,8 @@ logs and reports together in one interface.
 | **PHASE 5** | USB / device detection | ✅ complete |
 | **PHASE 6** | ADB Manager | ✅ complete |
 | **PHASE 7** | Fastboot Manager | ✅ complete |
-| PHASE 8 | Driver Manager | ⏳ pending |
+| **PHASE 8** | Driver Manager | ✅ complete |
+| PHASE 9 | Tool Manager | ⏳ pending |
 | … | (see the development prompt) | ⏳ pending |
 
 PHASE 1 delivered the tooling foundation and architecture skeleton (Electron +
@@ -51,8 +52,12 @@ dialog, with a live output console. PHASE 7 adds the **Fastboot Manager**: read
 variables (single / all), reboot (system/bootloader/recovery/fastbootd), and the
 destructive bootloader operations — unlock, lock, erase and flash — each behind
 a strong confirmation. Bootloader lock state is changed only as an explicit
-technician action; account protection is never bypassed. Other sections still
-show placeholders.
+technician action; account protection is never bypassed. PHASE 8 adds the
+**Driver Manager**: a data-driven catalog (ADB, Fastboot, Google USB, Samsung,
+Qualcomm, MediaTek, Unisoc) with real installed-status detection via `pnputil`
+on Windows, an "Open Device Manager" action, and official download links. The
+suite never installs drivers automatically. Other sections still show
+placeholders.
 
 ## Technology stack
 

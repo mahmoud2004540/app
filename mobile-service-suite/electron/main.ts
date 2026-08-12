@@ -1,9 +1,11 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import path from 'node:path';
+import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { DeviceDetectionService } from '../backend/services/detection/DeviceDetectionService';
 import { AdbManagerService } from '../backend/services/adb/AdbManagerService';
 import { FastbootManagerService } from '../backend/services/fastboot/FastbootManagerService';
+import { DriverManagerService } from '../backend/services/drivers/DriverManagerService';
 
 const asString = (value: unknown): string => (typeof value === 'string' ? value : '');
 
@@ -17,13 +19,14 @@ const DEV_SERVER_URL = 'http://localhost:5173';
 const APP_INFO = {
   name: 'Mobile Service Suite',
   version: app.getVersion(),
-  phase: 'PHASE 7 — Fastboot Manager',
+  phase: 'PHASE 8 — Driver Manager',
 } as const;
 
 // Shared services. Both are safe to construct when the CLIs are absent.
 const detectionService = new DeviceDetectionService();
 const adbManager = new AdbManagerService();
 const fastbootManager = new FastbootManagerService();
+const driverManager = new DriverManagerService();
 
 function createMainWindow(): BrowserWindow {
   const window = new BrowserWindow({
@@ -111,6 +114,23 @@ function registerIpcHandlers(): void {
   ipcMain.handle('fastboot:flash', (_e, s, part, img) =>
     fastbootManager.flash(asString(s), asString(part), asString(img)),
   );
+
+  // Driver Manager (PHASE 8). Read-only status; the suite never installs drivers.
+  ipcMain.handle('drivers:list', () => driverManager.list());
+  ipcMain.handle('system:openDeviceManager', () => {
+    if (process.platform !== 'win32') {
+      return { ok: false as const, error: 'Device Manager is only available on Windows' };
+    }
+    spawn('cmd', ['/c', 'start', '', 'devmgmt.msc'], { detached: true, windowsHide: true });
+    return { ok: true as const, value: 'opened' };
+  });
+  ipcMain.handle('system:openExternal', (_e, url) => {
+    if (typeof url === 'string' && (url.startsWith('https://') || url.startsWith('http://'))) {
+      void shell.openExternal(url);
+      return { ok: true as const, value: url };
+    }
+    return { ok: false as const, error: 'Only http/https URLs may be opened' };
+  });
 
   // Native file dialogs used by file-oriented ADB/Fastboot actions.
   ipcMain.handle('dialog:openFile', async (_e, filters) => {

@@ -124,4 +124,17 @@ export const en: Dictionary = {
   'fastboot.erase': 'Erase Partition',
   'fastboot.flash': 'Flash Partition',
   'fastboot.partition': 'Partition (e.g. boot, userdata)',
+  'drivers.subtitle': 'Check driver status and open official downloads.',
+  'drivers.noAutoInstall':
+    'The suite never installs drivers automatically. Use the official download links, then install with your consent.',
+  'drivers.openDeviceManager': 'Open Device Manager',
+  'drivers.download': 'Official Download',
+  'drivers.info': 'Details',
+  'drivers.version': 'Version',
+  'drivers.vendor': 'Vendor',
+  'drivers.supported': 'Supported',
+  'drivers.statusInstalled': 'Installed',
+  'drivers.statusNotInstalled': 'Not installed',
+  'drivers.statusUnknown': 'Unknown',
+  'drivers.needsApp': 'Driver detection runs inside the desktop app.',
 };
