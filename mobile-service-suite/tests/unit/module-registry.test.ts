@@ -5,6 +5,7 @@ import type { IBrandModule } from '@core/domain/services/IBrandModule';
 const makeModule = (id: string, tools: string[]): IBrandModule => ({
   id,
   displayName: id,
+  kind: 'brand',
   recommendedTools: tools,
   matches: (value) => value.toLowerCase().includes(id),
 });

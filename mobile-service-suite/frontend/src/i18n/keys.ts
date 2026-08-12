@@ -48,6 +48,8 @@ export const TRANSLATION_KEYS = [
   'dash.check.adb',
   'dash.check.fastboot',
   'dash.previewNote',
+  'dash.recommendedTools',
+  'dash.noRecommendation',
   // Device information fields
   'device.brand',
   'device.model',

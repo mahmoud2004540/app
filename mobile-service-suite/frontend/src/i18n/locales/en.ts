@@ -44,6 +44,8 @@ export const en: Dictionary = {
   'dash.check.adb': 'ADB check',
   'dash.check.fastboot': 'Fastboot check',
   'dash.previewNote': 'Preview data — live device detection arrives in PHASE 5.',
+  'dash.recommendedTools': 'Recommended Tools',
+  'dash.noRecommendation': 'Connect a device to see recommended tools.',
   'device.brand': 'Brand',
   'device.model': 'Model',
   'device.imei': 'IMEI',

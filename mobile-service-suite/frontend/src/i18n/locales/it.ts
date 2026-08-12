@@ -44,6 +44,8 @@ export const it: Dictionary = {
   'dash.check.adb': 'Controllo ADB',
   'dash.check.fastboot': 'Controllo Fastboot',
   'dash.previewNote': 'Dati di anteprima — il rilevamento reale arriva nella FASE 5.',
+  'dash.recommendedTools': 'Strumenti consigliati',
+  'dash.noRecommendation': 'Collega un dispositivo per vedere gli strumenti consigliati.',
   'device.brand': 'Marca',
   'device.model': 'Modello',
   'device.imei': 'IMEI',

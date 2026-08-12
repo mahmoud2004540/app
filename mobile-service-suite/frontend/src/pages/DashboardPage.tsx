@@ -4,6 +4,7 @@ import { DeviceInfoGrid } from '../components/dashboard/DeviceInfoGrid';
 import { ProtectionStatus } from '../components/dashboard/ProtectionStatus';
 import { QuickActions } from '../components/dashboard/QuickActions';
 import { ConnectionChecklist } from '../components/dashboard/ConnectionChecklist';
+import { RecommendedTools } from '../components/dashboard/RecommendedTools';
 
 /**
  * PHASE 3 — Main Dashboard.
@@ -32,6 +33,8 @@ export function DashboardPage(): JSX.Element {
           )}
         </div>
       </div>
+
+      {connected && <RecommendedTools device={device} />}
 
       <QuickActions onDetect={detect} detecting={state === 'detecting'} />
     </div>

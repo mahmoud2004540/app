@@ -24,7 +24,8 @@ logs and reports together in one interface.
 | **PHASE 7** | Fastboot Manager | ✅ complete |
 | **PHASE 8** | Driver Manager | ✅ complete |
 | **PHASE 9** | Tool Manager | ✅ complete |
-| PHASE 10 | Brand Modules | ⏳ pending |
+| **PHASE 10** | Brand Modules | ✅ complete |
+| PHASE 11 | Firmware Manager | ⏳ pending |
 | … | (see the development prompt) | ⏳ pending |
 
 PHASE 1 delivered the tooling foundation and architecture skeleton (Electron +
@@ -62,7 +63,12 @@ catalog of CLI and external tools (ADB, Fastboot, Odin, Mi Flash, QFIL, SP Flash
 Tool, ResearchDownload, UpgradeDownload, HiSuite) with version detection, a
 persisted per-tool path (SQLite `tools` table), and an External Tool Launcher
 that runs the technician's own installed copy and records the launch — it never
-bundles, modifies, or circumvents commercial software. Other sections still show
+bundles, modifies, or circumvents commercial software. PHASE 10 delivers the
+**brand modules**: 15 brand + 3 chipset-platform modules under `modules/`, each
+implementing `IBrandModule` and registered in the `ModuleRegistry` — proving the
+extension point (a new brand is a data-only module, no core change). They power
+the **smart tool recommendation** engine (`recommendToolsForDevice`), surfaced
+as a "Recommended Tools" panel on the Dashboard. Other sections still show
 placeholders.
 
 ## Technology stack

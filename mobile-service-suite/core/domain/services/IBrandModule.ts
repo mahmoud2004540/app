@@ -5,7 +5,7 @@ import type { SupportedBrand, SupportedPlatform } from '@shared/constants/app';
  *
  * A new brand or tool is added by dropping a module under /modules that exports
  * an object implementing this interface and registering it — no changes to the
- * core system are required. Feature phases (PHASE 10+) flesh out the members.
+ * core system are required.
  */
 export interface IBrandModule {
   /** Stable identifier, e.g. "samsung". */
@@ -14,7 +14,10 @@ export interface IBrandModule {
   /** Human-readable name, e.g. "Samsung". */
   readonly displayName: string;
 
-  /** External tools this module recommends, e.g. ["odin"]. */
+  /** Distinguishes a phone-brand module from a chipset-platform module. */
+  readonly kind: 'brand' | 'platform';
+
+  /** External tool keys this module recommends, e.g. ["odin"]. */
   readonly recommendedTools: readonly string[];
 
   /**
