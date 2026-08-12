@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+release/
+coverage/
+
+# Runtime data (created at runtime, not committed)
+logs/*.log
+reports/*.pdf
+*.sqlite
+*.sqlite-journal
+*.db
+
+# Environment
+.env
+.env.local
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.log
+
+# Vite
+frontend/.vite/

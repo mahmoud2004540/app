@@ -1,0 +1,7 @@
+dist
+release
+node_modules
+coverage
+logs
+reports
+*.md
