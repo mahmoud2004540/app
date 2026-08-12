@@ -116,6 +116,24 @@ export const TRANSLATION_KEYS = [
   'adb.running',
   'confirm.title',
   'confirm.sensitive',
+  'confirm.destructive',
+  // Fastboot Manager (PHASE 7)
+  'fastboot.group.info',
+  'fastboot.group.power',
+  'fastboot.group.lock',
+  'fastboot.group.partitions',
+  'fastboot.getVar',
+  'fastboot.getAllVars',
+  'fastboot.varName',
+  'fastboot.rebootSystem',
+  'fastboot.rebootBootloader',
+  'fastboot.rebootRecovery',
+  'fastboot.rebootFastboot',
+  'fastboot.unlock',
+  'fastboot.lock',
+  'fastboot.erase',
+  'fastboot.flash',
+  'fastboot.partition',
 ] as const;
 
 export type TranslationKey = (typeof TRANSLATION_KEYS)[number];

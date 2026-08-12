@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DeviceDetectionService } from '../backend/services/detection/DeviceDetectionService';
 import { AdbManagerService } from '../backend/services/adb/AdbManagerService';
+import { FastbootManagerService } from '../backend/services/fastboot/FastbootManagerService';
 
 const asString = (value: unknown): string => (typeof value === 'string' ? value : '');
 
@@ -16,12 +17,13 @@ const DEV_SERVER_URL = 'http://localhost:5173';
 const APP_INFO = {
   name: 'Mobile Service Suite',
   version: app.getVersion(),
-  phase: 'PHASE 6 — ADB Manager',
+  phase: 'PHASE 7 — Fastboot Manager',
 } as const;
 
 // Shared services. Both are safe to construct when the CLIs are absent.
 const detectionService = new DeviceDetectionService();
 const adbManager = new AdbManagerService();
+const fastbootManager = new FastbootManagerService();
 
 function createMainWindow(): BrowserWindow {
   const window = new BrowserWindow({
@@ -90,7 +92,27 @@ function registerIpcHandlers(): void {
     adbManager.screenshot(asString(s), asString(dest)),
   );
 
-  // Native file dialogs used by file-oriented ADB actions.
+  // Fastboot Manager (PHASE 7). Unlock/lock/erase/flash are confirmed in the UI
+  // and validated in the service. Bootloader lock state is changed only as an
+  // explicit technician action; account protection is never bypassed.
+  ipcMain.handle('fastboot:devices', () => fastbootManager.listDevices());
+  ipcMain.handle('fastboot:getVar', (_e, s, name) =>
+    fastbootManager.getVar(asString(s), asString(name)),
+  );
+  ipcMain.handle('fastboot:getAllVars', (_e, s) => fastbootManager.getAllVars(asString(s)));
+  ipcMain.handle('fastboot:reboot', (_e, s, target) =>
+    fastbootManager.reboot(asString(s), asString(target)),
+  );
+  ipcMain.handle('fastboot:unlock', (_e, s) => fastbootManager.unlock(asString(s)));
+  ipcMain.handle('fastboot:lock', (_e, s) => fastbootManager.lock(asString(s)));
+  ipcMain.handle('fastboot:erase', (_e, s, part) =>
+    fastbootManager.erase(asString(s), asString(part)),
+  );
+  ipcMain.handle('fastboot:flash', (_e, s, part, img) =>
+    fastbootManager.flash(asString(s), asString(part), asString(img)),
+  );
+
+  // Native file dialogs used by file-oriented ADB/Fastboot actions.
   ipcMain.handle('dialog:openFile', async (_e, filters) => {
     const result = await dialog.showOpenDialog({
       properties: ['openFile'],

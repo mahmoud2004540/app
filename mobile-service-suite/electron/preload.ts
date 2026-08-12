@@ -45,6 +45,23 @@ const adb = {
     ipcRenderer.invoke('adb:screenshot', serial, destPath),
 };
 
+const fastboot = {
+  devices: (): Promise<Result<string[]>> => ipcRenderer.invoke('fastboot:devices'),
+  getVar: (serial: string, name: string): Promise<Result<string>> =>
+    ipcRenderer.invoke('fastboot:getVar', serial, name),
+  getAllVars: (serial: string): Promise<Result<Record<string, string>>> =>
+    ipcRenderer.invoke('fastboot:getAllVars', serial),
+  reboot: (serial: string, target: string): Promise<Result<string>> =>
+    ipcRenderer.invoke('fastboot:reboot', serial, target),
+  unlock: (serial: string): Promise<Result<string>> =>
+    ipcRenderer.invoke('fastboot:unlock', serial),
+  lock: (serial: string): Promise<Result<string>> => ipcRenderer.invoke('fastboot:lock', serial),
+  erase: (serial: string, partition: string): Promise<Result<string>> =>
+    ipcRenderer.invoke('fastboot:erase', serial, partition),
+  flash: (serial: string, partition: string, imagePath: string): Promise<Result<string>> =>
+    ipcRenderer.invoke('fastboot:flash', serial, partition, imagePath),
+};
+
 const dialogApi = {
   openFile: (filters?: FileFilter[]): Promise<string | null> =>
     ipcRenderer.invoke('dialog:openFile', filters),
@@ -59,6 +76,8 @@ const api = {
   detectDevices: (): Promise<DetectionResult> => ipcRenderer.invoke('devices:detect'),
   /** ADB Manager operations (PHASE 6). */
   adb,
+  /** Fastboot Manager operations (PHASE 7). */
+  fastboot,
   /** Native file dialogs. */
   dialog: dialogApi,
 };

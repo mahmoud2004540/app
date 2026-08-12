@@ -9,6 +9,26 @@ export function parseFastbootDevices(stdout: string): string[] {
 }
 
 /**
+ * Parse `fastboot getvar all` output into a map. Lines look like
+ * `(bootloader) product: star2lte` on stderr.
+ */
+export function parseFastbootVars(output: string): Record<string, string> {
+  const result: Record<string, string> = {};
+  const re = /^(?:\(bootloader\)\s*)?([\w.-]+):\s*(.*)$/;
+  for (const raw of output.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (/^(okay|finished|waiting)/i.test(line)) continue;
+    const match = re.exec(line);
+    if (match) {
+      const key = match[1];
+      const value = match[2];
+      if (key !== undefined && value !== undefined) result[key] = value.trim();
+    }
+  }
+  return result;
+}
+
+/**
  * Extract a variable value from `fastboot getvar <name>` output. Fastboot writes
  * to stderr, in lines shaped like `(bootloader) unlocked: yes` or `unlocked: yes`.
  */

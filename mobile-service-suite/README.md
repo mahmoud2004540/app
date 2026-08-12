@@ -21,7 +21,8 @@ logs and reports together in one interface.
 | **PHASE 4** | SQLite database | ✅ complete |
 | **PHASE 5** | USB / device detection | ✅ complete |
 | **PHASE 6** | ADB Manager | ✅ complete |
-| PHASE 7 | Fastboot Manager | ⏳ pending |
+| **PHASE 7** | Fastboot Manager | ✅ complete |
+| PHASE 8 | Driver Manager | ⏳ pending |
 | … | (see the development prompt) | ⏳ pending |
 
 PHASE 1 delivered the tooling foundation and architecture skeleton (Electron +
@@ -46,7 +47,12 @@ when `adb`/`fastboot` are not installed. PHASE 6 adds the **ADB Manager** page:
 reboot (system/recovery/bootloader), connect/disconnect, install/uninstall APK,
 list packages, push/pull files, shell, logcat and screenshot — each input
 validated in the service and every sensitive action gated behind a confirmation
-dialog, with a live output console. Other sections still show placeholders.
+dialog, with a live output console. PHASE 7 adds the **Fastboot Manager**: read
+variables (single / all), reboot (system/bootloader/recovery/fastbootd), and the
+destructive bootloader operations — unlock, lock, erase and flash — each behind
+a strong confirmation. Bootloader lock state is changed only as an explicit
+technician action; account protection is never bypassed. Other sections still
+show placeholders.
 
 ## Technology stack
 
