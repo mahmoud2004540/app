@@ -3,6 +3,7 @@ import { ThemeProvider } from './theme/ThemeProvider';
 import { I18nProvider } from './i18n/I18nProvider';
 import { AppLayout } from './components/layout/AppLayout';
 import { PagePlaceholder } from './components/PagePlaceholder';
+import { DashboardPage } from './pages/DashboardPage';
 import { NAV_ITEMS } from './config/navigation';
 
 /**
@@ -21,7 +22,13 @@ export function App(): JSX.Element {
           <Routes>
             <Route element={<AppLayout />}>
               {NAV_ITEMS.map((item) => (
-                <Route key={item.id} path={item.path} element={<PagePlaceholder item={item} />} />
+                <Route
+                  key={item.id}
+                  path={item.path}
+                  element={
+                    item.id === 'dashboard' ? <DashboardPage /> : <PagePlaceholder item={item} />
+                  }
+                />
               ))}
               <Route path="*" element={<Navigate to="/" replace />} />
             </Route>

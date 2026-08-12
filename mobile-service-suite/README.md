@@ -17,15 +17,20 @@ logs and reports together in one interface.
 | ----- | ----------- | ----- |
 | **PHASE 1** | Project Setup | ✅ complete |
 | **PHASE 2** | Electron + React shell | ✅ complete |
-| PHASE 3 | Dashboard | ⏳ pending |
+| **PHASE 3** | Dashboard | ✅ complete |
+| PHASE 4 | SQLite | ⏳ pending |
 | … | (see the development prompt) | ⏳ pending |
 
 PHASE 1 delivered the tooling foundation and architecture skeleton (Electron +
 React + TypeScript strict, Tailwind, Vite, ESLint, Prettier, Vitest, and the
 Clean/Modular layers). PHASE 2 adds the running application shell: hash-based
 routing, the sidebar + top-bar layout over all 13 sections, dark/light theming,
-and a three-language i18n system (English / Arabic with RTL / Italian). Every
-section currently shows a placeholder — feature pages arrive in later phases.
+and a three-language i18n system (English / Arabic with RTL / Italian). PHASE 3
+builds the main **Dashboard**: device overview, information grid, protection &
+status panel (ADB / Fastboot / Bootloader / OEM Lock / FRP — reported only),
+quick actions, and a connection checklist for the no-device state. It runs
+against a swappable `useDeviceStatus` hook; live ADB/Fastboot detection arrives
+in PHASE 5. Other sections still show placeholders.
 
 ## Technology stack
 
