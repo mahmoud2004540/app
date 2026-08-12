@@ -2,10 +2,6 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  color-scheme: dark;
-}
-
 html,
 body,
 #root {
@@ -13,6 +9,27 @@ body,
   margin: 0;
 }
 
+/* Light theme (default) */
 body {
-  @apply bg-surface text-slate-100 font-sans antialiased;
+  @apply bg-slate-100 text-slate-900 font-sans antialiased;
+}
+
+/* Dark theme — the product's primary look. Toggled via the `dark` class on <html>. */
+.dark {
+  color-scheme: dark;
+}
+.dark body {
+  @apply bg-surface text-slate-100;
+}
+
+/* Thin, theme-aware scrollbars */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  @apply rounded-full bg-slate-400/40;
+}
+.dark ::-webkit-scrollbar-thumb {
+  @apply bg-slate-500/40;
 }
