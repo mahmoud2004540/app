@@ -321,6 +321,57 @@ def short_test(source: str, timeframe: str) -> int:
     return 0
 
 
+def precision_test(source: str, timeframe: str) -> int:
+    """
+    اختبار الدقة: يجرّب عتبات درجة أعلى ونِسَب هدف مختلفة (مع فلتر السوق + EMA200)
+    ويقيس نسبة النجاح الحقيقية — لاختيار أعلى دقة مع أفضلية موجبة وعدد صفقات كافٍ.
+    """
+    symbols = resolve_symbols("crypto", "auto")[:BACKTEST_MAX_CRYPTO]
+    print(f"⏳ اختبار الدقة على {len(symbols)} عملة ({timeframe})...")
+    series = fetch_many(symbols, "crypto", "auto", timeframe, limit=1000)
+
+    regime = None
+    try:
+        btc = fetch("BTC-USD", "crypto", "auto", timeframe, limit=1000)
+        regime = market_uptrend_map(btc, 50)
+    except Exception as exc:  # noqa: BLE001
+        print(f"  ⚠️ تعذّر بناء فلتر السوق: {exc}")
+
+    def summarize(min_score, rr):
+        tt = tw = 0
+        tr = 0.0
+        for s in series:
+            res = backtest_trend_pullback_series(
+                s, rr=rr, min_score=min_score, regime=regime, require_ema200=True)
+            tt += res.n
+            tw += res.wins
+            tr += res.total_r
+        wr = (tw / tt * 100.0) if tt else 0.0
+        exp = (tr / tt) if tt else 0.0
+        flag = "✅" if (exp > 0 and tt >= 20) else ("⚠️" if tt < 20 else "❌")
+        print(f"{flag} درجة≥{min_score:>2.0f}  RR {rr:>3.1f} | صفقات {tt:>4} | "
+              f"نجاح {wr:>5.1f}% | توقّع {exp:>+6.2f}R | إجمالي {tr:>+6.1f}R")
+        return wr, exp, tt
+
+    print("\n" + "=" * 62)
+    print("الهدف: أعلى نسبة نجاح مع توقّع موجب وعدد صفقات ≥20 (✅)")
+    print("-" * 62)
+    best = None
+    for rr in (1.5, 2.0):
+        for th in (85.0, 88.0, 90.0, 92.0):
+            wr, exp, tt = summarize(th, rr)
+            if exp > 0 and tt >= 20 and (best is None or wr > best[0]):
+                best = (wr, exp, tt, th, rr)
+        print("-" * 62)
+    print("=" * 62)
+    if best:
+        print(f"\n🏆 أعلى دقة رابحة: درجة≥{best[3]:.0f} + RR {best[4]:.1f} → "
+              f"نجاح {best[0]:.1f}% بتوقّع {best[1]:+.2f}R على {best[2]} صفقة.")
+    else:
+        print("\nℹ️ لا تهيئة تجمع دقة عالية + توقّع موجب + عيّنة كافية — نبقى على الحالي.")
+    return 0
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description="باك-تِست لاستراتيجية بوت الصفقات.")
     p.add_argument("--market", "-m", choices=["crypto", "stocks", "forex", "all"], default="crypto")
@@ -329,7 +380,7 @@ def main(argv=None) -> int:
     p.add_argument(
         "--strategy",
         choices=["signals", "prepump", "trend", "compare", "trendsweep",
-                 "optimize", "walkforward", "short"],
+                 "optimize", "walkforward", "short", "precision"],
         default="signals",
         help="signals=إشارات شراء/بيع؛ prepump=ما قبل الاندفاع؛ "
         "trend=ارتداد داخل اتجاه صاعد؛ compare=قارن prepump مقابل trend؛ "
@@ -352,6 +403,8 @@ def main(argv=None) -> int:
         return walk_forward_run(args.source, args.timeframe)
     if args.strategy == "short":
         return short_test(args.source, args.timeframe)
+    if args.strategy == "precision":
+        return precision_test(args.source, args.timeframe)
     return run(args.market, args.source, args.timeframe, args.strategy)
 
 
