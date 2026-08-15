@@ -34,6 +34,36 @@ def _alert_only() -> bool:
     return os.environ.get("ALERT_ONLY", "").lower() in ("1", "true", "yes")
 
 
+_LAST_DIGEST = os.path.join("journal", "last_digest.json")
+
+
+def _mark_new(deals) -> int:
+    """
+    علّم الصفقات الجديدة (لم تظهر في آخر تحديث) بـ _is_new، واحفظ القائمة الحالية.
+
+    Returns how many are new since the previous digest — so we can say when
+    nothing changed instead of repeating the same list as if it were fresh.
+    """
+    last = set()
+    try:
+        with open(_LAST_DIGEST, encoding="utf-8") as f:
+            last = set(json.load(f))
+    except Exception:  # noqa: BLE001
+        last = set()
+    new_n = 0
+    for d in deals:
+        d._is_new = d.symbol not in last
+        if d._is_new:
+            new_n += 1
+    try:
+        os.makedirs("journal", exist_ok=True)
+        with open(_LAST_DIGEST, "w", encoding="utf-8") as f:
+            json.dump([d.symbol for d in deals], f, ensure_ascii=False)
+    except Exception as exc:  # noqa: BLE001
+        print(f"⚠️ تعذّر حفظ قائمة آخر تحديث: {exc}")
+    return new_n
+
+
 def _apply_new_strategy(picks, timeframe: str) -> None:
     """
     مرّر كل صفقة على الاستراتيجية الجديدة: تأكيد 15M + حجم مخاطرة محرّك المخاطر (0.5%).
@@ -170,14 +200,17 @@ def build_message():
 
     if picks:
         # في صفقة/صفقتين مؤكّدة → نناديها باسمها: «هي دي»
+        new_n = _mark_new(picks)
         prefix = "🚨 صفقة جديدة مؤكّدة!\n\n" if alert_only else ""
+        freshness = (f"🆕 {new_n} جديدة | 🔁 {len(picks) - new_n} مكرّرة\n\n"
+                     if not alert_only else "")
         be_r = getattr(config, "TREND_BREAKEVEN_R", 0.0)
         tip = (
             f"🔒 إدارة: انقل وقف الخسارة إلى سعر الدخول بمجرّد تحقيق +{be_r:g}R "
             "(يحوّلها لصفقة بلا خسارة).\n\n"
             if be_r and be_r > 0 else ""
         )
-        return prefix + header + tip + format_picks(picks) + tail
+        return prefix + header + freshness + tip + format_picks(picks) + tail
 
     # لا صفقة مؤكّدة: نوضّح السبب ونعرض أقرب مرشّح باسمه (مراقبة) إن وُجد
     if market_bullish is False:
@@ -200,8 +233,11 @@ def build_message():
         _apply_new_strategy(top, timeframe)
         for d in top:
             d.confirmed = None          # لا نضع «مؤكّدة» — الظرف العام مراقبة
+        new_n = _mark_new(top)
+        change = (f"🆕 {new_n} جديدة منذ آخر تحديث"
+                  if new_n else "🔁 لا جديد — نفس مرشّحي آخر مرة")
         watch_head = (
-            f"👀 أقرب {len(top)} مرشّحين الآن (مراقبة — {missing}):\n\n"
+            f"👀 أقرب {len(top)} مرشّحين الآن (مراقبة — {missing})\n{change}:\n\n"
         )
         return header + why + watch_head + format_picks(top) + tail
     return header + why + DISCLAIMER + tail

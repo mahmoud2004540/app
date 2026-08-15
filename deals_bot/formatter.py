@@ -300,7 +300,8 @@ def format_picks(picks: List[Deal]) -> str:
     parts: List[str] = []
     for i, d in enumerate(picks, 1):
         num = f" رقم {i}" if len(picks) > 1 else ""
-        parts.append(f"🎯👈 هي دي الصفقة{num}: {d.symbol}")
+        tag = " 🆕" if getattr(d, "_is_new", False) else " 🔁"
+        parts.append(f"🎯👈 هي دي الصفقة{num}: {d.symbol}{tag}")
         parts.append(f"   📈 اتجاه صاعد (ارتداد للمتوسّط) — {grade(d)}")
         parts.append(f"   🎯 الثقة: {d.confidence:.0f}%  ({d.confidence:.0f}/100)")
         if d.confirmed is True:
