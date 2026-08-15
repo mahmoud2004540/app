@@ -499,7 +499,8 @@ def detect_pre_pump(series: Series):
     }
 
 
-def detect_trend_pullback(series: Series, rr: float = 2.0, direction: str = "long"):
+def detect_trend_pullback(series: Series, rr: float = 2.0, direction: str = "long",
+                          require_momentum: bool = False):
     """
     اكتشف «الارتداد داخل الاتجاه» — دخول مع الاتجاه لا ضدّه (Long أو Short).
 
@@ -507,6 +508,9 @@ def detect_trend_pullback(series: Series, rr: float = 2.0, direction: str = "lon
            أعلى ثم يغلق فوقه، RSI لم ينهَر. الوقف تحت قاع الارتداد، الهدف أعلى.
     SHORT: عكسه تمامًا — اتجاه هابط EMA9<EMA21<EMA50 وEMA50 يهبط، السعر يرتفع
            ليلمس EMA21 من أسفل ثم يغلق تحته، RSI لم ينفجر. الوقف فوق قمة الارتداد.
+
+    require_momentum: فلتر الزخم القوي — لا ندخل إلا لو الزخم الأساسي مؤيّد
+      (MACD في اتجاه الصفقة + زخم سعري في نفس الاتجاه). يقلّل الانعكاس الفوري.
 
     Returns a details dict (score + levels + direction) or None. Single source of
     truth shared by the live bot and the backtester.
@@ -529,6 +533,9 @@ def detect_trend_pullback(series: Series, rr: float = 2.0, direction: str = "lon
     vs = ind.volume_surge(series.volumes(), 20)
     obv_up = ind.obv_rising(closes, series.volumes(), 10)
     slope_pct = (e50 / e50_prev - 1.0) * 100.0
+    # الزخم الأساسي (لفلتر الزخم القوي)
+    macd_v = ind.macd(closes)
+    mom_v = ind.momentum_pct(closes, 10)
 
     if direction == "short":
         downtrend = e9 < e21 < e50 and e50 < e50_prev
@@ -536,6 +543,11 @@ def detect_trend_pullback(series: Series, rr: float = 2.0, direction: str = "lon
         healthy = rsi_v <= 60.0
         if not (downtrend and touched_ma and healthy):
             return None
+        if require_momentum:                   # زخم هابط قوي (MACD سلبي + زخم سالب)
+            strong = ((macd_v is not None and macd_v[2] < 0)
+                      and (mom_v is not None and mom_v < 0))
+            if not strong:
+                return None
         stop = max(high, e21) * 1.005
         risk = stop - price
         if risk <= 0:
@@ -572,6 +584,11 @@ def detect_trend_pullback(series: Series, rr: float = 2.0, direction: str = "lon
     healthy = rsi_v >= 40.0
     if not (uptrend and touched_ma and healthy):
         return None
+    if require_momentum:                       # زخم صاعد قوي (MACD إيجابي + زخم موجب)
+        strong = ((macd_v is not None and macd_v[2] > 0)
+                  and (mom_v is not None and mom_v > 0))
+        if not strong:
+            return None
 
     stop = min(low, e21) * 0.995
     risk = price - stop

@@ -247,6 +247,7 @@ def backtest_trend_pullback_series(
     entry_min_ts: Optional[float] = None,
     entry_max_ts: Optional[float] = None,
     direction: str = "long",
+    require_momentum: bool = False,
 ) -> BacktestResult:
     """
     باك-تِست لاستراتيجية «الارتداد داخل الاتجاه» (Long أو Short).
@@ -277,7 +278,8 @@ def backtest_trend_pullback_series(
         if entry_max_ts is not None and ts >= entry_max_ts:
             break
         sub = Series(symbol=series.symbol, market=series.market, candles=candles[: i + 1])
-        setup = detect_trend_pullback(sub, rr=rr, direction=direction)
+        setup = detect_trend_pullback(sub, rr=rr, direction=direction,
+                                      require_momentum=require_momentum)
         if not setup or setup["score"] < min_score:
             i += 1
             continue
