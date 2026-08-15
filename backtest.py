@@ -372,6 +372,49 @@ def precision_test(source: str, timeframe: str) -> int:
     return 0
 
 
+def momentum_test(source: str, timeframe: str) -> int:
+    """
+    قارن الإعداد الحالي مقابل «+ فلتر الزخم القوي» (MACD + زخم سعري) بالأرقام.
+    نفعّل الفلتر حيًّا فقط لو رفع نسبة النجاح/التوقّع مع عيّنة كافية.
+    """
+    symbols = resolve_symbols("crypto", "auto")[:BACKTEST_MAX_CRYPTO]
+    print(f"⏳ اختبار فلتر الزخم على {len(symbols)} عملة ({timeframe})...")
+    series = fetch_many(symbols, "crypto", "auto", timeframe, limit=1000)
+    regime = None
+    try:
+        btc = fetch("BTC-USD", "crypto", "auto", timeframe, limit=1000)
+        regime = market_uptrend_map(btc, 50)
+    except Exception as exc:  # noqa: BLE001
+        print(f"  ⚠️ تعذّر بناء فلتر السوق: {exc}")
+
+    def summarize(label, momentum):
+        tt = tw = 0
+        tr = 0.0
+        for s in series:
+            res = backtest_trend_pullback_series(
+                s, rr=2.0, min_score=85.0, regime=regime,
+                require_ema200=True, require_momentum=momentum)
+            tt += res.n
+            tw += res.wins
+            tr += res.total_r
+        wr = (tw / tt * 100.0) if tt else 0.0
+        exp = (tr / tt) if tt else 0.0
+        print(f"{label:>26} | صفقات {tt:>4} | نجاح {wr:>5.1f}% | "
+              f"توقّع {exp:>+6.2f}R | إجمالي {tr:>+6.1f}R")
+        return wr, exp, tt
+
+    print("\n" + "=" * 60)
+    base = summarize("الحالي (بلا فلتر زخم)", False)
+    mom = summarize("+ فلتر الزخم القوي", True)
+    print("=" * 60)
+    print(
+        f"\nالحكم: فلتر الزخم "
+        + ("✅ يحسّن — يُنصح بتفعيله." if mom[1] > base[1] and mom[2] >= 15
+           else "⚠️ لا يحسّن بوضوح (أو عيّنة صغيرة) — نبقى على الحالي.")
+    )
+    return 0
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description="باك-تِست لاستراتيجية بوت الصفقات.")
     p.add_argument("--market", "-m", choices=["crypto", "stocks", "forex", "all"], default="crypto")
@@ -380,7 +423,7 @@ def main(argv=None) -> int:
     p.add_argument(
         "--strategy",
         choices=["signals", "prepump", "trend", "compare", "trendsweep",
-                 "optimize", "walkforward", "short", "precision"],
+                 "optimize", "walkforward", "short", "precision", "momentum"],
         default="signals",
         help="signals=إشارات شراء/بيع؛ prepump=ما قبل الاندفاع؛ "
         "trend=ارتداد داخل اتجاه صاعد؛ compare=قارن prepump مقابل trend؛ "
@@ -405,6 +448,8 @@ def main(argv=None) -> int:
         return short_test(args.source, args.timeframe)
     if args.strategy == "precision":
         return precision_test(args.source, args.timeframe)
+    if args.strategy == "momentum":
+        return momentum_test(args.source, args.timeframe)
     return run(args.market, args.source, args.timeframe, args.strategy)
 
 

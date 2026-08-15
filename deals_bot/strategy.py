@@ -205,7 +205,9 @@ def top_picks(
                 dv = sum(c.close * c.volume for c in recent) / len(recent)
                 if dv < min_dv:
                     continue
-            tp = detect_trend_pullback(series, rr=rr)
+            tp = detect_trend_pullback(
+                series, rr=rr,
+                require_momentum=getattr(config, "TREND_REQUIRE_MOMENTUM", False))
             if tp:
                 d = _trend_pullback_deal(sym, market, tp)
                 # فلتر الاتجاه بعيد المدى (EMA200) — نخزّن النتيجة على الصفقة
