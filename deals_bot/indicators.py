@@ -286,3 +286,33 @@ def mfi(
         return 100.0
     ratio = pos_flow / neg_flow
     return 100.0 - (100.0 / (1.0 + ratio))
+
+
+def returns_correlation(a_closes: List[float], b_closes: List[float],
+                        n: int = 50) -> Optional[float]:
+    """
+    معامل ارتباط بيرسون بين عوائد سلسلتين على آخر n شمعة.
+
+    Pearson correlation of the two series' recent percent-returns. ~1 means they
+    move together (so two such positions are really one bet); near 0 means
+    independent. Returns None if not enough overlapping data.
+    """
+    m = min(len(a_closes), len(b_closes))
+    if m < n + 1:
+        return None
+    a = a_closes[-(n + 1):]
+    b = b_closes[-(n + 1):]
+    ra = [(a[i] / a[i - 1] - 1.0) for i in range(1, len(a)) if a[i - 1]]
+    rb = [(b[i] / b[i - 1] - 1.0) for i in range(1, len(b)) if b[i - 1]]
+    k = min(len(ra), len(rb))
+    if k < 5:
+        return None
+    ra, rb = ra[-k:], rb[-k:]
+    ma = sum(ra) / k
+    mb = sum(rb) / k
+    cov = sum((ra[i] - ma) * (rb[i] - mb) for i in range(k))
+    va = sum((x - ma) ** 2 for x in ra)
+    vb = sum((x - mb) ** 2 for x in rb)
+    if va <= 0 or vb <= 0:
+        return None
+    return cov / (va ** 0.5 * vb ** 0.5)

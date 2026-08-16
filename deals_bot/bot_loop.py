@@ -19,6 +19,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable, List, Optional
 
+from . import indicators as ind
 from . import paper_trading as pt
 from .models import Series
 from .pipeline import APPROVED, evaluate
@@ -60,13 +61,15 @@ def run_cycle(
     pt.roll_day(account, now_ts)
 
     # 1) مراقبة الصفقات المفتوحة → إغلاق ما لمس الوقف/الهدف
+    open_closes = {}          # نخزّن إغلاقات المفتوحة (لفلتر الارتباط)
     for pos in list(account.positions):
         try:
-            series = fetch_base(pos.symbol, pos.market, base_tf, 3)
+            series = fetch_base(pos.symbol, pos.market, base_tf, 60)
         except Exception:  # noqa: BLE001
             continue
         if not series.candles:
             continue
+        open_closes[pos.symbol] = series.closes()
         last = series.candles[-1]
         ex = pt.check_exit(pos, last.high, last.low)
         if ex:
@@ -105,6 +108,25 @@ def run_cycle(
         dec = evaluate(base, account.equity, daily, conf_series, engine)
         if dec.status != APPROVED:
             continue
+
+        # حدّ مخاطرة المحفظة: لا نتجاوز إجمالي المخاطرة المسموح عبر كل المفتوح
+        heat_after = (len(account.positions) + 1) * engine.cfg.risk_per_trade
+        if heat_after > engine.cfg.max_portfolio_heat + 1e-9:
+            print(f"  🛡️ {sym}: تجاوز حدّ مخاطرة المحفظة "
+                  f"({heat_after*100:.1f}% > {engine.cfg.max_portfolio_heat*100:.0f}%) — تخطٍّ.")
+            break
+
+        # فلتر الارتباط: لا نفتح عملة مرتبطة بشدة بصفقة مفتوحة (رهان مكرّر)
+        too_correlated = False
+        for osym, ocloses in open_closes.items():
+            corr = ind.returns_correlation(base.closes(), ocloses, 50)
+            if corr is not None and corr >= engine.cfg.max_correlation:
+                print(f"  🔗 {sym}: مرتبطة بـ{osym} (ارتباط {corr:.2f}) — تخطٍّ (رهان مكرّر).")
+                too_correlated = True
+                break
+        if too_correlated:
+            continue
+
         opened_ts = base.candles[-1].ts if base.candles else now_ts
         pt.open_position(
             account, sym, market, dec.direction, dec.entry, dec.stop, dec.target,
@@ -112,6 +134,7 @@ def run_cycle(
             ai_score=dec.ai_score,
         )
         open_symbols.add(sym)
+        open_closes[sym] = base.closes()      # يُحسب ضمن الارتباط للمرشّح التالي
         daily.open_positions = len(account.positions)
         events.append(CycleEvent(
             "open", sym,
