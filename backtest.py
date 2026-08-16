@@ -516,8 +516,9 @@ def pipeline_diag(source: str, timeframe: str) -> int:
                                     _risk_engine, evaluate)
     from deals_bot.risk_engine import DailyState
 
-    symbols = resolve_symbols("crypto", "auto")[:BACKTEST_MAX_CRYPTO]
-    print(f"⏳ تشخيص خط القرار على {len(symbols)} عملة ({timeframe})...")
+    # نفس الكون الكامل الذي يتداوله البوت الورقي فعليًا (كل عملات Coinbase) — بلا اقتصاص.
+    symbols = resolve_symbols("crypto", "auto")
+    print(f"⏳ تشخيص خط القرار على {len(symbols)} عملة (كل الكون، {timeframe})...")
 
     # حالة السوق العامة (BTC فوق/تحت متوسّطه) — للسياق فقط
     try:
