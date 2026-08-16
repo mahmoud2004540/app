@@ -512,6 +512,7 @@ def pipeline_diag(source: str, timeframe: str) -> int:
       • APPROVED (كانت هتُفتح)
     فيبان الاختناق الحقيقي بدل التخمين.
     """
+    from deals_bot import indicators as ind
     from deals_bot.pipeline import (APPROVED, NO_TRADE, REJECTED, WAIT,
                                     _risk_engine, evaluate)
     from deals_bot.risk_engine import DailyState
