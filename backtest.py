@@ -501,6 +501,98 @@ def stop_buffer_test(source: str, timeframe: str) -> int:
     return 0
 
 
+def pipeline_diag(source: str, timeframe: str) -> int:
+    """
+    تشخيص حيّ: ليه البوت الورقي مش بيفتح صفقات؟ يمرّر كل عملة على نفس خط القرار
+    (evaluate) المستخدَم في التداول الورقي، ويعدّ أين تتوقّف كل عملة بالظبط:
+      • لا إعداد اتجاه+ارتداد أصلًا
+      • درجة AI أقل من الحد
+      • فشل تأكيد 15m
+      • رُفضت في العائد/المخاطرة
+      • APPROVED (كانت هتُفتح)
+    فيبان الاختناق الحقيقي بدل التخمين.
+    """
+    from deals_bot.pipeline import (APPROVED, NO_TRADE, REJECTED, WAIT,
+                                    _risk_engine, evaluate)
+    from deals_bot.risk_engine import DailyState
+
+    symbols = resolve_symbols("crypto", "auto")[:BACKTEST_MAX_CRYPTO]
+    print(f"⏳ تشخيص خط القرار على {len(symbols)} عملة ({timeframe})...")
+
+    # حالة السوق العامة (BTC فوق/تحت متوسّطه) — للسياق فقط
+    try:
+        btc = fetch("BTC-USD", "crypto", "auto", timeframe, limit=300)
+        e50 = ind.ema(btc.closes(), 50)
+        px = btc.closes()[-1]
+        regime = "صاعد 🟢" if (e50 and px > e50) else "هابط 🔴"
+        print(f"  🧭 حالة السوق (BTC): {regime}  (السعر {px:.0f} مقابل EMA50 "
+              f"{e50:.0f})" if e50 else f"  🧭 حالة السوق (BTC): {regime}")
+    except Exception as exc:  # noqa: BLE001
+        print(f"  ⚠️ تعذّر جلب حالة BTC: {exc}")
+
+    engine = _risk_engine()
+    equity = getattr(config, "ACCOUNT_BALANCE", 1000.0)
+    daily = DailyState(starting_equity=equity, current_equity=equity,
+                       trades_today=0, consecutive_losses=0, open_positions=0)
+
+    tally = {NO_TRADE: 0, WAIT: 0, REJECTED: 0, APPROVED: 0}
+    no_setup = 0
+    low_score = 0
+    confirm_fail = 0
+    approved_syms = []
+    scores = []
+
+    for sym in symbols:
+        try:
+            base = fetch(sym, "crypto", "auto", timeframe, limit=300)
+        except Exception:  # noqa: BLE001
+            continue
+        try:
+            conf = fetch(sym, "crypto", "auto", "15m", limit=60)
+        except Exception:  # noqa: BLE001
+            conf = None
+        dec = evaluate(base, equity, daily, conf, engine)
+        tally[dec.status] = tally.get(dec.status, 0) + 1
+        if dec.ai_score:
+            scores.append(dec.ai_score)
+        joined = " | ".join(dec.reasons)
+        if "لا يوجد اتجاه صاعد" in joined:
+            no_setup += 1
+        elif "درجة AI <" in joined:
+            low_score += 1
+        elif dec.status == WAIT and dec.ai_score >= getattr(config, "AI_APPROVE_SCORE", 80):
+            confirm_fail += 1
+        if dec.status == APPROVED:
+            approved_syms.append((sym, dec.ai_score))
+
+    print("\n" + "=" * 58)
+    print("أين تتوقّف كل عملة في خط القرار؟")
+    print("-" * 58)
+    print(f"  ⛔ لا يوجد اتجاه صاعد + ارتداد صالح : {no_setup}")
+    print(f"  ⛔ درجة AI أقل من الحد الأدنى        : {low_score}")
+    print(f"  ⏳ نجحت الدرجة لكن فشل تأكيد 15m     : {confirm_fail}")
+    print(f"  ❌ رُفضت في العائد/المخاطرة          : {tally.get(REJECTED,0)}")
+    print(f"  ⏳ إجمالي WAIT (درجة/تأكيد)          : {tally.get(WAIT,0)}")
+    print(f"  ✅ APPROVED (كانت ستُفتح)            : {tally.get(APPROVED,0)}")
+    print("=" * 58)
+    if scores:
+        scores.sort(reverse=True)
+        top = ", ".join(f"{s:.0f}" for s in scores[:8])
+        print(f"  أعلى درجات AI ظهرت: {top}  (الحد للفتح ≥"
+              f"{getattr(config,'AI_APPROVE_SCORE',80):.0f})")
+    if approved_syms:
+        print("  ✅ عملات كانت ستُفتح الآن:")
+        for s, sc in approved_syms:
+            print(f"     {s:<12} AI {sc:.0f}")
+    else:
+        print("  ℹ️ لا عملة تجتاز كل البوّابات الآن — لذلك السجل الورقي فاضي.")
+    print(
+        "\nℹ️ الخلاصة: البوت شغّال بس بيرفض يدخل عشان الشروط صارمة (اتجاه+ارتداد "
+        "+ درجة≥80 + تأكيد 15m + عائد≥2). ده بيحمي السجل من صفقات ضعيفة."
+    )
+    return 0
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description="باك-تِست لاستراتيجية بوت الصفقات.")
     p.add_argument("--market", "-m", choices=["crypto", "stocks", "forex", "all"], default="crypto")
@@ -510,7 +602,7 @@ def main(argv=None) -> int:
         "--strategy",
         choices=["signals", "prepump", "trend", "compare", "trendsweep",
                  "optimize", "walkforward", "short", "precision", "momentum",
-                 "stopbuffer"],
+                 "stopbuffer", "diag"],
         default="signals",
         help="signals=إشارات شراء/بيع؛ prepump=ما قبل الاندفاع؛ "
         "trend=ارتداد داخل اتجاه صاعد؛ compare=قارن prepump مقابل trend؛ "
@@ -539,6 +631,8 @@ def main(argv=None) -> int:
         return momentum_test(args.source, args.timeframe)
     if args.strategy == "stopbuffer":
         return stop_buffer_test(args.source, args.timeframe)
+    if args.strategy == "diag":
+        return pipeline_diag(args.source, args.timeframe)
     return run(args.market, args.source, args.timeframe, args.strategy)
 
 
