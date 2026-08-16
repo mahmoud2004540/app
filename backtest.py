@@ -501,6 +501,62 @@ def stop_buffer_test(source: str, timeframe: str) -> int:
     return 0
 
 
+def frame_sweep(source: str, timeframe: str) -> int:
+    """
+    قياس متعدد الفريمات: يجرّب نفس الإعداد الرابح (درجة≥85 + فلتر السوق + EMA200 +
+    مسافة وقف 0.5×ATR + RR 2) على 15m و30m و1h، ويطبع التوقّع لكل فريم — عشان
+    نعرف أنهي فريمات تستاهل الدخول فعلًا قبل ما نفعّل البحث متعدد الفريمات.
+    """
+    frames = ["15m", "30m", "1h"]
+    symbols = resolve_symbols("crypto", "auto")[:BACKTEST_MAX_CRYPTO]
+    print(f"⏳ قياس الفريمات {frames} على {len(symbols)} عملة...")
+
+    buf = getattr(config, "TREND_STOP_BUFFER_ATR", 0.5)
+    print("\n" + "=" * 62)
+    print(f"{'فريم':>6} | {'صفقات':>6} | {'نجاح%':>6} | {'توقّع/R':>8} | "
+          f"{'إجمالي':>8} | الحكم")
+    print("-" * 62)
+    verdicts = {}
+    for tf in frames:
+        try:
+            series = fetch_many(symbols, "crypto", "auto", tf, limit=1000)
+        except Exception as exc:  # noqa: BLE001
+            print(f"{tf:>6} | تعذّر الجلب: {exc}")
+            continue
+        regime = None
+        try:
+            btc = fetch("BTC-USD", "crypto", "auto", tf, limit=1000)
+            regime = market_uptrend_map(btc, 50)
+        except Exception:  # noqa: BLE001
+            pass
+        tt = tw = 0
+        tr = 0.0
+        for s in series:
+            res = backtest_trend_pullback_series(
+                s, rr=2.0, min_score=85.0, regime=regime,
+                require_ema200=True, stop_buffer_atr=buf)
+            tt += res.n
+            tw += res.wins
+            tr += res.total_r
+        wr = (tw / tt * 100.0) if tt else 0.0
+        exp = (tr / tt) if tt else 0.0
+        ok = exp > 0 and tt >= 20
+        verdict = "✅ رابح" if ok else ("⚠️ عيّنة صغيرة" if tt < 20 else "❌ خاسر")
+        verdicts[tf] = (exp, tt, ok)
+        print(f"{tf:>6} | {tt:>6} | {wr:>6.1f} | {exp:>+8.2f} | {tr:>+8.1f} | {verdict}")
+    print("=" * 62)
+    winners = [tf for tf, (e, n, ok) in verdicts.items() if ok]
+    if winners:
+        print(f"\n✅ فريمات رابحة نثق بها للدخول: {', '.join(winners)}")
+    else:
+        print("\n⚠️ لا فريم بعيّنة كافية + توقّع موجب الآن — 1h يبقى الأساس المُثبت.")
+    print(
+        "\nℹ️ نفعّل البحث متعدد الفريمات على الفريمات الرابحة فقط. الفريمات الأقصر "
+        "أسرع للهدف لكنها غالبًا أكثر ضجيجًا — لذلك نقيس قبل أن نثق."
+    )
+    return 0
+
+
 def pipeline_diag(source: str, timeframe: str) -> int:
     """
     تشخيص حيّ: ليه البوت الورقي مش بيفتح صفقات؟ يمرّر كل عملة على نفس خط القرار
@@ -604,7 +660,7 @@ def main(argv=None) -> int:
         "--strategy",
         choices=["signals", "prepump", "trend", "compare", "trendsweep",
                  "optimize", "walkforward", "short", "precision", "momentum",
-                 "stopbuffer", "diag"],
+                 "stopbuffer", "diag", "framesweep"],
         default="signals",
         help="signals=إشارات شراء/بيع؛ prepump=ما قبل الاندفاع؛ "
         "trend=ارتداد داخل اتجاه صاعد؛ compare=قارن prepump مقابل trend؛ "
@@ -635,6 +691,8 @@ def main(argv=None) -> int:
         return stop_buffer_test(args.source, args.timeframe)
     if args.strategy == "diag":
         return pipeline_diag(args.source, args.timeframe)
+    if args.strategy == "framesweep":
+        return frame_sweep(args.source, args.timeframe)
     return run(args.market, args.source, args.timeframe, args.strategy)
 
 
