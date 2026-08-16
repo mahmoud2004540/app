@@ -425,6 +425,42 @@ def fetch_coinbase(symbol: str, timeframe: str = "1h", limit: int = 300) -> Seri
     return _parse_coinbase(raw, symbol, limit=limit)
 
 
+# أطر زمنية غير مدعومة أصلًا من المزوّدين → تُبنى بدمج إطار أصغر.
+# 30m = دمج كل شمعتَي 15m (Coinbase لا يوفّر 30m أصلًا).
+_RESAMPLE_FROM = {"30m": ("15m", 2)}
+
+
+def resample_candles(candles: List[Candle], factor: int) -> List[Candle]:
+    """
+    ادمج كل «factor» شمعة متتالية في شمعة واحدة أكبر (دالة نقية قابلة للاختبار).
+
+    Merge groups of `factor` consecutive candles into one higher-timeframe candle
+    (open=first, close=last, high=max, low=min, volume=sum). Grouping is anchored
+    to the newest candle so the latest merged candle is always complete; any
+    leftover oldest candles that don't fill a full group are dropped.
+    """
+    if factor <= 1 or not candles:
+        return list(candles)
+    ordered = sorted(candles, key=lambda c: c.ts)
+    out: List[Candle] = []
+    # نجمّع من الأحدث للأقدم لضمان اكتمال آخر شمعة، ثم نعكس الترتيب تصاعديًا.
+    for end in range(len(ordered), 0, -factor):
+        start = end - factor
+        if start < 0:
+            break
+        group = ordered[start:end]
+        out.append(Candle(
+            ts=group[0].ts,
+            open=group[0].open,
+            high=max(c.high for c in group),
+            low=min(c.low for c in group),
+            close=group[-1].close,
+            volume=sum(c.volume for c in group),
+        ))
+    out.reverse()
+    return out
+
+
 # --------------------------------------------------------------------------- #
 # Unified dispatch
 # --------------------------------------------------------------------------- #
@@ -437,7 +473,14 @@ def fetch(symbol: str, market: str, source: str, timeframe: str, limit: int = 30
       "binance"  (كريبتو فقط)
       "coinbase" (كريبتو فقط، لحظي)
       "auto"     (كريبتو: Coinbase لحظي ثم Yahoo احتياطيًا؛ غيره: Yahoo)
+
+    الأطر غير الأصلية (مثل 30m) تُبنى بجلب إطار أصغر ثم دمجه.
     """
+    if timeframe in _RESAMPLE_FROM:
+        base_tf, factor = _RESAMPLE_FROM[timeframe]
+        base = fetch(symbol, market, source, base_tf, limit=limit * factor + factor)
+        merged = resample_candles(base.candles, factor)[-limit:]
+        return Series(symbol=base.symbol, market=base.market, candles=merged)
     if source == "binance":
         return fetch_binance(symbol, timeframe=timeframe, limit=limit)
     if source == "coinbase":

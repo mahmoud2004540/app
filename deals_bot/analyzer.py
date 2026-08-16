@@ -633,6 +633,30 @@ def detect_trend_pullback(series: Series, rr: float = 2.0, direction: str = "lon
     }
 
 
+def estimate_eta_hours(entry: float, target: float, atr: float,
+                       tf_hours: float = 1.0):
+    """
+    قدّر الزمن المتوقّع لوصول السعر إلى الهدف (تقديري لا مضمون).
+
+    Rough ETA: price travels ~ATR per candle on average, so candles-to-target ≈
+    distance / ATR, and hours ≈ that × the timeframe length. This is a heuristic
+    for setting expectations, NOT a promise — markets move irregularly.
+    Returns hours (float) or None if it can't be computed.
+    """
+    if not atr or atr <= 0 or entry <= 0:
+        return None
+    distance = abs(target - entry)
+    if distance <= 0:
+        return None
+    candles = distance / atr
+    return round(candles * tf_hours, 1)
+
+
+# طول الإطار الزمني بالساعات (لتقدير الزمن المتوقّع للهدف)
+TF_HOURS = {"1m": 1 / 60, "5m": 5 / 60, "15m": 0.25, "30m": 0.5,
+            "1h": 1.0, "6h": 6.0, "1d": 24.0}
+
+
 def add_position_sizing(deal: Deal, balance: float, risk_pct: float) -> Deal:
     """
     احسب حجم الصفقة المقترح بناءً على رأس المال ونسبة المخاطرة.

@@ -21,12 +21,14 @@ from . import indicators as ind
 from .analyzer import (
     STOP_ATR_MULT,
     TARGET_ATR_MULT,
+    TF_HOURS,
     add_position_sizing,
     analyze_symbol,
     detect_accumulation,
     detect_early_pump,
     detect_pre_pump,
     detect_trend_pullback,
+    estimate_eta_hours,
 )
 from .models import Deal
 from .providers import (
@@ -217,6 +219,11 @@ def top_picks(
                     e200 = ind.ema(series.closes(), 200)
                     ema200_ok = bool(e200) and series.closes()[-1] > e200
                 d._ema200_ok = ema200_ok
+                # الزمن المتوقّع لوصول الهدف (تقديري من ATR الإطار الأساسي)
+                atr_v = ind.atr(series.highs(), series.lows(), series.closes(), 14)
+                d.eta_hours = estimate_eta_hours(
+                    d.entry, d.take_profit, atr_v,
+                    tf_hours=TF_HOURS.get(timeframe, 1.0))
                 # زمن شمعة الإشارة (لسجلّ التداول — منع التكرار وتتبّع النتيجة)
                 if series.candles:
                     d.opened_ts = series.candles[-1].ts
