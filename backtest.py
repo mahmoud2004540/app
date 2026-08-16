@@ -415,16 +415,22 @@ def momentum_test(source: str, timeframe: str) -> int:
     return 0
 
 
+# عدد عملات أكبر للاختبار الموسّع لمسافة الوقف (عيّنة أكبر = ثقة أعلى)
+STOPBUFFER_MAX_CRYPTO = 150
+
+
 def stop_buffer_test(source: str, timeframe: str) -> int:
     """
-    اختبار مسافة تنفّس الوقف (ATR buffer): هل إبعاد الوقف عن قاع الارتداد بمضاعف
-    ATR يقلّل الخروج المبكر «اتضرب ستوب وبعدها طلع للهدف» ويحسّن التوقّع؟
+    اختبار موسّع لمسافة تنفّس الوقف (ATR buffer): هل إبعاد الوقف عن قاع الارتداد
+    بمضاعف ATR يقلّل الخروج المبكر «اتضرب ستوب وبعدها طلع للهدف» ويحسّن التوقّع؟
 
-    نقيس عند الإعداد الفائز (درجة ≥85 + فلتر السوق + EMA200 + RR 2.0) قيمًا مختلفة
-    للمسافة: 0.0 (الحالي الملزوق) حتى 1.5×ATR. نفعّل الأفضل فقط لو حسّن بوضوح.
+    لتكبير العيّنة نقيس على 150 عملة ونعرض جدولين:
+      (أ) بدون فلتر السوق — عيّنة كبيرة تعزل تأثير مسافة الوقف نفسها بثقة إحصائية.
+      (ب) مع فلتر السوق — الشرط الواقعي المطبَّق حيًّا (أصغر عيّنة في سوق هابط).
+    نثق في القرار حين يتّفق الجدولان ويكون في (أ) عيّنة كافية (≥40 صفقة).
     """
-    symbols = resolve_symbols("crypto", "auto")[:BACKTEST_MAX_CRYPTO]
-    print(f"⏳ اختبار مسافة تنفّس الوقف على {len(symbols)} عملة ({timeframe})...")
+    symbols = resolve_symbols("crypto", "auto")[:STOPBUFFER_MAX_CRYPTO]
+    print(f"⏳ اختبار موسّع لمسافة الوقف على {len(symbols)} عملة ({timeframe})...")
     series = fetch_many(symbols, "crypto", "auto", timeframe, limit=1000)
 
     regime = None
@@ -435,12 +441,12 @@ def stop_buffer_test(source: str, timeframe: str) -> int:
     except Exception as exc:  # noqa: BLE001
         print(f"  ⚠️ تعذّر بناء فلتر السوق: {exc}")
 
-    def summarize(buf: float):
+    def summarize(buf: float, reg):
         tt = tw = 0
         tr = 0.0
         for s in series:
             res = backtest_trend_pullback_series(
-                s, rr=2.0, min_score=85.0, regime=regime,
+                s, rr=2.0, min_score=85.0, regime=reg,
                 require_ema200=True, stop_buffer_atr=buf,
             )
             tt += res.n
@@ -448,33 +454,50 @@ def stop_buffer_test(source: str, timeframe: str) -> int:
             tr += res.total_r
         wr = (tw / tt * 100.0) if tt else 0.0
         exp = (tr / tt) if tt else 0.0
-        print(f"  مسافة {buf:>3.1f}×ATR | صفقات {tt:>4} | نجاح {wr:>5.1f}% | "
+        print(f"  مسافة {buf:>4.2f}×ATR | صفقات {tt:>4} | نجاح {wr:>5.1f}% | "
               f"توقّع {exp:>+6.2f}R | إجمالي {tr:>+6.1f}R")
         return exp, tt, wr, buf
 
-    print("\n" + "=" * 60)
-    print("الهدف: أعلى توقّع (وأعلى نسبة نجاح) مع عيّنة صفقات كافية ≥20")
-    print("-" * 60)
-    results = []
-    for buf in (0.0, 0.25, 0.5, 0.75, 1.0, 1.5):
-        results.append(summarize(buf))
-    print("=" * 60)
+    buffers = (0.0, 0.25, 0.5, 0.75, 1.0, 1.5)
 
-    valid = [r for r in results if r[1] >= 20]
-    base = next((r for r in results if r[3] == 0.0), None)
-    if valid and base:
-        best = max(valid, key=lambda r: r[0])
-        if best[3] != 0.0 and best[0] > base[0] + 0.03:
-            print(f"\n🏆 الأفضل: مسافة {best[3]:.2f}×ATR → توقّع {best[0]:+.2f}R "
-                  f"(مقابل {base[0]:+.2f}R للوقف الملزوق) — تحسّن حقيقي، نفعّله.")
+    def sweep(title, reg, min_n):
+        print("\n" + "=" * 60)
+        print(title)
+        print("-" * 60)
+        rows = [summarize(b, reg) for b in buffers]
+        print("=" * 60)
+        base = next((r for r in rows if r[3] == 0.0), None)
+        valid = [r for r in rows if r[1] >= min_n]
+        verdict = None
+        if valid and base:
+            best = max(valid, key=lambda r: r[0])
+            if best[3] != 0.0 and best[0] > base[0] + 0.03:
+                verdict = best[3]
+                print(f"👉 الأفضل هنا: {best[3]:.2f}×ATR → {best[0]:+.2f}R "
+                      f"(مقابل {base[0]:+.2f}R للملزوق) على {best[1]} صفقة.")
+            else:
+                print(f"👉 لا تحسّن مُعتَد به (الملزوق {base[0]:+.2f}R يكفي).")
         else:
-            print(f"\nℹ️ الوقف الملزوق الحالي (0.0) يبقى الأفضل أو المكافئ "
-                  f"(توقّع {base[0]:+.2f}R). لا نغيّر — إبعاد الوقف يبعّد الهدف أيضًا "
-                  f"(RR ثابت) فلا مكسب صافٍ.")
-    print(
-        "\nℹ️ ملاحظة مهمة: بما أن الهدف = الدخول + RR×المخاطرة، فإبعاد الوقف يبعّد "
-        "الهدف بنفس النسبة. المكسب الوحيد الممكن أن نتفادى ذيول الضجيج — وهذا ما نقيسه."
-    )
+            print("👉 عيّنة غير كافية للحكم في هذا الجدول.")
+        return verdict
+
+    v_no = sweep("(أ) بدون فلتر السوق — عيّنة كبيرة لعزل تأثير الوقف", None, 40)
+    v_reg = sweep("(ب) مع فلتر السوق — الشرط الواقعي المطبَّق حيًّا", regime, 20)
+
+    print("\n" + "#" * 60)
+    if v_no and v_reg and abs(v_no - v_reg) <= 0.25:
+        pick = round((v_no + v_reg) / 2, 2)
+        print(f"✅ الجدولان متّفقان → مسافة ≈ {pick:.2f}×ATR تحسّن حقيقي وموثوق. "
+              f"ثبّتها في TREND_STOP_BUFFER_ATR.")
+    elif v_no:
+        print(f"✅ العيّنة الكبيرة (أ) تؤكّد تحسّن مسافة {v_no:.2f}×ATR — إشارة قوية "
+              f"رغم صِغَر عيّنة السوق الهابط. مرشّح جيّد للتثبيت.")
+    elif v_reg:
+        print(f"⚠️ فقط الجدول الواقعي (ب) أظهر تحسّنًا ({v_reg:.2f}×ATR) بعيّنة صغيرة — "
+              f"مبشّر لكن ننتظر عيّنة أكبر قبل الجزم.")
+    else:
+        print("ℹ️ لا تحسّن مؤكّد — الوقف الملزوق (0.0) يبقى الخيار الآمن.")
+    print("#" * 60)
     return 0
 
 
