@@ -93,6 +93,14 @@ def _apply_new_strategy(picks, timeframe: str) -> None:
         qty, risk_amount = eng.position_size(equity, d.entry, d.stop_loss, d.direction)
         if qty > 0:
             d.qty, d.risk_amount = qty, risk_amount
+        # إثراء بالمشاعر (CryptoPanic) — معلومة مساعدة، ليست فلترًا مُثبتًا
+        try:
+            from deals_bot.providers import fetch_sentiment
+            s = fetch_sentiment(d.symbol)
+            if s and s.get("posts"):
+                d._sentiment = f"{s['label']} ({s['positive']}↑/{s['negative']}↓)"
+        except Exception:  # noqa: BLE001
+            pass
 
 
 def _journal_maintenance(picks, timeframe: str) -> str:
