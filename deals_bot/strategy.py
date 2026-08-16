@@ -207,7 +207,8 @@ def top_picks(
                     continue
             tp = detect_trend_pullback(
                 series, rr=rr,
-                require_momentum=getattr(config, "TREND_REQUIRE_MOMENTUM", False))
+                require_momentum=getattr(config, "TREND_REQUIRE_MOMENTUM", False),
+                stop_buffer_atr=getattr(config, "TREND_STOP_BUFFER_ATR", 0.0))
             if tp:
                 d = _trend_pullback_deal(sym, market, tp)
                 # فلتر الاتجاه بعيد المدى (EMA200) — نخزّن النتيجة على الصفقة

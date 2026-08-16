@@ -415,6 +415,69 @@ def momentum_test(source: str, timeframe: str) -> int:
     return 0
 
 
+def stop_buffer_test(source: str, timeframe: str) -> int:
+    """
+    اختبار مسافة تنفّس الوقف (ATR buffer): هل إبعاد الوقف عن قاع الارتداد بمضاعف
+    ATR يقلّل الخروج المبكر «اتضرب ستوب وبعدها طلع للهدف» ويحسّن التوقّع؟
+
+    نقيس عند الإعداد الفائز (درجة ≥85 + فلتر السوق + EMA200 + RR 2.0) قيمًا مختلفة
+    للمسافة: 0.0 (الحالي الملزوق) حتى 1.5×ATR. نفعّل الأفضل فقط لو حسّن بوضوح.
+    """
+    symbols = resolve_symbols("crypto", "auto")[:BACKTEST_MAX_CRYPTO]
+    print(f"⏳ اختبار مسافة تنفّس الوقف على {len(symbols)} عملة ({timeframe})...")
+    series = fetch_many(symbols, "crypto", "auto", timeframe, limit=1000)
+
+    regime = None
+    try:
+        btc = fetch("BTC-USD", "crypto", "auto", timeframe, limit=1000)
+        regime = market_uptrend_map(btc, 50)
+        print(f"  ✅ خريطة حالة السوق من BTC ({len(regime)} شمعة).")
+    except Exception as exc:  # noqa: BLE001
+        print(f"  ⚠️ تعذّر بناء فلتر السوق: {exc}")
+
+    def summarize(buf: float):
+        tt = tw = 0
+        tr = 0.0
+        for s in series:
+            res = backtest_trend_pullback_series(
+                s, rr=2.0, min_score=85.0, regime=regime,
+                require_ema200=True, stop_buffer_atr=buf,
+            )
+            tt += res.n
+            tw += res.wins
+            tr += res.total_r
+        wr = (tw / tt * 100.0) if tt else 0.0
+        exp = (tr / tt) if tt else 0.0
+        print(f"  مسافة {buf:>3.1f}×ATR | صفقات {tt:>4} | نجاح {wr:>5.1f}% | "
+              f"توقّع {exp:>+6.2f}R | إجمالي {tr:>+6.1f}R")
+        return exp, tt, wr, buf
+
+    print("\n" + "=" * 60)
+    print("الهدف: أعلى توقّع (وأعلى نسبة نجاح) مع عيّنة صفقات كافية ≥20")
+    print("-" * 60)
+    results = []
+    for buf in (0.0, 0.25, 0.5, 0.75, 1.0, 1.5):
+        results.append(summarize(buf))
+    print("=" * 60)
+
+    valid = [r for r in results if r[1] >= 20]
+    base = next((r for r in results if r[3] == 0.0), None)
+    if valid and base:
+        best = max(valid, key=lambda r: r[0])
+        if best[3] != 0.0 and best[0] > base[0] + 0.03:
+            print(f"\n🏆 الأفضل: مسافة {best[3]:.2f}×ATR → توقّع {best[0]:+.2f}R "
+                  f"(مقابل {base[0]:+.2f}R للوقف الملزوق) — تحسّن حقيقي، نفعّله.")
+        else:
+            print(f"\nℹ️ الوقف الملزوق الحالي (0.0) يبقى الأفضل أو المكافئ "
+                  f"(توقّع {base[0]:+.2f}R). لا نغيّر — إبعاد الوقف يبعّد الهدف أيضًا "
+                  f"(RR ثابت) فلا مكسب صافٍ.")
+    print(
+        "\nℹ️ ملاحظة مهمة: بما أن الهدف = الدخول + RR×المخاطرة، فإبعاد الوقف يبعّد "
+        "الهدف بنفس النسبة. المكسب الوحيد الممكن أن نتفادى ذيول الضجيج — وهذا ما نقيسه."
+    )
+    return 0
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description="باك-تِست لاستراتيجية بوت الصفقات.")
     p.add_argument("--market", "-m", choices=["crypto", "stocks", "forex", "all"], default="crypto")
@@ -423,7 +486,8 @@ def main(argv=None) -> int:
     p.add_argument(
         "--strategy",
         choices=["signals", "prepump", "trend", "compare", "trendsweep",
-                 "optimize", "walkforward", "short", "precision", "momentum"],
+                 "optimize", "walkforward", "short", "precision", "momentum",
+                 "stopbuffer"],
         default="signals",
         help="signals=إشارات شراء/بيع؛ prepump=ما قبل الاندفاع؛ "
         "trend=ارتداد داخل اتجاه صاعد؛ compare=قارن prepump مقابل trend؛ "
@@ -450,6 +514,8 @@ def main(argv=None) -> int:
         return precision_test(args.source, args.timeframe)
     if args.strategy == "momentum":
         return momentum_test(args.source, args.timeframe)
+    if args.strategy == "stopbuffer":
+        return stop_buffer_test(args.source, args.timeframe)
     return run(args.market, args.source, args.timeframe, args.strategy)
 
 

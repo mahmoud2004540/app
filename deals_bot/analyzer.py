@@ -500,7 +500,7 @@ def detect_pre_pump(series: Series):
 
 
 def detect_trend_pullback(series: Series, rr: float = 2.0, direction: str = "long",
-                          require_momentum: bool = False):
+                          require_momentum: bool = False, stop_buffer_atr: float = 0.0):
     """
     اكتشف «الارتداد داخل الاتجاه» — دخول مع الاتجاه لا ضدّه (Long أو Short).
 
@@ -512,6 +512,10 @@ def detect_trend_pullback(series: Series, rr: float = 2.0, direction: str = "lon
     require_momentum: فلتر الزخم القوي — لا ندخل إلا لو الزخم الأساسي مؤيّد
       (MACD في اتجاه الصفقة + زخم سعري في نفس الاتجاه). يقلّل الانعكاس الفوري.
 
+    stop_buffer_atr: مسافة تنفّس للوقف بمضاعف ATR — يبعد الوقف عن قاع/قمة الارتداد
+      بمقدار (stop_buffer_atr × ATR) عشان الذيول السريعة (stop-hunt) ما تضربوش
+      بدري. صفر = الوقف الملزوق الأصلي. يجب قياسه بالباك-تِست قبل تفعيله حيًّا.
+
     Returns a details dict (score + levels + direction) or None. Single source of
     truth shared by the live bot and the backtester.
     """
@@ -522,6 +526,8 @@ def detect_trend_pullback(series: Series, rr: float = 2.0, direction: str = "lon
     price = closes[-1]
     low = series.lows()[-1]
     high = series.highs()[-1]
+    atr_v = (ind.atr(series.highs(), series.lows(), closes, 14)
+             if stop_buffer_atr > 0 else None)
     e9 = ind.ema(closes, 9)
     e21 = ind.ema(closes, 21)
     e50 = ind.ema(closes, 50)
@@ -549,6 +555,8 @@ def detect_trend_pullback(series: Series, rr: float = 2.0, direction: str = "lon
             if not strong:
                 return None
         stop = max(high, e21) * 1.005
+        if stop_buffer_atr > 0 and atr_v:
+            stop += stop_buffer_atr * atr_v          # مسافة تنفّس فوق القمة
         risk = stop - price
         if risk <= 0:
             return None
@@ -591,6 +599,8 @@ def detect_trend_pullback(series: Series, rr: float = 2.0, direction: str = "lon
             return None
 
     stop = min(low, e21) * 0.995
+    if stop_buffer_atr > 0 and atr_v:
+        stop -= stop_buffer_atr * atr_v              # مسافة تنفّس تحت القاع
     risk = price - stop
     if risk <= 0:
         return None

@@ -33,7 +33,7 @@ on:
         required: false
         default: "1"
       strategy:
-        description: "استراتيجية الباك-تِست (prepump,trend,compare,trendsweep,optimize)"
+        description: "استراتيجية الباك-تِست (compare,trendsweep,optimize,precision,stopbuffer,...)"
         required: false
         default: "compare"
 
