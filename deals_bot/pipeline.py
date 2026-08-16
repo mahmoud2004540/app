@@ -53,6 +53,8 @@ def _risk_engine() -> RiskEngine:
         max_open_positions=getattr(config, "MAX_OPEN_POSITIONS", 5),
         fee_rate=getattr(config, "FEE_RATE", 0.001),
         slippage_rate=getattr(config, "SLIPPAGE_RATE", 0.0005),
+        max_portfolio_heat=getattr(config, "MAX_PORTFOLIO_HEAT", 0.02),
+        max_correlation=getattr(config, "MAX_CORRELATION", 0.85),
     ))
 
 

@@ -29,6 +29,8 @@ class RiskConfig:
     max_open_positions: int = 5
     fee_rate: float = 0.001              # لكل جهة
     slippage_rate: float = 0.0005
+    max_portfolio_heat: float = 0.02     # 2% أقصى مخاطرة إجمالية عبر كل المفتوح
+    max_correlation: float = 0.85        # لا نفتح عملة مرتبطة بأكثر من كده بمفتوحة
 
 
 @dataclass
