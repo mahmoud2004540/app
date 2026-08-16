@@ -16,10 +16,11 @@ fails, a clear RuntimeError is raised so the CLI/bot can report it per-symbol.
 from __future__ import annotations
 
 import json
+import os
 import time
 import urllib.error
 import urllib.request
-from typing import List
+from typing import List, Optional
 
 from .models import Candle, Series
 
@@ -276,6 +277,63 @@ def fetch_trending():
     if not isinstance(raw, dict):
         raise RuntimeError("استجابة CoinGecko غير متوقعة.")
     return _parse_trending(raw)
+
+
+def _base_asset(symbol: str) -> str:
+    """استخرج رمز الأصل الأساسي: BTC-USD→BTC، ETHUSDT→ETH، EURUSD=X→EUR."""
+    s = symbol.upper().replace("=X", "")
+    for suf in ("-USD", "-USDT", "-USDC", "USDT", "USDC", "USD"):
+        if s.endswith(suf) and len(s) > len(suf):
+            return s[: -len(suf)]
+    return s
+
+
+def _parse_sentiment(raw: dict, asset: str) -> dict:
+    """
+    لخّص مشاعر أخبار CryptoPanic لأصل معيّن: أصوات إيجابية مقابل سلبية.
+
+    Aggregates positive/negative community votes across recent posts. Returns a
+    dict with score, counts, a label, and how many posts were considered.
+    """
+    results = raw.get("results", []) if isinstance(raw, dict) else []
+    pos = neg = posts = 0
+    for it in results:
+        votes = it.get("votes", {}) or {}
+        pos += int(votes.get("positive", 0) or 0)
+        neg += int(votes.get("negative", 0) or 0)
+        posts += 1
+    score = pos - neg
+    if score > 0:
+        label = "🟢 إيجابي"
+    elif score < 0:
+        label = "🔴 سلبي"
+    else:
+        label = "⚪ محايد"
+    return {"asset": asset, "score": score, "positive": pos,
+            "negative": neg, "posts": posts, "label": label}
+
+
+def fetch_sentiment(symbol: str, token: str = None, limit: int = 30) -> Optional[dict]:
+    """
+    مشاعر الأخبار لعملة عبر CryptoPanic (مجّاني، يحتاج CRYPTOPANIC_TOKEN).
+
+    Free news/sentiment. Returns a summary dict or None if no token / no data.
+    NOTE: only *current* news is available on the free tier — this is live
+    enrichment, not a backtestable signal.
+    """
+    token = token or os.environ.get("CRYPTOPANIC_TOKEN")
+    if not token:
+        return None
+    asset = _base_asset(symbol)
+    url = (f"https://cryptopanic.com/api/v1/posts/?auth_token={token}"
+           f"&currencies={asset}&public=true")
+    try:
+        raw = _http_json(url, timeout=15, retries=2)
+    except Exception:  # noqa: BLE001
+        return None
+    if not isinstance(raw, dict):
+        return None
+    return _parse_sentiment(raw, asset)
 
 
 def _to_binance_symbol(symbol: str) -> str:

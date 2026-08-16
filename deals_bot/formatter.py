@@ -308,6 +308,9 @@ def format_picks(picks: List[Deal]) -> str:
             parts.append("   ✅ مؤكّدة على 15M (انغلاف + حجم + كسر بنية)")
         elif d.confirmed is False:
             parts.append("   ⏳ بانتظار تأكيد 15M — راقبها قبل الدخول")
+        sent = getattr(d, "_sentiment", None)
+        if sent:
+            parts.append(f"   📰 مشاعر الأخبار: {sent}")
         parts.extend(_pick_body(d))
         parts.append("")
     parts.append(DISCLAIMER)
