@@ -1,7 +1,7 @@
 """اختبارات: بناء إطار 30m بدمج 15m + تقدير الزمن المتوقّع للهدف (offline)."""
 
 from deals_bot.analyzer import TF_HOURS, estimate_eta_hours
-from deals_bot.formatter import _fmt_eta
+from deals_bot.formatter import _fmt_eta, _trade_horizon
 from deals_bot.models import Candle
 from deals_bot.providers import resample_candles
 
@@ -47,3 +47,9 @@ def test_fmt_eta_units():
     assert "دقيقة" in _fmt_eta(0.5)
     assert "ساعة" in _fmt_eta(5.0)
     assert "يوم" in _fmt_eta(48.0)
+
+
+def test_trade_horizon_buckets():
+    assert "سريعة" in _trade_horizon(3)          # < 8h
+    assert "يوم" in _trade_horizon(20)            # 8–48h → يوم-يومين
+    assert "أطول" in _trade_horizon(60)           # ≥ 48h
