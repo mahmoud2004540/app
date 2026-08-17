@@ -31,7 +31,11 @@ from deals_bot.strategy import market_is_bullish, scan_universe, top_picks
 
 
 def _alert_only() -> bool:
-    return os.environ.get("ALERT_ONLY", "").lower() in ("1", "true", "yes")
+    # متغيّر البيئة له الأولوية؛ وإلا نأخذ الافتراضي من config (الدخول فقط افتراضيًا).
+    env = os.environ.get("ALERT_ONLY")
+    if env is not None and env.strip() != "":
+        return env.lower() in ("1", "true", "yes")
+    return bool(getattr(config, "ALERT_ONLY", False))
 
 
 _LAST_DIGEST = os.path.join("journal", "last_digest.json")
