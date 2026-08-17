@@ -22,6 +22,7 @@ from . import indicators as ind
 from .analyzer import (
     analyze_symbol,
     detect_accumulation,
+    detect_breakout,
     detect_early_pump,
     detect_pre_pump,
     detect_trend_pullback,
@@ -231,6 +232,65 @@ def backtest_prepump_series(series: Series, warmup: int = 80,
         trades.append(
             Trade(series.symbol, "BUY", entry, stop, target, exit_price, r, won)
         )
+        i = j + 1
+
+    return BacktestResult(symbol=series.symbol, trades=trades)
+
+
+def backtest_breakout_series(
+    series: Series,
+    warmup: int = 60,
+    rr: float = 2.0,
+    min_score: float = 0.0,
+    regime: Optional[dict] = None,
+    lookback: int = 20,
+    stop_buffer_atr: float = 0.5,
+) -> BacktestResult:
+    """
+    باك-تِست لاستراتيجية «اختراق الاتجاه» (Donchian breakout) — نفس كاشف البوت.
+
+    يفتح عند كسر أعلى قمة `lookback`، ويتتبّع الشموع التالية: الوقف أولًا في الأسوأ.
+    فلتر السوق (regime) اختياري: لا ندخل إلا حين يكون السوق العام في صالحنا.
+    """
+    candles = series.candles
+    trades: List[Trade] = []
+    n = len(candles)
+    i = max(warmup, lookback + 5)
+
+    while i < n - 1:
+        sub = Series(symbol=series.symbol, market=series.market, candles=candles[: i + 1])
+        setup = detect_breakout(sub, lookback=lookback, rr=rr,
+                                stop_buffer_atr=stop_buffer_atr)
+        if not setup or setup["score"] < min_score:
+            i += 1
+            continue
+        if regime is not None and not regime.get(round(candles[i].ts), False):
+            i += 1
+            continue
+
+        entry, stop, target = setup["price"], setup["stop"], setup["target"]
+        risk = entry - stop
+        if risk <= 0:
+            i += 1
+            continue
+
+        outcome = None
+        j = i + 1
+        while j < n:
+            hi, lo = candles[j].high, candles[j].low
+            if lo <= stop:                      # الوقف تحت — الأسوأ أولًا
+                outcome = (stop, False)
+                break
+            if hi >= target:
+                outcome = (target, True)
+                break
+            j += 1
+        if outcome is None:
+            i += 1
+            continue
+        exit_price, won = outcome
+        r = (exit_price - entry) / risk
+        trades.append(Trade(series.symbol, "BUY", entry, stop, target, exit_price, r, won))
         i = j + 1
 
     return BacktestResult(symbol=series.symbol, trades=trades)

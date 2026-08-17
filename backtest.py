@@ -501,6 +501,78 @@ def stop_buffer_test(source: str, timeframe: str) -> int:
     return 0
 
 
+def breakout_test(source: str, timeframe: str) -> int:
+    """
+    قياس استراتيجية «اختراق الاتجاه» (Donchian breakout) — تنويع محترف مقترح.
+
+    نقيسها على 1h و1d (بيانات يومية تاريخها أطول) مع فلتر السوق، ونقارنها
+    بالاستراتيجية الرابحة الحالية. نضيفها للتنويع فقط لو توقّعها موجب وعيّنتها كافية.
+    """
+    from deals_bot.backtester import backtest_breakout_series
+
+    frames = [timeframe, "1d"] if timeframe != "1d" else ["1h", "1d"]
+    symbols = resolve_symbols("crypto", "auto")[:BACKTEST_MAX_CRYPTO]
+    print(f"⏳ قياس اختراق الاتجاه على {len(symbols)} عملة، فريمات {frames}...")
+
+    print("\n" + "=" * 64)
+    print(f"{'فريم':>5} | {'إستراتيجية':>12} | {'صفقات':>6} | {'نجاح%':>6} | "
+          f"{'توقّع/R':>8} | {'إجمالي':>8}")
+    print("-" * 64)
+
+    def run_frame(tf):
+        try:
+            series = fetch_many(symbols, "crypto", "auto", tf, limit=1000)
+        except Exception as exc:  # noqa: BLE001
+            print(f"{tf:>5} | تعذّر الجلب: {exc}")
+            return
+        regime = None
+        try:
+            btc = fetch("BTC-USD", "crypto", "auto", tf, limit=1000)
+            regime = market_uptrend_map(btc, 50)
+        except Exception:  # noqa: BLE001
+            pass
+
+        def tally(fn, **kw):
+            tt = tw = 0
+            tr = 0.0
+            for s in series:
+                res = fn(s, regime=regime, **kw)
+                tt += res.n
+                tw += res.wins
+                tr += res.total_r
+            wr = (tw / tt * 100.0) if tt else 0.0
+            exp = (tr / tt) if tt else 0.0
+            return tt, wr, exp, tr
+
+        bo = tally(backtest_breakout_series, rr=2.0, min_score=85.0)
+        tp = tally(backtest_trend_pullback_series, rr=2.0, min_score=85.0,
+                   require_ema200=True,
+                   stop_buffer_atr=getattr(config, "TREND_STOP_BUFFER_ATR", 0.5))
+        print(f"{tf:>5} | {'اختراق':>12} | {bo[0]:>6} | {bo[1]:>6.1f} | "
+              f"{bo[2]:>+8.2f} | {bo[3]:>+8.1f}")
+        print(f"{tf:>5} | {'ارتداد(حالي)':>12} | {tp[0]:>6} | {tp[1]:>6.1f} | "
+              f"{tp[2]:>+8.2f} | {tp[3]:>+8.1f}")
+        print("-" * 64)
+        return bo
+
+    verdicts = {}
+    for tf in frames:
+        verdicts[tf] = run_frame(tf)
+    print("=" * 64)
+    good = [tf for tf, v in verdicts.items() if v and v[2] > 0 and v[0] >= 20]
+    if good:
+        print(f"\n✅ اختراق الاتجاه رابح وبعيّنة كافية على: {', '.join(good)} — "
+              f"مرشّح قوي لإضافته كتنويع ثانٍ.")
+    else:
+        print("\n⚠️ اختراق الاتجاه لم يُثبت أفضلية موجبة بعيّنة كافية الآن — "
+              "لا نضيفه (نبقى على الاستراتيجية الرابحة الوحيدة).")
+    print(
+        "\nℹ️ التنويع الحقيقي = استراتيجيتان مقاستان موجبتان وغير مترابطتين. "
+        "نضيف فقط ما يجتاز القياس — تمامًا كما تفعل الصناديق المؤسسية."
+    )
+    return 0
+
+
 def frame_sweep(source: str, timeframe: str) -> int:
     """
     قياس متعدد الفريمات: يجرّب نفس الإعداد الرابح (درجة≥85 + فلتر السوق + EMA200 +
@@ -660,7 +732,7 @@ def main(argv=None) -> int:
         "--strategy",
         choices=["signals", "prepump", "trend", "compare", "trendsweep",
                  "optimize", "walkforward", "short", "precision", "momentum",
-                 "stopbuffer", "diag", "framesweep"],
+                 "stopbuffer", "diag", "framesweep", "breakout"],
         default="signals",
         help="signals=إشارات شراء/بيع؛ prepump=ما قبل الاندفاع؛ "
         "trend=ارتداد داخل اتجاه صاعد؛ compare=قارن prepump مقابل trend؛ "
@@ -693,6 +765,8 @@ def main(argv=None) -> int:
         return pipeline_diag(args.source, args.timeframe)
     if args.strategy == "framesweep":
         return frame_sweep(args.source, args.timeframe)
+    if args.strategy == "breakout":
+        return breakout_test(args.source, args.timeframe)
     return run(args.market, args.source, args.timeframe, args.strategy)
 
 

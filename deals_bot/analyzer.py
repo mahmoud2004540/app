@@ -633,6 +633,80 @@ def detect_trend_pullback(series: Series, rr: float = 2.0, direction: str = "lon
     }
 
 
+def detect_breakout(series: Series, lookback: int = 20, rr: float = 2.0,
+                    stop_buffer_atr: float = 0.5):
+    """
+    اكتشف «اختراق الاتجاه» (Donchian Breakout) — نظام تتبّع الاتجاه الكلاسيكي
+    (أصل نظام السلاحف الذي بنت عليه صناديق CTA المؤسسية).
+
+    يشتري حين يكسر السعر أعلى قمة آخر `lookback` شمعة (اختراق حقيقي) بشرط:
+      • السوق في اتجاه صاعد بعيد المدى (السعر فوق EMA50 وEMA50 يصعد).
+      • حجم الاختراق مرتفع (تأكيد أن الكسر مدعوم بشراء حقيقي).
+      • RSI لم ينفجر بعد (لا نطارد شمعة جرت بعيدًا).
+    الوقف تحت الاختراق بمسافة ATR، الهدف = الدخول + rr×المخاطرة.
+
+    Returns a details dict (score + levels) or None. مصدر واحد للحقيقة يشاركه
+    البوت الحيّ والباك-تِست. يجب قياسه قبل تفعيله حيًّا.
+    """
+    closes = series.closes()
+    highs = series.highs()
+    lows = series.lows()
+    n = len(closes)
+    if n < max(lookback + 5, 55):
+        return None
+    price = closes[-1]
+    atr_v = ind.atr(highs, lows, closes, 14)
+    e50 = ind.ema(closes, 50)
+    e50_prev = ind.ema(closes[:-3], 50) if n > 53 else None
+    rsi_v = ind.rsi(closes, 14)
+    if None in (atr_v, e50, e50_prev, rsi_v) or atr_v <= 0:
+        return None
+
+    # قمة النطاق = أعلى قمة في آخر lookback شمعة قبل الشمعة الحالية
+    prior_high = max(highs[-lookback - 1:-1])
+    if prior_high <= 0:
+        return None
+
+    uptrend = price > e50 and e50 > e50_prev        # اتجاه بعيد المدى صاعد
+    broke_out = price > prior_high                   # كسر أعلى النطاق
+    healthy = rsi_v < 78.0                            # لم ينفجر تمامًا
+    move = (price / prior_high - 1.0) * 100.0         # كم فوق الكسر (مبكّر؟)
+    early = move <= 6.0                               # لسه قريب من نقطة الكسر
+    vs = ind.volume_surge(series.volumes(), 20)
+    vol_ok = vs is not None and vs >= 1.3            # حجم الاختراق
+
+    if not (uptrend and broke_out and healthy and early and vol_ok):
+        return None
+
+    stop = prior_high - stop_buffer_atr * atr_v      # الوقف تحت مستوى الكسر
+    risk = price - stop
+    if risk <= 0:
+        return None
+    target = price + rr * risk
+
+    reasons = [
+        "🚀 اختراق اتجاه (Donchian) — تتبّع الاتجاه كالمؤسسات (CTA)",
+        f"كسر أعلى قمة {lookback} شمعة عند {prior_high:.6g} (+{move:.1f}%)",
+        f"فوق EMA50 صاعد | RSI {rsi_v:.0f} | حجم ×{vs:.1f}",
+    ]
+    score = 60.0
+    score += min(14.0, max(0.0, (6.0 - move) * 2.0))     # كل ما كان أبكر = أفضل
+    score += min(12.0, max(0.0, (vs - 1.3) * 8.0))        # حجم أعلى = أقوى
+    obv_up = ind.obv_rising(closes, series.volumes(), 10)
+    if obv_up:
+        score += 12.0
+        reasons.append("💰 OBV صاعد — الكسر مدعوم بتدفّق شراء")
+    elif obv_up is False:
+        score -= 10.0
+    score = max(0.0, min(100.0, score))
+
+    return {
+        "reasons": reasons, "score": round(score, 1), "direction": "BUY",
+        "price": price, "stop": stop, "target": target,
+        "base_low": stop, "base_high": price, "rsi": rsi_v,
+    }
+
+
 def estimate_eta_hours(entry: float, target: float, atr: float,
                        tf_hours: float = 1.0):
     """
