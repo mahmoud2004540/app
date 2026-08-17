@@ -66,6 +66,15 @@ def _fmt_eta(hours: float) -> str:
     return f"{days:.1f} يوم"
 
 
+def _trade_horizon(hours: float) -> str:
+    """صنّف مدة الصفقة المتوقّعة (من الزمن المقدّر للهدف) بوصف مفهوم."""
+    if hours < 8:
+        return "⚡ صفقة سريعة (خلال ساعات)"
+    if hours < 48:
+        return "📅 استثمار قصير (يوم – يومين)"
+    return "🕰️ استثمار أطول (عدّة أيام)"
+
+
 def expected_moves(deal: Deal):
     """
     الحركة المتوقّعة بالنسبة المئوية حتى الهدف وحتى وقف الخسارة.
@@ -298,6 +307,7 @@ def _pick_body(d: Deal) -> List[str]:
     eta = getattr(d, "eta_hours", None)
     if eta:
         lines.append(f"   ⏱️ الزمن المتوقّع للهدف: ~{_fmt_eta(eta)} (تقديري لا مضمون)")
+        lines.append(f"   🗓️ نوع الصفقة: {_trade_horizon(eta)}")
     if d.qty is not None:
         lines.append(f"   📦 حجم مقترح: {d.qty:g} وحدة (تخاطر بـ {d.risk_amount:g})")
     if d.reasons:
