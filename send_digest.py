@@ -38,6 +38,46 @@ def _alert_only() -> bool:
     return bool(getattr(config, "ALERT_ONLY", False))
 
 
+HEARTBEAT_STATE = os.path.join("journal", "last_heartbeat.json")
+
+
+def _heartbeat_due(state_path: str = HEARTBEAT_STATE) -> bool:
+    """هل نبضة اليوم لم تُرسَل بعد؟ (نبضة واحدة يوميًا كحدّ أقصى)."""
+    if not bool(getattr(config, "HEARTBEAT_DAILY", True)):
+        return False
+    from datetime import datetime, timezone
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    try:
+        with open(state_path, encoding="utf-8") as fh:
+            if json.load(fh).get("date") == today:
+                return False
+    except Exception:  # noqa: BLE001 - ملف مفقود/تالف → النبضة مستحقّة
+        pass
+    return True
+
+
+def _mark_heartbeat(state_path: str = HEARTBEAT_STATE) -> None:
+    """سجّل أن نبضة اليوم أُرسلت (لمنع التكرار كل ساعتين)."""
+    from datetime import datetime, timezone
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    try:
+        os.makedirs(os.path.dirname(state_path), exist_ok=True)
+        with open(state_path, "w", encoding="utf-8") as fh:
+            json.dump({"date": today}, fh)
+    except Exception as exc:  # noqa: BLE001
+        print(f"⚠️ تعذّر حفظ حالة النبضة: {exc}")
+
+
+def _heartbeat_message(status: str) -> str:
+    """نص النبضة اليومية القصيرة — تطمئنك أن البوت حيّ ولماذا ينتظر."""
+    return (
+        "🔔 البوت شغّال ✅ (وضع الدخول فقط)\n"
+        f"{status}\n"
+        "مستني صفقة مؤكّدة تخشها على طول — هبعتها لك فور ظهورها. "
+        "لا رسائل مراقبة، فقط دخول حقيقي."
+    )
+
+
 _LAST_DIGEST = os.path.join("journal", "last_digest.json")
 
 
@@ -184,7 +224,11 @@ def build_message():
     # وضع التنبيه: فحص رخيص أولًا — لو السوق العام هابط لا نفحص كل العملات أصلًا.
     if alert_only and getattr(config, "TREND_MARKET_REGIME", True) and "crypto" in markets:
         if market_is_bullish(timeframe) is False:
-            print("🔕 وضع التنبيه: السوق هابط — لا فحص ولا إرسال (توفير موارد).")
+            if _heartbeat_due():
+                _mark_heartbeat()
+                print("🔔 وضع الدخول فقط: السوق هابط — إرسال نبضة اليوم.")
+                return _heartbeat_message("السوق العام (BTC): هابط 🔴 — لا نشتري ضد التيار.")
+            print("🔕 وضع الدخول فقط: السوق هابط — لا فحص ولا إرسال (نبضة اليوم أُرسلت).")
             return None
 
     # المنتج الأساسي: أفضل 1-2 صفقة من فحص كل العملات — الإعداد الرابح المُثبت
@@ -193,7 +237,13 @@ def build_message():
     min_score = int(getattr(config, "TREND_MIN_SCORE", 85))
 
     if alert_only and not picks:
-        print("🔕 وضع التنبيه: لا صفقة مؤكّدة الآن — لم تُرسل رسالة.")
+        if _heartbeat_due():
+            _mark_heartbeat()
+            state = ("السوق صاعد 🟢 لكن لا إعداد يجتاز كل الشروط بعد"
+                     if market_bullish else "السوق العام: هابط 🔴")
+            print("🔔 وضع الدخول فقط: لا صفقة مؤكّدة — إرسال نبضة اليوم.")
+            return _heartbeat_message(state)
+        print("🔕 وضع الدخول فقط: لا صفقة مؤكّدة الآن — لم تُرسل رسالة (نبضة اليوم أُرسلت).")
         return None
 
     # الاستراتيجية الجديدة: تأكيد 15M + حجم مخاطرة محرّك المخاطر (0.5%) لكل صفقة
