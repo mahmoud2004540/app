@@ -85,6 +85,8 @@ class Deal:
     # إدارة المخاطر (تُملأ عند توفّر رأس المال)
     qty: Optional[float] = None            # حجم الصفقة المقترح (وحدات)
     risk_amount: Optional[float] = None    # المبلغ المخاطَر به بعملتك
+    # الزمن المتوقّع لوصول الهدف (تقديري بالساعات، من ATR الإطار الأساسي)
+    eta_hours: Optional[float] = None
 
     def is_actionable(self) -> bool:
         return self.direction in ("BUY", "SELL") and self.error is None

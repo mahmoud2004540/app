@@ -54,6 +54,18 @@ def _fmt_price(x: float) -> str:
     return f"{x:.10f}".rstrip("0").rstrip(".")
 
 
+def _fmt_eta(hours: float) -> str:
+    """صيغة الزمن المتوقّع: ساعات أو أيام حسب الحجم."""
+    if hours < 1:
+        return f"{int(round(hours * 60))} دقيقة"
+    if hours < 10:
+        return f"{hours:.1f} ساعة"
+    if hours < 24:
+        return f"{hours:.0f} ساعة"
+    days = hours / 24.0
+    return f"{days:.1f} يوم"
+
+
 def expected_moves(deal: Deal):
     """
     الحركة المتوقّعة بالنسبة المئوية حتى الهدف وحتى وقف الخسارة.
@@ -283,6 +295,9 @@ def _pick_body(d: Deal) -> List[str]:
         f"   🎯 الهدف: {_fmt_price(d.take_profit)}  (+{tgt:.1f}%)",
         f"   ⚖️ مخاطرة/عائد 1:{d.risk_reward:.1f}  |  الثقة {d.confidence:.0f}%",
     ]
+    eta = getattr(d, "eta_hours", None)
+    if eta:
+        lines.append(f"   ⏱️ الزمن المتوقّع للهدف: ~{_fmt_eta(eta)} (تقديري لا مضمون)")
     if d.qty is not None:
         lines.append(f"   📦 حجم مقترح: {d.qty:g} وحدة (تخاطر بـ {d.risk_amount:g})")
     if d.reasons:
@@ -305,9 +320,9 @@ def format_picks(picks: List[Deal]) -> str:
         parts.append(f"   📈 اتجاه صاعد (ارتداد للمتوسّط) — {grade(d)}")
         parts.append(f"   🎯 الثقة: {d.confidence:.0f}%  ({d.confidence:.0f}/100)")
         if d.confirmed is True:
-            parts.append("   ✅ مؤكّدة على 15M (انغلاف + حجم + كسر بنية)")
+            parts.append("   ✅ مؤكّدة على 30M (انغلاف + حجم + كسر بنية)")
         elif d.confirmed is False:
-            parts.append("   ⏳ بانتظار تأكيد 15M — راقبها قبل الدخول")
+            parts.append("   ⏳ بانتظار تأكيد 30M — راقبها قبل الدخول")
         sent = getattr(d, "_sentiment", None)
         if sent:
             parts.append(f"   📰 مشاعر الأخبار: {sent}")

@@ -415,6 +415,314 @@ def momentum_test(source: str, timeframe: str) -> int:
     return 0
 
 
+# عدد عملات أكبر للاختبار الموسّع لمسافة الوقف (عيّنة أكبر = ثقة أعلى)
+STOPBUFFER_MAX_CRYPTO = 150
+
+
+def stop_buffer_test(source: str, timeframe: str) -> int:
+    """
+    اختبار موسّع لمسافة تنفّس الوقف (ATR buffer): هل إبعاد الوقف عن قاع الارتداد
+    بمضاعف ATR يقلّل الخروج المبكر «اتضرب ستوب وبعدها طلع للهدف» ويحسّن التوقّع؟
+
+    لتكبير العيّنة نقيس على 150 عملة ونعرض جدولين:
+      (أ) بدون فلتر السوق — عيّنة كبيرة تعزل تأثير مسافة الوقف نفسها بثقة إحصائية.
+      (ب) مع فلتر السوق — الشرط الواقعي المطبَّق حيًّا (أصغر عيّنة في سوق هابط).
+    نثق في القرار حين يتّفق الجدولان ويكون في (أ) عيّنة كافية (≥40 صفقة).
+    """
+    symbols = resolve_symbols("crypto", "auto")[:STOPBUFFER_MAX_CRYPTO]
+    print(f"⏳ اختبار موسّع لمسافة الوقف على {len(symbols)} عملة ({timeframe})...")
+    series = fetch_many(symbols, "crypto", "auto", timeframe, limit=1000)
+
+    regime = None
+    try:
+        btc = fetch("BTC-USD", "crypto", "auto", timeframe, limit=1000)
+        regime = market_uptrend_map(btc, 50)
+        print(f"  ✅ خريطة حالة السوق من BTC ({len(regime)} شمعة).")
+    except Exception as exc:  # noqa: BLE001
+        print(f"  ⚠️ تعذّر بناء فلتر السوق: {exc}")
+
+    def summarize(buf: float, reg):
+        tt = tw = 0
+        tr = 0.0
+        for s in series:
+            res = backtest_trend_pullback_series(
+                s, rr=2.0, min_score=85.0, regime=reg,
+                require_ema200=True, stop_buffer_atr=buf,
+            )
+            tt += res.n
+            tw += res.wins
+            tr += res.total_r
+        wr = (tw / tt * 100.0) if tt else 0.0
+        exp = (tr / tt) if tt else 0.0
+        print(f"  مسافة {buf:>4.2f}×ATR | صفقات {tt:>4} | نجاح {wr:>5.1f}% | "
+              f"توقّع {exp:>+6.2f}R | إجمالي {tr:>+6.1f}R")
+        return exp, tt, wr, buf
+
+    buffers = (0.0, 0.25, 0.5, 0.75, 1.0, 1.5)
+
+    def sweep(title, reg, min_n):
+        print("\n" + "=" * 60)
+        print(title)
+        print("-" * 60)
+        rows = [summarize(b, reg) for b in buffers]
+        print("=" * 60)
+        base = next((r for r in rows if r[3] == 0.0), None)
+        valid = [r for r in rows if r[1] >= min_n]
+        verdict = None
+        if valid and base:
+            best = max(valid, key=lambda r: r[0])
+            if best[3] != 0.0 and best[0] > base[0] + 0.03:
+                verdict = best[3]
+                print(f"👉 الأفضل هنا: {best[3]:.2f}×ATR → {best[0]:+.2f}R "
+                      f"(مقابل {base[0]:+.2f}R للملزوق) على {best[1]} صفقة.")
+            else:
+                print(f"👉 لا تحسّن مُعتَد به (الملزوق {base[0]:+.2f}R يكفي).")
+        else:
+            print("👉 عيّنة غير كافية للحكم في هذا الجدول.")
+        return verdict
+
+    v_no = sweep("(أ) بدون فلتر السوق — عيّنة كبيرة لعزل تأثير الوقف", None, 40)
+    v_reg = sweep("(ب) مع فلتر السوق — الشرط الواقعي المطبَّق حيًّا", regime, 20)
+
+    print("\n" + "#" * 60)
+    if v_no and v_reg and abs(v_no - v_reg) <= 0.25:
+        pick = round((v_no + v_reg) / 2, 2)
+        print(f"✅ الجدولان متّفقان → مسافة ≈ {pick:.2f}×ATR تحسّن حقيقي وموثوق. "
+              f"ثبّتها في TREND_STOP_BUFFER_ATR.")
+    elif v_no:
+        print(f"✅ العيّنة الكبيرة (أ) تؤكّد تحسّن مسافة {v_no:.2f}×ATR — إشارة قوية "
+              f"رغم صِغَر عيّنة السوق الهابط. مرشّح جيّد للتثبيت.")
+    elif v_reg:
+        print(f"⚠️ فقط الجدول الواقعي (ب) أظهر تحسّنًا ({v_reg:.2f}×ATR) بعيّنة صغيرة — "
+              f"مبشّر لكن ننتظر عيّنة أكبر قبل الجزم.")
+    else:
+        print("ℹ️ لا تحسّن مؤكّد — الوقف الملزوق (0.0) يبقى الخيار الآمن.")
+    print("#" * 60)
+    return 0
+
+
+def breakout_test(source: str, timeframe: str) -> int:
+    """
+    قياس استراتيجية «اختراق الاتجاه» (Donchian breakout) — تنويع محترف مقترح.
+
+    نقيسها على 1h و1d (بيانات يومية تاريخها أطول) مع فلتر السوق، ونقارنها
+    بالاستراتيجية الرابحة الحالية. نضيفها للتنويع فقط لو توقّعها موجب وعيّنتها كافية.
+    """
+    from deals_bot.backtester import backtest_breakout_series
+
+    frames = [timeframe, "1d"] if timeframe != "1d" else ["1h", "1d"]
+    symbols = resolve_symbols("crypto", "auto")[:BACKTEST_MAX_CRYPTO]
+    print(f"⏳ قياس اختراق الاتجاه على {len(symbols)} عملة، فريمات {frames}...")
+
+    print("\n" + "=" * 64)
+    print(f"{'فريم':>5} | {'إستراتيجية':>12} | {'صفقات':>6} | {'نجاح%':>6} | "
+          f"{'توقّع/R':>8} | {'إجمالي':>8}")
+    print("-" * 64)
+
+    def run_frame(tf):
+        try:
+            series = fetch_many(symbols, "crypto", "auto", tf, limit=1000)
+        except Exception as exc:  # noqa: BLE001
+            print(f"{tf:>5} | تعذّر الجلب: {exc}")
+            return
+        regime = None
+        try:
+            btc = fetch("BTC-USD", "crypto", "auto", tf, limit=1000)
+            regime = market_uptrend_map(btc, 50)
+        except Exception:  # noqa: BLE001
+            pass
+
+        def tally(fn, **kw):
+            tt = tw = 0
+            tr = 0.0
+            for s in series:
+                res = fn(s, regime=regime, **kw)
+                tt += res.n
+                tw += res.wins
+                tr += res.total_r
+            wr = (tw / tt * 100.0) if tt else 0.0
+            exp = (tr / tt) if tt else 0.0
+            return tt, wr, exp, tr
+
+        bo = tally(backtest_breakout_series, rr=2.0, min_score=85.0)
+        tp = tally(backtest_trend_pullback_series, rr=2.0, min_score=85.0,
+                   require_ema200=True,
+                   stop_buffer_atr=getattr(config, "TREND_STOP_BUFFER_ATR", 0.5))
+        print(f"{tf:>5} | {'اختراق':>12} | {bo[0]:>6} | {bo[1]:>6.1f} | "
+              f"{bo[2]:>+8.2f} | {bo[3]:>+8.1f}")
+        print(f"{tf:>5} | {'ارتداد(حالي)':>12} | {tp[0]:>6} | {tp[1]:>6.1f} | "
+              f"{tp[2]:>+8.2f} | {tp[3]:>+8.1f}")
+        print("-" * 64)
+        return bo
+
+    verdicts = {}
+    for tf in frames:
+        verdicts[tf] = run_frame(tf)
+    print("=" * 64)
+    good = [tf for tf, v in verdicts.items() if v and v[2] > 0 and v[0] >= 20]
+    if good:
+        print(f"\n✅ اختراق الاتجاه رابح وبعيّنة كافية على: {', '.join(good)} — "
+              f"مرشّح قوي لإضافته كتنويع ثانٍ.")
+    else:
+        print("\n⚠️ اختراق الاتجاه لم يُثبت أفضلية موجبة بعيّنة كافية الآن — "
+              "لا نضيفه (نبقى على الاستراتيجية الرابحة الوحيدة).")
+    print(
+        "\nℹ️ التنويع الحقيقي = استراتيجيتان مقاستان موجبتان وغير مترابطتين. "
+        "نضيف فقط ما يجتاز القياس — تمامًا كما تفعل الصناديق المؤسسية."
+    )
+    return 0
+
+
+def frame_sweep(source: str, timeframe: str) -> int:
+    """
+    قياس متعدد الفريمات: يجرّب نفس الإعداد الرابح (درجة≥85 + فلتر السوق + EMA200 +
+    مسافة وقف 0.5×ATR + RR 2) على 15m و30m و1h، ويطبع التوقّع لكل فريم — عشان
+    نعرف أنهي فريمات تستاهل الدخول فعلًا قبل ما نفعّل البحث متعدد الفريمات.
+    """
+    frames = ["15m", "30m", "1h"]
+    symbols = resolve_symbols("crypto", "auto")[:BACKTEST_MAX_CRYPTO]
+    print(f"⏳ قياس الفريمات {frames} على {len(symbols)} عملة...")
+
+    buf = getattr(config, "TREND_STOP_BUFFER_ATR", 0.5)
+    print("\n" + "=" * 62)
+    print(f"{'فريم':>6} | {'صفقات':>6} | {'نجاح%':>6} | {'توقّع/R':>8} | "
+          f"{'إجمالي':>8} | الحكم")
+    print("-" * 62)
+    verdicts = {}
+    for tf in frames:
+        try:
+            series = fetch_many(symbols, "crypto", "auto", tf, limit=1000)
+        except Exception as exc:  # noqa: BLE001
+            print(f"{tf:>6} | تعذّر الجلب: {exc}")
+            continue
+        regime = None
+        try:
+            btc = fetch("BTC-USD", "crypto", "auto", tf, limit=1000)
+            regime = market_uptrend_map(btc, 50)
+        except Exception:  # noqa: BLE001
+            pass
+        tt = tw = 0
+        tr = 0.0
+        for s in series:
+            res = backtest_trend_pullback_series(
+                s, rr=2.0, min_score=85.0, regime=regime,
+                require_ema200=True, stop_buffer_atr=buf)
+            tt += res.n
+            tw += res.wins
+            tr += res.total_r
+        wr = (tw / tt * 100.0) if tt else 0.0
+        exp = (tr / tt) if tt else 0.0
+        ok = exp > 0 and tt >= 20
+        verdict = "✅ رابح" if ok else ("⚠️ عيّنة صغيرة" if tt < 20 else "❌ خاسر")
+        verdicts[tf] = (exp, tt, ok)
+        print(f"{tf:>6} | {tt:>6} | {wr:>6.1f} | {exp:>+8.2f} | {tr:>+8.1f} | {verdict}")
+    print("=" * 62)
+    winners = [tf for tf, (e, n, ok) in verdicts.items() if ok]
+    if winners:
+        print(f"\n✅ فريمات رابحة نثق بها للدخول: {', '.join(winners)}")
+    else:
+        print("\n⚠️ لا فريم بعيّنة كافية + توقّع موجب الآن — 1h يبقى الأساس المُثبت.")
+    print(
+        "\nℹ️ نفعّل البحث متعدد الفريمات على الفريمات الرابحة فقط. الفريمات الأقصر "
+        "أسرع للهدف لكنها غالبًا أكثر ضجيجًا — لذلك نقيس قبل أن نثق."
+    )
+    return 0
+
+
+def pipeline_diag(source: str, timeframe: str) -> int:
+    """
+    تشخيص حيّ: ليه البوت الورقي مش بيفتح صفقات؟ يمرّر كل عملة على نفس خط القرار
+    (evaluate) المستخدَم في التداول الورقي، ويعدّ أين تتوقّف كل عملة بالظبط:
+      • لا إعداد اتجاه+ارتداد أصلًا
+      • درجة AI أقل من الحد
+      • فشل تأكيد 15m
+      • رُفضت في العائد/المخاطرة
+      • APPROVED (كانت هتُفتح)
+    فيبان الاختناق الحقيقي بدل التخمين.
+    """
+    from deals_bot import indicators as ind
+    from deals_bot.pipeline import (APPROVED, NO_TRADE, REJECTED, WAIT,
+                                    _risk_engine, evaluate)
+    from deals_bot.risk_engine import DailyState
+
+    # نفس الكون الكامل الذي يتداوله البوت الورقي فعليًا (كل عملات Coinbase) — بلا اقتصاص.
+    symbols = resolve_symbols("crypto", "auto")
+    print(f"⏳ تشخيص خط القرار على {len(symbols)} عملة (كل الكون، {timeframe})...")
+
+    # حالة السوق العامة (BTC فوق/تحت متوسّطه) — للسياق فقط
+    try:
+        btc = fetch("BTC-USD", "crypto", "auto", timeframe, limit=300)
+        e50 = ind.ema(btc.closes(), 50)
+        px = btc.closes()[-1]
+        regime = "صاعد 🟢" if (e50 and px > e50) else "هابط 🔴"
+        print(f"  🧭 حالة السوق (BTC): {regime}  (السعر {px:.0f} مقابل EMA50 "
+              f"{e50:.0f})" if e50 else f"  🧭 حالة السوق (BTC): {regime}")
+    except Exception as exc:  # noqa: BLE001
+        print(f"  ⚠️ تعذّر جلب حالة BTC: {exc}")
+
+    engine = _risk_engine()
+    equity = getattr(config, "ACCOUNT_BALANCE", 1000.0)
+    daily = DailyState(starting_equity=equity, current_equity=equity,
+                       trades_today=0, consecutive_losses=0, open_positions=0)
+
+    tally = {NO_TRADE: 0, WAIT: 0, REJECTED: 0, APPROVED: 0}
+    no_setup = 0
+    low_score = 0
+    confirm_fail = 0
+    approved_syms = []
+    scores = []
+
+    for sym in symbols:
+        try:
+            base = fetch(sym, "crypto", "auto", timeframe, limit=300)
+        except Exception:  # noqa: BLE001
+            continue
+        try:
+            conf = fetch(sym, "crypto", "auto", "15m", limit=60)
+        except Exception:  # noqa: BLE001
+            conf = None
+        dec = evaluate(base, equity, daily, conf, engine)
+        tally[dec.status] = tally.get(dec.status, 0) + 1
+        if dec.ai_score:
+            scores.append(dec.ai_score)
+        joined = " | ".join(dec.reasons)
+        if "لا يوجد اتجاه صاعد" in joined:
+            no_setup += 1
+        elif "درجة AI <" in joined:
+            low_score += 1
+        elif dec.status == WAIT and dec.ai_score >= getattr(config, "AI_APPROVE_SCORE", 80):
+            confirm_fail += 1
+        if dec.status == APPROVED:
+            approved_syms.append((sym, dec.ai_score))
+
+    print("\n" + "=" * 58)
+    print("أين تتوقّف كل عملة في خط القرار؟")
+    print("-" * 58)
+    print(f"  ⛔ لا يوجد اتجاه صاعد + ارتداد صالح : {no_setup}")
+    print(f"  ⛔ درجة AI أقل من الحد الأدنى        : {low_score}")
+    print(f"  ⏳ نجحت الدرجة لكن فشل تأكيد 15m     : {confirm_fail}")
+    print(f"  ❌ رُفضت في العائد/المخاطرة          : {tally.get(REJECTED,0)}")
+    print(f"  ⏳ إجمالي WAIT (درجة/تأكيد)          : {tally.get(WAIT,0)}")
+    print(f"  ✅ APPROVED (كانت ستُفتح)            : {tally.get(APPROVED,0)}")
+    print("=" * 58)
+    if scores:
+        scores.sort(reverse=True)
+        top = ", ".join(f"{s:.0f}" for s in scores[:8])
+        print(f"  أعلى درجات AI ظهرت: {top}  (الحد للفتح ≥"
+              f"{getattr(config,'AI_APPROVE_SCORE',80):.0f})")
+    if approved_syms:
+        print("  ✅ عملات كانت ستُفتح الآن:")
+        for s, sc in approved_syms:
+            print(f"     {s:<12} AI {sc:.0f}")
+    else:
+        print("  ℹ️ لا عملة تجتاز كل البوّابات الآن — لذلك السجل الورقي فاضي.")
+    print(
+        "\nℹ️ الخلاصة: البوت شغّال بس بيرفض يدخل عشان الشروط صارمة (اتجاه+ارتداد "
+        "+ درجة≥80 + تأكيد 15m + عائد≥2). ده بيحمي السجل من صفقات ضعيفة."
+    )
+    return 0
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description="باك-تِست لاستراتيجية بوت الصفقات.")
     p.add_argument("--market", "-m", choices=["crypto", "stocks", "forex", "all"], default="crypto")
@@ -423,7 +731,8 @@ def main(argv=None) -> int:
     p.add_argument(
         "--strategy",
         choices=["signals", "prepump", "trend", "compare", "trendsweep",
-                 "optimize", "walkforward", "short", "precision", "momentum"],
+                 "optimize", "walkforward", "short", "precision", "momentum",
+                 "stopbuffer", "diag", "framesweep", "breakout"],
         default="signals",
         help="signals=إشارات شراء/بيع؛ prepump=ما قبل الاندفاع؛ "
         "trend=ارتداد داخل اتجاه صاعد؛ compare=قارن prepump مقابل trend؛ "
@@ -450,6 +759,14 @@ def main(argv=None) -> int:
         return precision_test(args.source, args.timeframe)
     if args.strategy == "momentum":
         return momentum_test(args.source, args.timeframe)
+    if args.strategy == "stopbuffer":
+        return stop_buffer_test(args.source, args.timeframe)
+    if args.strategy == "diag":
+        return pipeline_diag(args.source, args.timeframe)
+    if args.strategy == "framesweep":
+        return frame_sweep(args.source, args.timeframe)
+    if args.strategy == "breakout":
+        return breakout_test(args.source, args.timeframe)
     return run(args.market, args.source, args.timeframe, args.strategy)
 
 

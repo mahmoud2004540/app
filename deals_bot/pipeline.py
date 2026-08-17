@@ -83,7 +83,9 @@ def evaluate(
         return Decision(NO_TRADE, symbol, reasons)
 
     # 1) الاتجاه + الارتداد + درجة AI (من الكاشف المُثبت)
-    tp = detect_trend_pullback(base, rr=getattr(config, "TREND_RR", 2.0))
+    tp = detect_trend_pullback(
+        base, rr=getattr(config, "TREND_RR", 2.0),
+        stop_buffer_atr=getattr(config, "TREND_STOP_BUFFER_ATR", 0.0))
     if not tp:
         reasons.append("⛔ لا يوجد اتجاه صاعد + ارتداد صالح — NO TRADE.")
         return Decision(NO_TRADE, symbol, reasons)

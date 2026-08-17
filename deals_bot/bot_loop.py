@@ -21,6 +21,7 @@ from typing import Callable, List, Optional
 
 from . import indicators as ind
 from . import paper_trading as pt
+from .analyzer import TF_HOURS, estimate_eta_hours
 from .models import Series
 from .pipeline import APPROVED, evaluate
 from .risk_engine import DailyState, RiskEngine
@@ -136,9 +137,14 @@ def run_cycle(
         open_symbols.add(sym)
         open_closes[sym] = base.closes()      # يُحسب ضمن الارتباط للمرشّح التالي
         daily.open_positions = len(account.positions)
+        # الزمن المتوقّع للهدف (تقديري من ATR الإطار الأساسي)
+        atr_v = ind.atr(base.highs(), base.lows(), base.closes(), 14)
+        eta = estimate_eta_hours(dec.entry, dec.target, atr_v,
+                                 tf_hours=TF_HOURS.get(base_tf, 1.0))
+        eta_txt = f" | ⏱️ متوقّع ~{eta:g}h" if eta else ""
         events.append(CycleEvent(
             "open", sym,
             f"دخول {dec.entry:.6g} | وقف {dec.stop:.6g} | هدف {dec.target:.6g} | "
-            f"AI {dec.ai_score:.0f} | {dec.qty:g} وحدة",
+            f"AI {dec.ai_score:.0f} | {dec.qty:g} وحدة{eta_txt}",
         ))
     return events

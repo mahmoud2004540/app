@@ -500,7 +500,7 @@ def detect_pre_pump(series: Series):
 
 
 def detect_trend_pullback(series: Series, rr: float = 2.0, direction: str = "long",
-                          require_momentum: bool = False):
+                          require_momentum: bool = False, stop_buffer_atr: float = 0.0):
     """
     اكتشف «الارتداد داخل الاتجاه» — دخول مع الاتجاه لا ضدّه (Long أو Short).
 
@@ -512,6 +512,10 @@ def detect_trend_pullback(series: Series, rr: float = 2.0, direction: str = "lon
     require_momentum: فلتر الزخم القوي — لا ندخل إلا لو الزخم الأساسي مؤيّد
       (MACD في اتجاه الصفقة + زخم سعري في نفس الاتجاه). يقلّل الانعكاس الفوري.
 
+    stop_buffer_atr: مسافة تنفّس للوقف بمضاعف ATR — يبعد الوقف عن قاع/قمة الارتداد
+      بمقدار (stop_buffer_atr × ATR) عشان الذيول السريعة (stop-hunt) ما تضربوش
+      بدري. صفر = الوقف الملزوق الأصلي. يجب قياسه بالباك-تِست قبل تفعيله حيًّا.
+
     Returns a details dict (score + levels + direction) or None. Single source of
     truth shared by the live bot and the backtester.
     """
@@ -522,6 +526,8 @@ def detect_trend_pullback(series: Series, rr: float = 2.0, direction: str = "lon
     price = closes[-1]
     low = series.lows()[-1]
     high = series.highs()[-1]
+    atr_v = (ind.atr(series.highs(), series.lows(), closes, 14)
+             if stop_buffer_atr > 0 else None)
     e9 = ind.ema(closes, 9)
     e21 = ind.ema(closes, 21)
     e50 = ind.ema(closes, 50)
@@ -549,6 +555,8 @@ def detect_trend_pullback(series: Series, rr: float = 2.0, direction: str = "lon
             if not strong:
                 return None
         stop = max(high, e21) * 1.005
+        if stop_buffer_atr > 0 and atr_v:
+            stop += stop_buffer_atr * atr_v          # مسافة تنفّس فوق القمة
         risk = stop - price
         if risk <= 0:
             return None
@@ -591,6 +599,8 @@ def detect_trend_pullback(series: Series, rr: float = 2.0, direction: str = "lon
             return None
 
     stop = min(low, e21) * 0.995
+    if stop_buffer_atr > 0 and atr_v:
+        stop -= stop_buffer_atr * atr_v              # مسافة تنفّس تحت القاع
     risk = price - stop
     if risk <= 0:
         return None
@@ -621,6 +631,104 @@ def detect_trend_pullback(series: Series, rr: float = 2.0, direction: str = "lon
         "price": price, "stop": stop, "target": target,
         "base_low": low, "base_high": price, "rsi": rsi_v,
     }
+
+
+def detect_breakout(series: Series, lookback: int = 20, rr: float = 2.0,
+                    stop_buffer_atr: float = 0.5):
+    """
+    اكتشف «اختراق الاتجاه» (Donchian Breakout) — نظام تتبّع الاتجاه الكلاسيكي
+    (أصل نظام السلاحف الذي بنت عليه صناديق CTA المؤسسية).
+
+    يشتري حين يكسر السعر أعلى قمة آخر `lookback` شمعة (اختراق حقيقي) بشرط:
+      • السوق في اتجاه صاعد بعيد المدى (السعر فوق EMA50 وEMA50 يصعد).
+      • حجم الاختراق مرتفع (تأكيد أن الكسر مدعوم بشراء حقيقي).
+      • RSI لم ينفجر بعد (لا نطارد شمعة جرت بعيدًا).
+    الوقف تحت الاختراق بمسافة ATR، الهدف = الدخول + rr×المخاطرة.
+
+    Returns a details dict (score + levels) or None. مصدر واحد للحقيقة يشاركه
+    البوت الحيّ والباك-تِست. يجب قياسه قبل تفعيله حيًّا.
+    """
+    closes = series.closes()
+    highs = series.highs()
+    lows = series.lows()
+    n = len(closes)
+    if n < max(lookback + 5, 55):
+        return None
+    price = closes[-1]
+    atr_v = ind.atr(highs, lows, closes, 14)
+    e50 = ind.ema(closes, 50)
+    e50_prev = ind.ema(closes[:-3], 50) if n > 53 else None
+    rsi_v = ind.rsi(closes, 14)
+    if None in (atr_v, e50, e50_prev, rsi_v) or atr_v <= 0:
+        return None
+
+    # قمة النطاق = أعلى قمة في آخر lookback شمعة قبل الشمعة الحالية
+    prior_high = max(highs[-lookback - 1:-1])
+    if prior_high <= 0:
+        return None
+
+    uptrend = price > e50 and e50 > e50_prev        # اتجاه بعيد المدى صاعد
+    broke_out = price > prior_high                   # كسر أعلى النطاق
+    healthy = rsi_v < 78.0                            # لم ينفجر تمامًا
+    move = (price / prior_high - 1.0) * 100.0         # كم فوق الكسر (مبكّر؟)
+    early = move <= 6.0                               # لسه قريب من نقطة الكسر
+    vs = ind.volume_surge(series.volumes(), 20)
+    vol_ok = vs is not None and vs >= 1.3            # حجم الاختراق
+
+    if not (uptrend and broke_out and healthy and early and vol_ok):
+        return None
+
+    stop = prior_high - stop_buffer_atr * atr_v      # الوقف تحت مستوى الكسر
+    risk = price - stop
+    if risk <= 0:
+        return None
+    target = price + rr * risk
+
+    reasons = [
+        "🚀 اختراق اتجاه (Donchian) — تتبّع الاتجاه كالمؤسسات (CTA)",
+        f"كسر أعلى قمة {lookback} شمعة عند {prior_high:.6g} (+{move:.1f}%)",
+        f"فوق EMA50 صاعد | RSI {rsi_v:.0f} | حجم ×{vs:.1f}",
+    ]
+    score = 60.0
+    score += min(14.0, max(0.0, (6.0 - move) * 2.0))     # كل ما كان أبكر = أفضل
+    score += min(12.0, max(0.0, (vs - 1.3) * 8.0))        # حجم أعلى = أقوى
+    obv_up = ind.obv_rising(closes, series.volumes(), 10)
+    if obv_up:
+        score += 12.0
+        reasons.append("💰 OBV صاعد — الكسر مدعوم بتدفّق شراء")
+    elif obv_up is False:
+        score -= 10.0
+    score = max(0.0, min(100.0, score))
+
+    return {
+        "reasons": reasons, "score": round(score, 1), "direction": "BUY",
+        "price": price, "stop": stop, "target": target,
+        "base_low": stop, "base_high": price, "rsi": rsi_v,
+    }
+
+
+def estimate_eta_hours(entry: float, target: float, atr: float,
+                       tf_hours: float = 1.0):
+    """
+    قدّر الزمن المتوقّع لوصول السعر إلى الهدف (تقديري لا مضمون).
+
+    Rough ETA: price travels ~ATR per candle on average, so candles-to-target ≈
+    distance / ATR, and hours ≈ that × the timeframe length. This is a heuristic
+    for setting expectations, NOT a promise — markets move irregularly.
+    Returns hours (float) or None if it can't be computed.
+    """
+    if not atr or atr <= 0 or entry <= 0:
+        return None
+    distance = abs(target - entry)
+    if distance <= 0:
+        return None
+    candles = distance / atr
+    return round(candles * tf_hours, 1)
+
+
+# طول الإطار الزمني بالساعات (لتقدير الزمن المتوقّع للهدف)
+TF_HOURS = {"1m": 1 / 60, "5m": 5 / 60, "15m": 0.25, "30m": 0.5,
+            "1h": 1.0, "6h": 6.0, "1d": 24.0}
 
 
 def add_position_sizing(deal: Deal, balance: float, risk_pct: float) -> Deal:

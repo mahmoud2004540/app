@@ -33,7 +33,7 @@ on:
         required: false
         default: "1"
       strategy:
-        description: "استراتيجية الباك-تِست (prepump,trend,compare,trendsweep,optimize)"
+        description: "استراتيجية الباك-تِست (compare,trendsweep,optimize,precision,stopbuffer,...)"
         required: false
         default: "compare"
 
@@ -72,8 +72,9 @@ jobs:
           TIMEFRAME: ${{ github.event.inputs.timeframe || '1h' }}
           DIRECTION: ${{ github.event.inputs.direction || 'any' }}
           DIGEST_MODE: ${{ github.event.inputs.digest_mode || 'trend' }}
-          # يبعت دائمًا أفضل الصفقات (زي الأول) — مراقبة في السوق الهابط، دخول في الصاعد
-          ALERT_ONLY: ${{ github.event.inputs.alert_only || '0' }}
+          # «الدخول فقط»: يبعت الصفقات المؤكّدة اللي تدخلها على طول فقط ويبقى صامتًا
+          # في السوق الهابط. فارغ = يأخذ الافتراضي من config.ALERT_ONLY (=True).
+          ALERT_ONLY: ${{ github.event.inputs.alert_only || '' }}
           TOP: "5"
         run: python send_digest.py
 
