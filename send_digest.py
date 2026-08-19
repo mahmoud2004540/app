@@ -236,23 +236,31 @@ def build_message():
     picks, candidates, market_bullish = top_picks(markets, timeframe=timeframe)
     min_score = int(getattr(config, "TREND_MIN_SCORE", 85))
 
+    # الاستراتيجية الجديدة: تأكيد الدخول + حجم مخاطرة محرّك المخاطر (0.5%) لكل صفقة
+    if picks:
+        _apply_new_strategy(picks, timeframe)
+        # وضع الدخول فقط: لا نرسل إلا الصفقات اللي حصل فيها التأكيد فعلًا (تخشها على
+        # طول) — نحذف أي «بانتظار التأكيد».
+        if alert_only and getattr(config, "ALERT_REQUIRE_CONFIRM", True):
+            confirmed = [d for d in picks if d.confirmed is True]
+            if len(confirmed) != len(picks):
+                print(f"🔎 وضع الدخول فقط: {len(picks) - len(confirmed)} صفقة "
+                      "لسه بانتظار التأكيد — لن تُرسَل حتى يكتمل التأكيد.")
+            picks = confirmed
+
     if alert_only and not picks:
         if _heartbeat_due():
             _mark_heartbeat()
-            state = ("السوق صاعد 🟢 لكن لا إعداد يجتاز كل الشروط بعد"
+            state = ("السوق صاعد 🟢 لكن لا صفقة اكتمل تأكيدها بعد"
                      if market_bullish else "السوق العام: هابط 🔴")
             print("🔔 وضع الدخول فقط: لا صفقة مؤكّدة — إرسال نبضة اليوم.")
             return _heartbeat_message(state)
         print("🔕 وضع الدخول فقط: لا صفقة مؤكّدة الآن — لم تُرسل رسالة (نبضة اليوم أُرسلت).")
         return None
 
-    # الاستراتيجية الجديدة: تأكيد 15M + حجم مخاطرة محرّك المخاطر (0.5%) لكل صفقة
-    if picks:
-        _apply_new_strategy(picks, timeframe)
-
     header = (
         "🏆 أفضل الصفقات — على الاستراتيجية الجديدة\n"
-        "(اتجاه صاعد + ارتداد + تأكيد 15M + محرّك مخاطر 0.5% — "
+        "(اتجاه صاعد + ارتداد + تأكيد الدخول + محرّك مخاطر 0.5% — "
         "أفضلية مقاسة +0.38R داخل العيّنة، +0.19R خارجها)\n\n"
     )
     # المرحلتان 12+13: سجّل الصفقات الجديدة، قيّم المفتوحة، واحصل على ملاحظة التعلّم
