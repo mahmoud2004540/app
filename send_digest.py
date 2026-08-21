@@ -269,9 +269,14 @@ def build_message():
     tail = ("\n\n" + note) if note else ""
 
     if picks:
-        # في صفقة/صفقتين مؤكّدة → نناديها باسمها: «هي دي»
+        # في صفقة/صفقتين → نناديها باسمها: «هي دي»
         new_n = _mark_new(picks)
-        prefix = "🚨 صفقة جديدة مؤكّدة!\n\n" if alert_only else ""
+        all_confirmed = all(getattr(d, "confirmed", None) is True for d in picks)
+        if alert_only:
+            prefix = ("🚨 صفقة جديدة مؤكّدة!\n\n" if all_confirmed
+                      else "🎯 أفضل صفقة الآن — بانتظار تأكيد 30 دقيقة، راقبها قبل الدخول\n\n")
+        else:
+            prefix = ""
         freshness = (f"🆕 {new_n} جديدة | 🔁 {len(picks) - new_n} مكرّرة\n\n"
                      if not alert_only else "")
         be_r = getattr(config, "TREND_BREAKEVEN_R", 0.0)
