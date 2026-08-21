@@ -5,7 +5,8 @@ import os
 import send_digest as sd
 
 
-def test_heartbeat_due_then_not(tmp_path):
+def test_heartbeat_due_then_not(monkeypatch, tmp_path):
+    monkeypatch.setattr(sd.config, "HEARTBEAT_DAILY", True)   # فعّلها لاختبار المنطق
     sp = os.path.join(tmp_path, "hb.json")
     assert sd._heartbeat_due(sp) is True          # الملف مفقود → مستحقّة
     sd._mark_heartbeat(sp)
