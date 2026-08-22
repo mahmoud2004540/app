@@ -211,7 +211,7 @@ def build_message():
     """يبني نص الرسالة، أو None في وضع التنبيه (ALERT_ONLY) حين لا توجد صفقة."""
     markets = [
         m.strip()
-        for m in os.environ.get("MARKETS", "crypto,stocks,forex").split(",")
+        for m in os.environ.get("MARKETS", "crypto").split(",")
         if m.strip() in ("crypto", "stocks", "forex")
     ] or ["crypto"]
     timeframe = os.environ.get("TIMEFRAME", config.DEFAULT_TIMEFRAME)

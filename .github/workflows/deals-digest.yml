@@ -9,9 +9,9 @@ on:
   workflow_dispatch:
     inputs:
       markets:
-        description: "الأسواق (crypto,stocks,forex)"
+        description: "الأسواق (crypto,stocks,forex) — الافتراضي كريبتو فقط (الأعلى ربحًا)"
         required: false
-        default: "crypto,stocks,forex"
+        default: "crypto"
       timeframe:
         description: "الإطار الزمني (1m,5m,15m,1h,1d)"
         required: false
@@ -68,7 +68,7 @@ jobs:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           CRYPTOPANIC_TOKEN: ${{ secrets.CRYPTOPANIC_TOKEN }}
-          MARKETS: ${{ github.event.inputs.markets || 'crypto,stocks,forex' }}
+          MARKETS: ${{ github.event.inputs.markets || 'crypto' }}
           TIMEFRAME: ${{ github.event.inputs.timeframe || '1h' }}
           DIRECTION: ${{ github.event.inputs.direction || 'any' }}
           DIGEST_MODE: ${{ github.event.inputs.digest_mode || 'trend' }}
