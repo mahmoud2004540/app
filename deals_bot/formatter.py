@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from typing import List
 
+import config
+
 from .models import Deal
 
 _ARROW = {"BUY": "🟢 شراء", "SELL": "🔴 بيع", "NEUTRAL": "⚪ حياد"}
@@ -301,9 +303,20 @@ def _pick_body(d: Deal) -> List[str]:
         f"   💵 السعر الآن: {_fmt_price(d.price)}",
         f"   🟢 الدخول: {_fmt_price(d.entry)}",
         f"   🛑 وقف الخسارة: {_fmt_price(d.stop_loss)}  (−{stp:.1f}%)",
-        f"   🎯 الهدف: {_fmt_price(d.take_profit)}  (+{tgt:.1f}%)",
-        f"   ⚖️ مخاطرة/عائد 1:{d.risk_reward:.1f}  |  الثقة {d.confidence:.0f}%",
+        f"   🎯 الهدف السريع: {_fmt_price(d.take_profit)}  (+{tgt:.1f}%)",
     ]
+    # هدف استثمار أكبر (فترة أطول) — نفس الدخول/الوقف، هدف أبعد بنسبة أعلى.
+    # مقاس: RR أكبر يدّي ربحًا أعلى (+0.93R عند 3.5). تختار: تقفل بدري أو تسيبها تكمّل.
+    inv_rr = getattr(config, "INVESTMENT_RR", 0.0)
+    if inv_rr and inv_rr > d.risk_reward and d.entry > 0:
+        risk = abs(d.entry - d.stop_loss)
+        inv_target = d.entry + inv_rr * risk if d.direction == "BUY" else d.entry - inv_rr * risk
+        inv_pct = abs(inv_target - d.entry) / d.entry * 100.0
+        lines.append(
+            f"   📈 هدف استثمار (فترة أطول): {_fmt_price(inv_target)}  "
+            f"(+{inv_pct:.1f}% | RR {inv_rr:g})")
+    lines.append(
+        f"   ⚖️ مخاطرة/عائد 1:{d.risk_reward:.1f}  |  الثقة {d.confidence:.0f}%")
     eta = getattr(d, "eta_hours", None)
     if eta:
         lines.append(f"   ⏱️ الزمن المتوقّع للهدف: ~{_fmt_eta(eta)} (تقديري لا مضمون)")
