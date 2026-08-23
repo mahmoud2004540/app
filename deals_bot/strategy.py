@@ -172,6 +172,7 @@ def top_picks(
     rr = getattr(config, "TREND_RR", 2.0) if rr is None else rr
     balance = config.ACCOUNT_BALANCE if balance is None else balance
     risk_pct = config.RISK_PER_TRADE if risk_pct is None else risk_pct
+    rsi_max = getattr(config, "TREND_RSI_MAX", None)  # سقف RSI (مقاس: يرفع الجودة قليلًا)
 
     # حالة السوق العام: نطبّقها كبوّابة على صفقات الشراء (أهم عامل في التوقّع الموجب)
     market_bullish = None
@@ -219,6 +220,9 @@ def top_picks(
                     e200 = ind.ema(series.closes(), 200)
                     ema200_ok = bool(e200) and series.closes()[-1] > e200
                 d._ema200_ok = ema200_ok
+                # سقف RSI: نرفض العملة المتمدّدة (RSI عالٍ) — مقاس أنه يرفع الجودة
+                d._rsi_ok = (rsi_max is None or tp.get("rsi") is None
+                             or tp["rsi"] <= rsi_max)
                 # الزمن المتوقّع لوصول الهدف (تقديري من ATR الإطار الأساسي)
                 atr_v = ind.atr(series.highs(), series.lows(), series.closes(), 14)
                 d.eta_hours = estimate_eta_hours(
@@ -228,7 +232,7 @@ def top_picks(
                 if series.candles:
                     d.opened_ts = series.candles[-1].ts
                 candidates.append(d)
-                if tp["score"] >= min_score and ema200_ok:
+                if tp["score"] >= min_score and ema200_ok and d._rsi_ok:
                     found += 1
         print(f"  ✅ «{market}»: {found} إعداد فوق الدرجة {min_score:.0f} "
               f"(إجمالي مرشّحين: {len(candidates)}).")
@@ -238,7 +242,8 @@ def top_picks(
     regime_ok = not (use_regime and market_bullish is False)
     picks = [
         d for d in candidates
-        if d.confidence >= min_score and regime_ok and getattr(d, "_ema200_ok", True)
+        if d.confidence >= min_score and regime_ok
+        and getattr(d, "_ema200_ok", True) and getattr(d, "_rsi_ok", True)
     ][:top]
 
     # حدّث السعر الفوري وحجم المخاطرة لكل ما سنعرضه (الصفقات + أفضل مرشّح للمراقبة)
