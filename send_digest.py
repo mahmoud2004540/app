@@ -113,6 +113,128 @@ def _mark_new(deals) -> int:
     return new_n
 
 
+# --------------------------------------------------------------------------- #
+# الإرسال الفوري + متابعة التأكيد (وضع «ابعت على طول ثم بلّغني وقت التأكيد»)
+# --------------------------------------------------------------------------- #
+SENT_STATE = os.path.join("journal", "sent_setups.json")
+
+
+def _setup_id(deal, default_tf: str) -> str:
+    tf = getattr(deal, "timeframe", None) or default_tf
+    return f"{tf}:{deal.symbol}"
+
+
+def _load_sent(path: str = None) -> dict:
+    path = path or SENT_STATE
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+            return data if isinstance(data, dict) else {}
+    except Exception:  # noqa: BLE001 - ملف مفقود/تالف → لا شيء مُرسَل بعد
+        return {}
+
+
+def _save_sent(data: dict, path: str = None) -> None:
+    path = path or SENT_STATE
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(data, fh, ensure_ascii=False)
+    except Exception as exc:  # noqa: BLE001
+        print(f"⚠️ تعذّر حفظ حالة الإشعارات: {exc}")
+
+
+def _confirm_setup(symbol: str, market: str, timeframe: str):
+    """أعد فحص تأكيد الإطار الأدنى (30م) لإعداد مُخزَّن — يرجع True/False/None."""
+    from deals_bot.confirmation import confirm
+    ctf = getattr(config, "CONFIRM_TIMEFRAME", "30m")
+    vmult = getattr(config, "CONFIRM_VOLUME_MULT", 1.3)
+    src = "auto" if market == "crypto" else "yfinance"
+    try:
+        cs = fetch(symbol, market, src, ctf, limit=60)
+        return confirm(cs, "BUY", vmult).confirmed
+    except Exception:  # noqa: BLE001 - التأكيد أفضلية؛ عند الفشل نتركها معلّقة
+        return None
+
+
+def _followup_text(rec: dict) -> str:
+    """سطر متابعة «اتأكدت — ادخل» لإعداد سبق إرساله معلّقًا."""
+    from deals_bot.formatter import _fmt_price
+    return (
+        f"👈 {rec['symbol']} ({rec['timeframe']}) — ✅ اكتمل تأكيد 30 دقيقة\n"
+        f"   🟢 الدخول: {_fmt_price(rec['entry'])}  |  "
+        f"🛑 وقف: {_fmt_price(rec['stop'])}  |  "
+        f"🎯 هدف: {_fmt_price(rec['take_profit'])}"
+    )
+
+
+def _alert_immediate_message(picks, timeframe: str, market_bullish):
+    """
+    وضع الإرسال الفوري: ابعت الصفقة القوية أول ما تظهر (حتى قبل التأكيد)، وابعت
+    متابعة «✅ اتأكدت» لاحقًا لما يكتمل تأكيدها — بلا تكرار مزعج لنفس الإعداد.
+
+    picks=None يعني تخطّينا الفحص (سوق هابط) → متابعة الإعدادات المعلّقة فقط.
+    """
+    now = time.time()
+    resend_h = float(getattr(config, "SETUP_RESEND_HOURS", 12))
+    sent = _load_sent()
+    # نظافة: احذف الإعدادات القديمة (منتهية) من الحالة
+    sent = {k: v for k, v in sent.items()
+            if now - float(v.get("sent_ts", 0)) <= resend_h * 3600}
+
+    # (1) متابعة التأكيد للإعدادات المعلّقة
+    followups = []
+    if getattr(config, "ALERT_CONFIRM_FOLLOWUP", True):
+        for _pid, rec in list(sent.items()):
+            if rec.get("status") != "pending":
+                continue
+            conf = _confirm_setup(rec["symbol"], rec["market"], rec["timeframe"])
+            if conf is True:
+                followups.append(_followup_text(rec))
+                rec["status"] = "confirmed"        # اتبلّغ — لا نكرّر
+
+    # (2) الصفقات الجديدة (لم تُرسَل من قبل) — ابعتها فورًا بحالتها
+    new_picks = []
+    for d in (picks or []):
+        pid = _setup_id(d, timeframe)
+        if pid in sent:
+            continue                               # اتبعتت قبل كده
+        new_picks.append(d)
+        sent[pid] = {
+            "sent_ts": now,
+            "status": "confirmed" if d.confirmed is True else "pending",
+            "symbol": d.symbol, "market": d.market,
+            "timeframe": getattr(d, "timeframe", None) or timeframe,
+            "entry": d.entry, "stop": d.stop_loss, "take_profit": d.take_profit,
+            "score": d.confidence,
+        }
+    _save_sent(sent)
+
+    parts = []
+    if new_picks:
+        _mark_new(new_picks)
+        all_conf = all(getattr(d, "confirmed", None) is True for d in new_picks)
+        prefix = ("🚨 صفقة جديدة مؤكّدة — ادخل على طول!\n\n" if all_conf else
+                  "🎯 صفقة جديدة قوية بسعر الدخول (بانتظار تأكيد 30 دقيقة — "
+                  "راقبها، وهبعتلك تأكيد الدخول فور اكتماله)\n\n")
+        parts.append(prefix + format_picks(new_picks))
+    if followups:
+        parts.append("✅ تأكيد اكتمل لصفقة سابقة — تقدر تدخل دلوقتي:\n\n"
+                     + "\n\n".join(followups))
+
+    if parts:
+        return "\n\n".join(parts)
+
+    # لا جديد ولا متابعة → صامت (أو نبضة اليوم إن كانت مفعّلة)
+    if _heartbeat_due():
+        _mark_heartbeat()
+        state = ("السوق صاعد 🟢 لكن لا إعداد جديد الآن"
+                 if market_bullish else "السوق العام: هابط 🔴")
+        return _heartbeat_message(state)
+    print("🔕 وضع الإرسال الفوري: لا جديد ولا متابعة الآن — لم تُرسل رسالة.")
+    return None
+
+
 def _apply_new_strategy(picks, timeframe: str) -> None:
     """
     مرّر كل صفقة على الاستراتيجية الجديدة: تأكيد 15M + حجم مخاطرة محرّك المخاطر (0.5%).
@@ -228,6 +350,8 @@ def build_message():
 
     multi_tf = bool(getattr(config, "TREND_MULTI_TF", False))
     tfs = getattr(config, "TREND_TIMEFRAMES", [timeframe]) if multi_tf else [timeframe]
+    # وضع الإرسال الفوري: ابعت الصفقة أول ما تظهر ثم بلّغ عند اكتمال التأكيد.
+    immediate = alert_only and not getattr(config, "ALERT_REQUIRE_CONFIRM", True)
 
     # وضع التنبيه: فحص رخيص أولًا — لو السوق العام هابط على كل الفريمات لا نفحص أصلًا.
     if alert_only and getattr(config, "TREND_MARKET_REGIME", True) and "crypto" in markets:
@@ -235,6 +359,9 @@ def build_message():
         # (فريم أعلى قد يكون صاعدًا بينما الأقصر هابط — لا نفوّت صفقته).
         all_bearish = all(market_is_bullish(tf) is False for tf in tfs)
         if all_bearish:
+            # حتى في السوق الهابط: نتابع تأكيد الإعدادات المعلّقة (بلا فحص جديد).
+            if immediate:
+                return _alert_immediate_message(None, timeframe, False)
             if _heartbeat_due():
                 _mark_heartbeat()
                 print("🔔 وضع الدخول فقط: السوق هابط — إرسال نبضة اليوم.")
@@ -254,14 +381,18 @@ def build_message():
     # الاستراتيجية الجديدة: تأكيد الدخول + حجم مخاطرة محرّك المخاطر (0.5%) لكل صفقة
     if picks:
         _apply_new_strategy(picks, timeframe)
-        # وضع الدخول فقط: لا نرسل إلا الصفقات اللي حصل فيها التأكيد فعلًا (تخشها على
-        # طول) — نحذف أي «بانتظار التأكيد».
-        if alert_only and getattr(config, "ALERT_REQUIRE_CONFIRM", True):
-            confirmed = [d for d in picks if d.confirmed is True]
-            if len(confirmed) != len(picks):
-                print(f"🔎 وضع الدخول فقط: {len(picks) - len(confirmed)} صفقة "
-                      "لسه بانتظار التأكيد — لن تُرسَل حتى يكتمل التأكيد.")
-            picks = confirmed
+
+    # وضع الإرسال الفوري: ابعت الصفقة أول ما تظهر + متابعة «✅ اتأكدت» لاحقًا.
+    if immediate:
+        return _alert_immediate_message(picks, timeframe, market_bullish)
+
+    # وضع الدخول فقط باشتراط التأكيد: لا نرسل إلا الصفقات اللي اكتمل تأكيدها فعلًا.
+    if picks and alert_only and getattr(config, "ALERT_REQUIRE_CONFIRM", True):
+        confirmed = [d for d in picks if d.confirmed is True]
+        if len(confirmed) != len(picks):
+            print(f"🔎 وضع الدخول فقط: {len(picks) - len(confirmed)} صفقة "
+                  "لسه بانتظار التأكيد — لن تُرسَل حتى يكتمل التأكيد.")
+        picks = confirmed
 
     if alert_only and not picks:
         if _heartbeat_due():
