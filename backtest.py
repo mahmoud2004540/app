@@ -698,6 +698,60 @@ def multi_tf(source: str, timeframe: str) -> int:
     return 0
 
 
+def threshold_cmp(source: str, timeframe: str) -> int:
+    """
+    مقارنة العتبات (82 / 85 / 90) بالإعداد الحيّ الكامل على الكون الكامل.
+
+    نفس فلاتر البوت (فلتر السوق + EMA200 + مسافة وقف + سقف RSI + RR) عبر كل
+    العملات، عند كل عتبة — عشان القرار يكون بالأرقام: كل ما ترفع العتبة تقلّ
+    الصفقات؛ نتأكّد إن التوقّع يفضل موجب وإن عدد الفرص لسه معقول.
+    """
+    symbols = resolve_symbols("crypto", "auto")
+    buf = getattr(config, "TREND_STOP_BUFFER_ATR", 0.5)
+    rr = float(getattr(config, "TREND_RR", 2.0))
+    rsi_max = getattr(config, "TREND_RSI_MAX", None)
+    print(f"⏳ مقارنة العتبات على {len(symbols)} عملة ({timeframe})...")
+    series = fetch_many(symbols, "crypto", "auto", timeframe, limit=1000)
+    regime = None
+    try:
+        btc = fetch("BTC-USD", "crypto", "auto", timeframe, limit=1000)
+        regime = market_uptrend_map(btc, 50)
+    except Exception:  # noqa: BLE001
+        pass
+
+    print("\n" + "=" * 64)
+    print(f"{'عتبة':>6} | {'صفقات':>6} | {'نجاح%':>6} | {'توقّع/R':>8} | {'إجمالي':>8} | الحكم")
+    print("-" * 64)
+    rows = []
+    for th in [82.0, 85.0, 90.0]:
+        tt = tw = 0
+        tr = 0.0
+        for s in series:
+            res = backtest_trend_pullback_series(
+                s, rr=rr, min_score=th, regime=regime,
+                require_ema200=True, stop_buffer_atr=buf, rsi_max=rsi_max)
+            tt += res.n
+            tw += res.wins
+            tr += res.total_r
+        wr = (tw / tt * 100.0) if tt else 0.0
+        exp = (tr / tt) if tt else 0.0
+        ok = exp > 0 and tt >= 20
+        verdict = "✅ رابح" if ok else ("⚠️ عيّنة صغيرة" if tt < 20 else "❌ خاسر")
+        cur = " ← المختار" if int(th) == int(getattr(config, "TREND_MIN_SCORE", 90)) else ""
+        rows.append((th, tt, wr, exp, tr, ok))
+        print(f"{th:>6.0f} | {tt:>6} | {wr:>6.1f} | {exp:>+8.2f} | {tr:>+8.1f} | {verdict}{cur}")
+    print("=" * 64)
+    chosen = next((r for r in rows if int(r[0]) == int(getattr(config, "TREND_MIN_SCORE", 90))), None)
+    if chosen and chosen[1] < 20:
+        print(f"\n⚠️ عند العتبة {int(chosen[0])}: {chosen[1]} صفقة فقط — عيّنة صغيرة "
+              "وفرص نادرة جدًا. ممكن تعدّي أيام بلا أي صفقة.")
+    print(
+        "\nℹ️ العتبة الأعلى = صفقات أنقى لكن أندر بكثير. الأهم: التوقّع يفضل موجب "
+        "وعدد الفرص يكفيك. لو الصفقات قلّت أوي، فكّر ترجع 85."
+    )
+    return 0
+
+
 def pro_filter(source: str, timeframe: str) -> int:
     """
     قياس فلاتر «الاحترافية» فوق الإعداد الرابح الحالي — واحدة واحدة ثم مجمّعة.
@@ -938,7 +992,7 @@ def main(argv=None) -> int:
         choices=["signals", "prepump", "trend", "compare", "trendsweep",
                  "optimize", "walkforward", "short", "precision", "momentum",
                  "stopbuffer", "diag", "framesweep", "breakout", "tfsweep",
-                 "multitf", "profilter"],
+                 "multitf", "profilter", "thresholds"],
         default="signals",
         help="signals=إشارات شراء/بيع؛ prepump=ما قبل الاندفاع؛ "
         "trend=ارتداد داخل اتجاه صاعد؛ compare=قارن prepump مقابل trend؛ "
@@ -977,6 +1031,8 @@ def main(argv=None) -> int:
         return multi_tf(args.source, args.timeframe)
     if args.strategy == "profilter":
         return pro_filter(args.source, args.timeframe)
+    if args.strategy == "thresholds":
+        return threshold_cmp(args.source, args.timeframe)
     if args.strategy == "breakout":
         return breakout_test(args.source, args.timeframe)
     return run(args.market, args.source, args.timeframe, args.strategy)
