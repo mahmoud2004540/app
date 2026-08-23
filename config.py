@@ -45,8 +45,9 @@ DEFAULT_SOURCE = "yfinance"   # or "binance" (crypto only)
 CRYPTO_UNIVERSE = "all"
 
 # كم عملة كريبتو نفحص كحدّ أقصى عند "all" (حماية من الإفراط في الطلبات/الوقت).
-# 600 يغطّي كل أزواج الدولار على Coinbase بالكامل (فعليًا ~400) بلا أي اقتصاص.
-MAX_CRYPTO_SYMBOLS = 600
+# 1000 = خذ كل ما يوفّره Coinbase بلا أي اقتصاص (فعليًا ~400 زوج دولار اليوم؛
+# لو أضاف Coinbase عملات مستقبلًا تُلتقط تلقائيًا). Coinbase لا يوفّر 1000 زوج.
+MAX_CRYPTO_SYMBOLS = 1000
 
 # قائمة فوركس موسّعة (رئيسية + ثانوية + بعض المتقاطعات)
 FOREX_UNIVERSE = [
