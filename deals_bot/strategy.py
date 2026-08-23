@@ -251,6 +251,67 @@ def top_picks(
     return picks, candidates, market_bullish
 
 
+def top_picks_multi(
+    markets: List[str],
+    timeframes: List[str] = None,
+    top: int = None,
+    **kwargs,
+):
+    """
+    الفحص متعدّد الفريمات: يُجري top_picks على كل فريم ويجمع الصفقات المؤهّلة.
+
+    Runs the proven trend-pullback pipeline on each timeframe independently
+    (each self-gated by its own market regime + strict score/EMA200 filter),
+    tags every deal with the timeframe it came from, then merges. Because each
+    timeframe is an independent positive-expectancy stream (measured on the full
+    universe), the union simply adds more qualifying trades without loosening
+    quality. Duplicates (same symbol on two timeframes) are collapsed to the
+    higher-confidence one.
+
+    Returns (picks, candidates, market_bullish) with the same shape as
+    top_picks — picks/candidates are deduped by symbol, market_bullish is True
+    if the regime is bullish on ANY scanned timeframe, False if bearish on all,
+    None if undeterminable.
+    """
+    timeframes = timeframes or getattr(
+        config, "TREND_TIMEFRAMES", [config.DEFAULT_TIMEFRAME])
+    top = top or getattr(config, "TREND_MULTI_TOP", getattr(config, "TREND_TOP", 2))
+
+    all_picks: List[Deal] = []
+    all_cands: List[Deal] = []
+    regimes: List[Optional[bool]] = []
+    for tf in timeframes:
+        print(f"  🕐 فحص الفريم {tf} ...")
+        picks, cands, bullish = top_picks(markets, timeframe=tf, **kwargs)
+        for d in picks:
+            d.timeframe = tf
+        for d in cands:
+            if getattr(d, "timeframe", None) is None:
+                d.timeframe = tf
+        all_picks.extend(picks)
+        all_cands.extend(cands)
+        regimes.append(bullish)
+
+    if any(r is True for r in regimes):
+        market_bullish = True
+    elif any(r is False for r in regimes):
+        market_bullish = False
+    else:
+        market_bullish = None
+
+    def _dedupe(deals: List[Deal]) -> List[Deal]:
+        best: dict = {}
+        for d in deals:
+            cur = best.get(d.symbol)
+            if cur is None or d.confidence > cur.confidence:
+                best[d.symbol] = d
+        return sorted(best.values(), key=lambda d: d.confidence, reverse=True)
+
+    picks = _dedupe(all_picks)[:top]
+    candidates = _dedupe(all_cands)
+    return picks, candidates, market_bullish
+
+
 def _htf_confirm_prepump(symbol: str, market: str, src: str, base_tf: str) -> bool:
     """
     تأكيد من إطار زمني أعلى: استبعد «السكينة الساقطة».

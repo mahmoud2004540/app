@@ -68,6 +68,21 @@ def _fmt_eta(hours: float) -> str:
     return f"{days:.1f} يوم"
 
 
+_TF_LABEL = {
+    "15m": "⏱️ فريم 15 دقيقة (مضاربة سريعة)",
+    "30m": "⏱️ فريم 30 دقيقة (مضاربة سريعة)",
+    "1h": "🕐 فريم ساعة (صفقة خلال اليوم)",
+    "4h": "🕓 فريم 4 ساعات (صفقة يوم–يومين)",
+    "6h": "🕕 فريم 6 ساعات (صفقة عدّة أيام)",
+    "1d": "📆 فريم يومي (صفقة أسبوع أو أكثر)",
+}
+
+
+def _tf_label(tf: str) -> str:
+    """وصف مفهوم للإطار الزمني الذي وُلِّدت منه الإشارة."""
+    return _TF_LABEL.get(tf, f"إطار {tf}")
+
+
 def _trade_horizon(hours: float) -> str:
     """صنّف مدة الصفقة المتوقّعة (من الزمن المقدّر للهدف) بوصف مفهوم."""
     if hours < 8:
@@ -299,7 +314,10 @@ def format_digest(deals: List[Deal], title: str = "أفضل الصفقات") -> 
 def _pick_body(d: Deal) -> List[str]:
     """أسطر تفاصيل صفقة واحدة (دخول/وقف/هدف/حجم/سبب)."""
     tgt, stp = expected_moves(d)
-    lines = [
+    lines = []
+    if getattr(d, "timeframe", None):
+        lines.append(f"   {_tf_label(d.timeframe)}")
+    lines += [
         f"   💵 السعر الآن: {_fmt_price(d.price)}",
         f"   🟢 الدخول: {_fmt_price(d.entry)}",
         f"   🛑 وقف الخسارة: {_fmt_price(d.stop_loss)}  (−{stp:.1f}%)",

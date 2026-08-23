@@ -27,7 +27,12 @@ import config
 from deals_bot import journal
 from deals_bot.formatter import DISCLAIMER, format_digest, format_picks, format_watch
 from deals_bot.providers import fetch
-from deals_bot.strategy import market_is_bullish, scan_universe, top_picks
+from deals_bot.strategy import (
+    market_is_bullish,
+    scan_universe,
+    top_picks,
+    top_picks_multi,
+)
 
 
 def _alert_only() -> bool:
@@ -221,9 +226,15 @@ def build_message():
     if os.environ.get("DIGEST_MODE", "trend").lower() == "prepump" and not alert_only:
         return build_prepump_message(markets, timeframe)
 
-    # وضع التنبيه: فحص رخيص أولًا — لو السوق العام هابط لا نفحص كل العملات أصلًا.
+    multi_tf = bool(getattr(config, "TREND_MULTI_TF", False))
+    tfs = getattr(config, "TREND_TIMEFRAMES", [timeframe]) if multi_tf else [timeframe]
+
+    # وضع التنبيه: فحص رخيص أولًا — لو السوق العام هابط على كل الفريمات لا نفحص أصلًا.
     if alert_only and getattr(config, "TREND_MARKET_REGIME", True) and "crypto" in markets:
-        if market_is_bullish(timeframe) is False:
+        # في الفحص متعدّد الفريمات: نتخطّى فقط لو BTC هابط على *كل* الفريمات
+        # (فريم أعلى قد يكون صاعدًا بينما الأقصر هابط — لا نفوّت صفقته).
+        all_bearish = all(market_is_bullish(tf) is False for tf in tfs)
+        if all_bearish:
             if _heartbeat_due():
                 _mark_heartbeat()
                 print("🔔 وضع الدخول فقط: السوق هابط — إرسال نبضة اليوم.")
@@ -233,7 +244,11 @@ def build_message():
 
     # المنتج الأساسي: أفضل 1-2 صفقة من فحص كل العملات — الإعداد الرابح المُثبت
     # بالباك-تِست (ارتداد داخل اتجاه صاعد، درجة ≥85، + فلتر حالة السوق + EMA200).
-    picks, candidates, market_bullish = top_picks(markets, timeframe=timeframe)
+    if multi_tf:
+        print(f"  🧭 الفحص متعدّد الفريمات: {tfs}")
+        picks, candidates, market_bullish = top_picks_multi(markets, timeframes=tfs)
+    else:
+        picks, candidates, market_bullish = top_picks(markets, timeframe=timeframe)
     min_score = int(getattr(config, "TREND_MIN_SCORE", 85))
 
     # الاستراتيجية الجديدة: تأكيد الدخول + حجم مخاطرة محرّك المخاطر (0.5%) لكل صفقة

@@ -87,6 +87,8 @@ class Deal:
     risk_amount: Optional[float] = None    # المبلغ المخاطَر به بعملتك
     # الزمن المتوقّع لوصول الهدف (تقديري بالساعات، من ATR الإطار الأساسي)
     eta_hours: Optional[float] = None
+    # الإطار الزمني الذي وُلِّدت منه الإشارة (للفحص متعدّد الفريمات)
+    timeframe: Optional[str] = None
 
     def is_actionable(self) -> bool:
         return self.direction in ("BUY", "SELL") and self.error is None

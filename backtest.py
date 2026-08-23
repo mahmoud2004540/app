@@ -637,6 +637,66 @@ def tf_sweep(source: str, timeframe: str) -> int:
     return 0
 
 
+def multi_tf(source: str, timeframe: str) -> int:
+    """
+    قياس الدمج متعدّد الفريمات: النتيجة المجمّعة (اتحاد) لفريمات TREND_TIMEFRAMES
+    كما سيرسلها البوت فعلًا. نطبع لكل فريم + الإجمالي المدمج (صفقات/نجاح/توقّع/ربح).
+    الهدف: إثبات أن دمج الفريمات الرابحة يزيد الفرص بلا تخفيف الجودة.
+    """
+    frames = getattr(config, "TREND_TIMEFRAMES", ["1h", "6h", "1d"])
+    symbols = resolve_symbols("crypto", "auto")
+    print(f"⏳ قياس الدمج متعدّد الفريمات {frames} على {len(symbols)} عملة...")
+    th = float(getattr(config, "TREND_MIN_SCORE", 82))
+    buf = getattr(config, "TREND_STOP_BUFFER_ATR", 0.5)
+    rr = float(getattr(config, "TREND_RR", 2.0))
+
+    print("\n" + "=" * 62)
+    print(f"{'فريم':>6} | {'صفقات':>6} | {'نجاح%':>6} | {'توقّع/R':>8} | {'إجمالي':>8}")
+    print("-" * 62)
+    g_tt = g_tw = 0
+    g_tr = 0.0
+    for tf in frames:
+        try:
+            series = fetch_many(symbols, "crypto", "auto", tf, limit=1000)
+        except Exception as exc:  # noqa: BLE001
+            print(f"{tf:>6} | تعذّر الجلب: {exc}")
+            continue
+        regime = None
+        try:
+            btc = fetch("BTC-USD", "crypto", "auto", tf, limit=1000)
+            regime = market_uptrend_map(btc, 50)
+        except Exception:  # noqa: BLE001
+            pass
+        tt = tw = 0
+        tr = 0.0
+        for s in series:
+            res = backtest_trend_pullback_series(
+                s, rr=rr, min_score=th, regime=regime,
+                require_ema200=True, stop_buffer_atr=buf)
+            tt += res.n
+            tw += res.wins
+            tr += res.total_r
+        wr = (tw / tt * 100.0) if tt else 0.0
+        exp = (tr / tt) if tt else 0.0
+        print(f"{tf:>6} | {tt:>6} | {wr:>6.1f} | {exp:>+8.2f} | {tr:>+8.1f}")
+        g_tt += tt
+        g_tw += tw
+        g_tr += tr
+    print("-" * 62)
+    g_wr = (g_tw / g_tt * 100.0) if g_tt else 0.0
+    g_exp = (g_tr / g_tt) if g_tt else 0.0
+    print(f"{'مدمج':>6} | {g_tt:>6} | {g_wr:>6.1f} | {g_exp:>+8.2f} | {g_tr:>+8.1f}")
+    print("=" * 62)
+    verdict = ("✅ الدمج رابح — فرص أكثر بلا تخفيف الجودة"
+               if g_exp > 0 and g_tt >= 20 else "⚠️ راجع النتيجة")
+    print(f"\n{verdict}")
+    print(
+        "\nℹ️ «مدمج» = اتحاد كل الفريمات (زي ما البوت هيبعت). التوقّع المدمج هو المتوسّط "
+        "المرجّح بعدد الصفقات؛ الأهم أنه موجب وأن عدد الفرص أكبر من أي فريم لوحده."
+    )
+    return 0
+
+
 def frame_sweep(source: str, timeframe: str) -> int:
     """
     قياس متعدد الفريمات: يجرّب نفس الإعداد الرابح (درجة≥85 + فلتر السوق + EMA200 +
@@ -796,7 +856,8 @@ def main(argv=None) -> int:
         "--strategy",
         choices=["signals", "prepump", "trend", "compare", "trendsweep",
                  "optimize", "walkforward", "short", "precision", "momentum",
-                 "stopbuffer", "diag", "framesweep", "breakout", "tfsweep"],
+                 "stopbuffer", "diag", "framesweep", "breakout", "tfsweep",
+                 "multitf"],
         default="signals",
         help="signals=إشارات شراء/بيع؛ prepump=ما قبل الاندفاع؛ "
         "trend=ارتداد داخل اتجاه صاعد؛ compare=قارن prepump مقابل trend؛ "
@@ -831,6 +892,8 @@ def main(argv=None) -> int:
         return frame_sweep(args.source, args.timeframe)
     if args.strategy == "tfsweep":
         return tf_sweep(args.source, args.timeframe)
+    if args.strategy == "multitf":
+        return multi_tf(args.source, args.timeframe)
     if args.strategy == "breakout":
         return breakout_test(args.source, args.timeframe)
     return run(args.market, args.source, args.timeframe, args.strategy)

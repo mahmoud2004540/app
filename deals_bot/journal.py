@@ -94,12 +94,14 @@ def record_signals(deals, timeframe: str, now_ts: float,
     added = 0
     for d in deals:
         opened_ts = float(getattr(d, "opened_ts", now_ts) or now_ts)
-        tid = _trade_id(timeframe, d.symbol, opened_ts)
+        # الفحص متعدّد الفريمات: كل صفقة تُسجَّل بفريمها هي (لتقييمها بشموعه الصحيحة)
+        tf = getattr(d, "timeframe", None) or timeframe
+        tid = _trade_id(tf, d.symbol, opened_ts)
         if tid in seen:
             continue
         existing.append(
             JournalTrade(
-                id=tid, symbol=d.symbol, market=d.market, timeframe=timeframe,
+                id=tid, symbol=d.symbol, market=d.market, timeframe=tf,
                 entry=float(d.entry), stop=float(d.stop_loss), target=float(d.take_profit),
                 score=float(d.confidence), rr=float(d.risk_reward),
                 opened_ts=opened_ts, recorded_ts=float(now_ts),
