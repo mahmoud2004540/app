@@ -650,6 +650,7 @@ def multi_tf(source: str, timeframe: str) -> int:
     th = float(getattr(config, "TREND_MIN_SCORE", 82))
     buf = getattr(config, "TREND_STOP_BUFFER_ATR", 0.5)
     rr = float(getattr(config, "TREND_RR", 2.0))
+    rsi_max = getattr(config, "TREND_RSI_MAX", None)
 
     print("\n" + "=" * 62)
     print(f"{'فريم':>6} | {'صفقات':>6} | {'نجاح%':>6} | {'توقّع/R':>8} | {'إجمالي':>8}")
@@ -673,7 +674,7 @@ def multi_tf(source: str, timeframe: str) -> int:
         for s in series:
             res = backtest_trend_pullback_series(
                 s, rr=rr, min_score=th, regime=regime,
-                require_ema200=True, stop_buffer_atr=buf)
+                require_ema200=True, stop_buffer_atr=buf, rsi_max=rsi_max)
             tt += res.n
             tw += res.wins
             tr += res.total_r
