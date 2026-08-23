@@ -46,6 +46,8 @@ def test_same_pending_pick_not_resent(monkeypatch, tmp_path):
 
 
 def test_followup_sent_when_pending_confirms(monkeypatch, tmp_path):
+    import config
+    monkeypatch.setattr(config, "ALERT_CONFIRM_FOLLOWUP", True)
     _isolate_state(monkeypatch, tmp_path)
     d = _deal("AAA", "1h", confirmed=False)
     sd._alert_immediate_message([d], "1h", True)      # أُرسلت معلّقة
@@ -60,7 +62,20 @@ def test_followup_sent_when_pending_confirms(monkeypatch, tmp_path):
     assert sd._alert_immediate_message(None, "1h", True) is None
 
 
+def test_followup_disabled_sends_nothing(monkeypatch, tmp_path):
+    """لما نطفّي المتابعة: الصفقة المعلّقة تتأكّد بس مفيش رسالة متابعة."""
+    import config
+    monkeypatch.setattr(config, "ALERT_CONFIRM_FOLLOWUP", False)
+    _isolate_state(monkeypatch, tmp_path)
+    d = _deal("AAA", "1h", confirmed=False)
+    sd._alert_immediate_message([d], "1h", True)          # أُرسلت معلّقة
+    monkeypatch.setattr(sd, "_confirm_setup", lambda *a, **k: True)
+    assert sd._alert_immediate_message(None, "1h", True) is None   # لا متابعة
+
+
 def test_confirmed_at_first_sight_no_followup(monkeypatch, tmp_path):
+    import config
+    monkeypatch.setattr(config, "ALERT_CONFIRM_FOLLOWUP", True)
     _isolate_state(monkeypatch, tmp_path)
     d = _deal("BBB", "1d", confirmed=True)
     msg = sd._alert_immediate_message([d], "1h", True)

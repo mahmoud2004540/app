@@ -214,9 +214,14 @@ def _alert_immediate_message(picks, timeframe: str, market_bullish):
     if new_picks:
         _mark_new(new_picks)
         all_conf = all(getattr(d, "confirmed", None) is True for d in new_picks)
-        prefix = ("🚨 صفقة جديدة مؤكّدة — ادخل على طول!\n\n" if all_conf else
-                  "🎯 صفقة جديدة قوية بسعر الدخول (بانتظار تأكيد 30 دقيقة — "
-                  "راقبها، وهبعتلك تأكيد الدخول فور اكتماله)\n\n")
+        followup_on = getattr(config, "ALERT_CONFIRM_FOLLOWUP", True)
+        if all_conf:
+            prefix = "🚨 صفقة جديدة مؤكّدة — ادخل على طول!\n\n"
+        elif followup_on:
+            prefix = ("🎯 صفقة جديدة قوية بسعر الدخول (بانتظار تأكيد 30 دقيقة — "
+                      "راقبها، وهبعتلك تأكيد الدخول فور اكتماله)\n\n")
+        else:
+            prefix = "🎯 صفقة جديدة قوية بسعر الدخول (قابلة للدخول الآن)\n\n"
         parts.append(prefix + format_picks(new_picks))
     if followups:
         parts.append("✅ تأكيد اكتمل لصفقة سابقة — تقدر تدخل دلوقتي:\n\n"
