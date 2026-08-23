@@ -573,6 +573,70 @@ def breakout_test(source: str, timeframe: str) -> int:
     return 0
 
 
+def tf_sweep(source: str, timeframe: str) -> int:
+    """
+    قياس الفريمات الأعلى: هل فريم أكبر (4h/6h/1d) يرفع نسبة النجاح/الربح مقابل 1h؟
+    نقيس نفس الإعداد الحيّ (درجة≥العتبة + فلتر السوق + EMA200 + مسافة وقف + RR)
+    على كل فريم عبر الكون الكامل، ونطبع النجاح والتوقّع وعدد الصفقات.
+    """
+    frames = ["1h", "4h", "6h", "1d"]
+    symbols = resolve_symbols("crypto", "auto")
+    print(f"⏳ قياس الفريمات {frames} على {len(symbols)} عملة — الكون الكامل...")
+    th = float(getattr(config, "TREND_MIN_SCORE", 82))
+    buf = getattr(config, "TREND_STOP_BUFFER_ATR", 0.5)
+    rr = float(getattr(config, "TREND_RR", 2.0))
+
+    print("\n" + "=" * 62)
+    print(f"{'فريم':>5} | {'صفقات':>6} | {'نجاح%':>6} | {'توقّع/R':>8} | {'إجمالي':>8} | الحكم")
+    print("-" * 62)
+    rows = []
+    for tf in frames:
+        try:
+            series = fetch_many(symbols, "crypto", "auto", tf, limit=1000)
+        except Exception as exc:  # noqa: BLE001
+            print(f"{tf:>5} | تعذّر الجلب: {exc}")
+            continue
+        regime = None
+        try:
+            btc = fetch("BTC-USD", "crypto", "auto", tf, limit=1000)
+            regime = market_uptrend_map(btc, 50)
+        except Exception:  # noqa: BLE001
+            pass
+        tt = tw = 0
+        tr = 0.0
+        for s in series:
+            res = backtest_trend_pullback_series(
+                s, rr=rr, min_score=th, regime=regime,
+                require_ema200=True, stop_buffer_atr=buf)
+            tt += res.n
+            tw += res.wins
+            tr += res.total_r
+        wr = (tw / tt * 100.0) if tt else 0.0
+        exp = (tr / tt) if tt else 0.0
+        ok = exp > 0 and tt >= 20
+        verdict = "✅ رابح" if ok else ("⚠️ عيّنة صغيرة" if tt < 20 else "❌ خاسر")
+        mark = " ← الحالي" if tf == "1h" else ""
+        rows.append((tf, tt, wr, exp, ok))
+        print(f"{tf:>5} | {tt:>6} | {wr:>6.1f} | {exp:>+8.2f} | {tr:>+8.1f} | {verdict}{mark}")
+    print("=" * 62)
+    valid = [r for r in rows if r[4]]
+    cur = next((r for r in rows if r[0] == "1h"), None)
+    if valid and cur:
+        best_wr = max(valid, key=lambda r: r[2])
+        best_exp = max(valid, key=lambda r: r[3])
+        print(f"\n📈 أعلى نجاح: «{best_wr[0]}» ({best_wr[2]:.1f}%) | "
+              f"💰 أعلى ربح: «{best_exp[0]}» ({best_exp[3]:+.2f}R)")
+        if best_exp[0] == "1h":
+            print("👉 الساعة (1h) تبقى الأفضل ربحًا — لا داعي للتغيير.")
+        else:
+            print(f"👉 «{best_exp[0]}» تتفوّق ربحًا على 1h — مرشّحة، لكن صفقاتها أندر ومدتها أطول.")
+    print(
+        "\nℹ️ الفريم الأعلى أقل ضجيجًا لكن صفقاته أندر بكثير ومدتها أطول. نختار الأعلى "
+        "ربحًا (توقّع) بعيّنة كافية — لا الأعلى نجاحًا فقط."
+    )
+    return 0
+
+
 def frame_sweep(source: str, timeframe: str) -> int:
     """
     قياس متعدد الفريمات: يجرّب نفس الإعداد الرابح (درجة≥85 + فلتر السوق + EMA200 +
@@ -732,7 +796,7 @@ def main(argv=None) -> int:
         "--strategy",
         choices=["signals", "prepump", "trend", "compare", "trendsweep",
                  "optimize", "walkforward", "short", "precision", "momentum",
-                 "stopbuffer", "diag", "framesweep", "breakout"],
+                 "stopbuffer", "diag", "framesweep", "breakout", "tfsweep"],
         default="signals",
         help="signals=إشارات شراء/بيع؛ prepump=ما قبل الاندفاع؛ "
         "trend=ارتداد داخل اتجاه صاعد؛ compare=قارن prepump مقابل trend؛ "
@@ -765,6 +829,8 @@ def main(argv=None) -> int:
         return pipeline_diag(args.source, args.timeframe)
     if args.strategy == "framesweep":
         return frame_sweep(args.source, args.timeframe)
+    if args.strategy == "tfsweep":
+        return tf_sweep(args.source, args.timeframe)
     if args.strategy == "breakout":
         return breakout_test(args.source, args.timeframe)
     return run(args.market, args.source, args.timeframe, args.strategy)
