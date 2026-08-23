@@ -752,6 +752,60 @@ def threshold_cmp(source: str, timeframe: str) -> int:
     return 0
 
 
+def rr_cmp(source: str, timeframe: str) -> int:
+    """
+    مقارنة بُعد الهدف (RR) بالإعداد الحيّ الكامل على الكون الكامل.
+
+    نجيب لكل RR: نسبة الوصول للهدف (نجاح%) + التوقّع + الربح الإجمالي — عشان
+    نختار «الأحسن» بالأرقام: الهدف الأقرب يوصل أكتر لكن ربحه أصغر، والأبعد
+    يربح أكبر لكن يوصل أقل. الأحسن = أعلى ربح إجمالي بنسبة وصول معقولة.
+    """
+    symbols = resolve_symbols("crypto", "auto")
+    th = float(getattr(config, "TREND_MIN_SCORE", 85))
+    buf = getattr(config, "TREND_STOP_BUFFER_ATR", 0.5)
+    rsi_max = getattr(config, "TREND_RSI_MAX", None)
+    print(f"⏳ مقارنة بُعد الهدف (RR) على {len(symbols)} عملة ({timeframe})...")
+    series = fetch_many(symbols, "crypto", "auto", timeframe, limit=1000)
+    regime = None
+    try:
+        btc = fetch("BTC-USD", "crypto", "auto", timeframe, limit=1000)
+        regime = market_uptrend_map(btc, 50)
+    except Exception:  # noqa: BLE001
+        pass
+
+    print("\n" + "=" * 64)
+    print(f"{'RR':>5} | {'صفقات':>6} | {'يوصل%':>6} | {'توقّع/R':>8} | {'إجمالي':>8} | الحكم")
+    print("-" * 64)
+    best = None
+    for rr in [1.0, 1.5, 2.0, 2.5, 3.0, 3.5]:
+        tt = tw = 0
+        tr = 0.0
+        for s in series:
+            res = backtest_trend_pullback_series(
+                s, rr=rr, min_score=th, regime=regime,
+                require_ema200=True, stop_buffer_atr=buf, rsi_max=rsi_max)
+            tt += res.n
+            tw += res.wins
+            tr += res.total_r
+        wr = (tw / tt * 100.0) if tt else 0.0
+        exp = (tr / tt) if tt else 0.0
+        ok = exp > 0 and tt >= 20
+        verdict = "✅ رابح" if ok else ("⚠️ عيّنة صغيرة" if tt < 20 else "❌ خاسر")
+        cur = " ← الحالي" if abs(rr - float(getattr(config, "TREND_RR", 2.0))) < 0.01 else ""
+        if ok and (best is None or tr > best[4]):
+            best = (rr, tt, wr, exp, tr)
+        print(f"{rr:>5.1f} | {tt:>6} | {wr:>6.1f} | {exp:>+8.2f} | {tr:>+8.1f} | {verdict}{cur}")
+    print("=" * 64)
+    if best:
+        print(f"\n💰 أعلى ربح إجمالي: RR {best[0]:.1f} → {best[4]:+.1f}R "
+              f"({best[1]} صفقة، توصل الهدف {best[2]:.0f}%).")
+    print(
+        "\nℹ️ الهدف الأقرب (RR أقل) يوصل أكتر لكن ربحه أصغر؛ الأبعد يربح أكبر لكن "
+        "يوصل أقل. «الأحسن» = أعلى ربح إجمالي بعيّنة كافية — مع بقاء وقف الخسارة."
+    )
+    return 0
+
+
 def pro_filter(source: str, timeframe: str) -> int:
     """
     قياس فلاتر «الاحترافية» فوق الإعداد الرابح الحالي — واحدة واحدة ثم مجمّعة.
@@ -992,7 +1046,7 @@ def main(argv=None) -> int:
         choices=["signals", "prepump", "trend", "compare", "trendsweep",
                  "optimize", "walkforward", "short", "precision", "momentum",
                  "stopbuffer", "diag", "framesweep", "breakout", "tfsweep",
-                 "multitf", "profilter", "thresholds"],
+                 "multitf", "profilter", "thresholds", "rrcmp"],
         default="signals",
         help="signals=إشارات شراء/بيع؛ prepump=ما قبل الاندفاع؛ "
         "trend=ارتداد داخل اتجاه صاعد؛ compare=قارن prepump مقابل trend؛ "
@@ -1033,6 +1087,8 @@ def main(argv=None) -> int:
         return pro_filter(args.source, args.timeframe)
     if args.strategy == "thresholds":
         return threshold_cmp(args.source, args.timeframe)
+    if args.strategy == "rrcmp":
+        return rr_cmp(args.source, args.timeframe)
     if args.strategy == "breakout":
         return breakout_test(args.source, args.timeframe)
     return run(args.market, args.source, args.timeframe, args.strategy)
