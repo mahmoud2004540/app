@@ -46,6 +46,25 @@ def market_uptrend_map(btc: Series, period: int = 50) -> dict:
     return out
 
 
+def market_return_map(btc: Series, lookback: int = 20) -> dict:
+    """
+    خريطة عائد السوق: لكل شمعة بيتكوين، عائد آخر `lookback` شمعة (نسبة).
+
+    Maps each BTC candle timestamp → BTC's trailing `lookback`-bar return. Used
+    for a relative-strength gate: only buy coins that outperformed the market
+    (coin return > BTC return) over the same window — institutions buy leaders.
+    """
+    closes = btc.closes()
+    out = {}
+    for idx, c in enumerate(btc.candles):
+        if idx - lookback < 0:
+            continue
+        past = closes[idx - lookback]
+        if past > 0:
+            out[round(c.ts)] = closes[idx] / past - 1.0
+    return out
+
+
 @dataclass
 class Trade:
     symbol: str
@@ -309,6 +328,9 @@ def backtest_trend_pullback_series(
     direction: str = "long",
     require_momentum: bool = False,
     stop_buffer_atr: float = 0.0,
+    rsi_max: Optional[float] = None,
+    min_slope_pct: Optional[float] = None,
+    rel_strength: Optional[dict] = None,
 ) -> BacktestResult:
     """
     باك-تِست لاستراتيجية «الارتداد داخل الاتجاه» (Long أو Short).
@@ -348,6 +370,46 @@ def backtest_trend_pullback_series(
         if regime is not None and not regime.get(round(candles[i].ts), False):
             i += 1
             continue
+        # --- فلاتر احترافية اختيارية (تُقاس قبل تفعيلها حيًّا) ---
+        # سقف علوي للـRSI: نرفض الارتداد الضعيف/العملة المتمدّدة (RSI عالٍ جدًا).
+        if rsi_max is not None:
+            r = setup.get("rsi")
+            if r is not None and not is_short and r > rsi_max:
+                i += 1
+                continue
+            if r is not None and is_short and r < (100.0 - rsi_max):
+                i += 1
+                continue
+        # حد أدنى لميل الاتجاه (EMA50 slope %): ندخل فقط في اتجاه قويّ الميل.
+        if min_slope_pct is not None:
+            e50 = ind.ema(closes[: i + 1], 50)
+            e50_prev = ind.ema(closes[: i - 2], 50) if i > 53 else None
+            if not e50 or not e50_prev:
+                i += 1
+                continue
+            slope = (e50 / e50_prev - 1.0) * 100.0
+            if not is_short and slope < min_slope_pct:
+                i += 1
+                continue
+            if is_short and -slope < min_slope_pct:
+                i += 1
+                continue
+        # القوة النسبية مقابل BTC: ندخل فقط لو العملة تفوّقت على السوق آخر N شمعة.
+        if rel_strength is not None:
+            look = int(rel_strength.get("lookback", 20))
+            btc_ret_map = rel_strength.get("btc_ret", {})
+            btc_ret = btc_ret_map.get(round(candles[i].ts))
+            if btc_ret is None or i - look < 0:
+                i += 1
+                continue
+            past = closes[i - look]
+            coin_ret = (closes[i] / past - 1.0) if past > 0 else 0.0
+            if not is_short and coin_ret <= btc_ret:   # لازم تتفوّق على السوق
+                i += 1
+                continue
+            if is_short and coin_ret >= btc_ret:        # للبيع: أضعف من السوق
+                i += 1
+                continue
         if require_ema200:
             e200 = ind.ema(closes[: i + 1], 200)
             if not e200:

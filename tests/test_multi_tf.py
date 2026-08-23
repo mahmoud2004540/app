@@ -75,6 +75,34 @@ def test_format_picks_shows_timeframe_line():
     assert "فريم يومي" in out
 
 
+def test_market_return_map_computes_trailing_return():
+    from deals_bot.backtester import market_return_map
+    from deals_bot.models import Candle, Series
+    cs = [Candle(ts=i * 3600, open=0, high=0, low=0, close=100 * (1.01 ** i), volume=0)
+          for i in range(25)]
+    m = market_return_map(Series("BTC", "crypto", cs), lookback=20)
+    key = round(20 * 3600)
+    assert key in m
+    assert abs(m[key] - (1.01 ** 20 - 1)) < 1e-9
+    # قبل اكتمال النافذة لا قيمة
+    assert round(10 * 3600) not in m
+
+
+def test_pro_filters_do_not_increase_trades(tmp_path):
+    """الفلاتر الاحترافية انتقائية: لا تزيد عدد الصفقات أبدًا (تقلّل أو تساوي)."""
+    import math
+    from deals_bot.backtester import backtest_trend_pullback_series
+    from deals_bot.models import Candle, Series
+    closes = [100 + 0.6 * i + 2 * math.sin(i / 3.0) for i in range(260)]
+    cs = [Candle(ts=i * 3600, open=c, high=c * 1.01, low=c * 0.985, close=c, volume=1000)
+          for i, c in enumerate(closes)]
+    s = Series("X", "crypto", cs)
+    base = backtest_trend_pullback_series(s, min_score=0).n
+    for kw in ({"rsi_max": 60.0}, {"min_slope_pct": 0.3},
+               {"rsi_max": 65.0, "min_slope_pct": 0.2}):
+        assert backtest_trend_pullback_series(s, min_score=0, **kw).n <= base
+
+
 def test_journal_records_per_deal_timeframe(tmp_path):
     """في الدمج: كل صفقة تُسجَّل بفريمها هي، لا فريم واحد للكل."""
     path = str(tmp_path / "trades.jsonl")

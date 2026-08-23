@@ -21,6 +21,7 @@ from deals_bot.backtester import (
     backtest_prepump_series,
     backtest_series,
     backtest_trend_pullback_series,
+    market_return_map,
     market_uptrend_map,
 )
 from deals_bot.providers import fetch, fetch_many
@@ -697,6 +698,86 @@ def multi_tf(source: str, timeframe: str) -> int:
     return 0
 
 
+def pro_filter(source: str, timeframe: str) -> int:
+    """
+    قياس فلاتر «الاحترافية» فوق الإعداد الرابح الحالي — واحدة واحدة ثم مجمّعة.
+
+    نقيس على الكون الكامل بالإطار المطلوب (افتراضي 1h — أكبر عيّنة) نفس الإعداد
+    الحيّ (سكور≥العتبة + فلتر السوق + EMA200 + مسافة وقف + RR)، ونضيف كل فلتر
+    احترافي على حدة عشان نعرف أيّهم يرفع التوقّع فعلًا قبل تفعيله:
+      • سقف RSI (يرفض الارتداد الضعيف/التمدّد)
+      • حد أدنى لميل الاتجاه (اتجاه قويّ الميل فقط)
+      • القوة النسبية مقابل BTC (نشتري القادة فقط)
+    """
+    symbols = resolve_symbols("crypto", "auto")
+    th = float(getattr(config, "TREND_MIN_SCORE", 82))
+    buf = getattr(config, "TREND_STOP_BUFFER_ATR", 0.5)
+    rr = float(getattr(config, "TREND_RR", 2.0))
+    print(f"⏳ قياس الفلاتر الاحترافية على {len(symbols)} عملة ({timeframe})...")
+
+    series = fetch_many(symbols, "crypto", "auto", timeframe, limit=1000)
+    regime = None
+    btc_ret = {}
+    try:
+        btc = fetch("BTC-USD", "crypto", "auto", timeframe, limit=1000)
+        regime = market_uptrend_map(btc, 50)
+        btc_ret = market_return_map(btc, 20)
+    except Exception:  # noqa: BLE001
+        pass
+
+    variants = [
+        ("الأساس (الحالي)", {}),
+        ("+ سقف RSI ≤ 65", {"rsi_max": 65.0}),
+        ("+ سقف RSI ≤ 68", {"rsi_max": 68.0}),
+        ("+ ميل ≥ 0.10%", {"min_slope_pct": 0.10}),
+        ("+ ميل ≥ 0.20%", {"min_slope_pct": 0.20}),
+        ("+ أقوى من BTC", {"rel_strength": {"lookback": 20, "btc_ret": btc_ret}}),
+        ("+ الثلاثة معًا", {"rsi_max": 68.0, "min_slope_pct": 0.10,
+                            "rel_strength": {"lookback": 20, "btc_ret": btc_ret}}),
+    ]
+
+    print("\n" + "=" * 70)
+    print(f"{'الفلتر':>18} | {'صفقات':>6} | {'نجاح%':>6} | {'توقّع/R':>8} | {'إجمالي':>8}")
+    print("-" * 70)
+    base_exp = None
+    rows = []
+    for name, kw in variants:
+        tt = tw = 0
+        tr = 0.0
+        for s in series:
+            res = backtest_trend_pullback_series(
+                s, rr=rr, min_score=th, regime=regime,
+                require_ema200=True, stop_buffer_atr=buf, **kw)
+            tt += res.n
+            tw += res.wins
+            tr += res.total_r
+        wr = (tw / tt * 100.0) if tt else 0.0
+        exp = (tr / tt) if tt else 0.0
+        if base_exp is None:
+            base_exp = exp
+        rows.append((name, tt, wr, exp, tr))
+        print(f"{name:>18} | {tt:>6} | {wr:>6.1f} | {exp:>+8.2f} | {tr:>+8.1f}")
+    print("=" * 70)
+
+    # الحكم: أعلى توقّع بعيّنة كافية (≥30 صفقة) يتفوّق على الأساس بهامش واضح
+    valid = [r for r in rows[1:] if r[1] >= 30]
+    if valid:
+        best = max(valid, key=lambda r: r[3])
+        if best[3] > (base_exp or 0) + 0.03:
+            print(f"\n✅ «{best[0]}» يرفع التوقّع من {base_exp:+.2f}R إلى {best[3]:+.2f}R "
+                  f"({best[1]} صفقة) — مرشّح للتفعيل.")
+        else:
+            print(f"\nℹ️ لا فلتر يتفوّق على الأساس ({base_exp:+.2f}R) بهامش واضح وعيّنة كافية — "
+                  "الأساس يبقى الأفضل (لا نعقّد بلا فائدة مقاسة).")
+    else:
+        print("\n⚠️ العيّنات بعد الفلاتر صغيرة — لا قرار موثوق.")
+    print(
+        "\nℹ️ نضيف فلترًا فقط لو رفع التوقّع بعيّنة كافية. تقليل الصفقات بلا رفع "
+        "التوقّع = خسارة فرص، مش احتراف."
+    )
+    return 0
+
+
 def frame_sweep(source: str, timeframe: str) -> int:
     """
     قياس متعدد الفريمات: يجرّب نفس الإعداد الرابح (درجة≥85 + فلتر السوق + EMA200 +
@@ -857,7 +938,7 @@ def main(argv=None) -> int:
         choices=["signals", "prepump", "trend", "compare", "trendsweep",
                  "optimize", "walkforward", "short", "precision", "momentum",
                  "stopbuffer", "diag", "framesweep", "breakout", "tfsweep",
-                 "multitf"],
+                 "multitf", "profilter"],
         default="signals",
         help="signals=إشارات شراء/بيع؛ prepump=ما قبل الاندفاع؛ "
         "trend=ارتداد داخل اتجاه صاعد؛ compare=قارن prepump مقابل trend؛ "
@@ -894,6 +975,8 @@ def main(argv=None) -> int:
         return tf_sweep(args.source, args.timeframe)
     if args.strategy == "multitf":
         return multi_tf(args.source, args.timeframe)
+    if args.strategy == "profilter":
+        return pro_filter(args.source, args.timeframe)
     if args.strategy == "breakout":
         return breakout_test(args.source, args.timeframe)
     return run(args.market, args.source, args.timeframe, args.strategy)
