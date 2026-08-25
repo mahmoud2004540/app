@@ -887,6 +887,77 @@ def pro_filter(source: str, timeframe: str) -> int:
     return 0
 
 
+def fibonacci(source: str, timeframe: str) -> int:
+    """
+    قياس فلتر فيبوناتشي: هل اشتراط أن يقع الارتداد في منطقة فيبوناتشي يرفع الربح؟
+
+    نضيف على الإعداد الحيّ الكامل شرطًا: عمق ارتداد الصفقة (بالنسبة للموجة الصاعدة
+    الأخيرة قاع→قمة) لازم يقع في منطقة فيبوناتشي (مثلاً 0.382–0.618 الذهبية). نقيس
+    كل منطقة على الكون الكامل ونفعّل فقط ما يرفع التوقّع فعلًا (لا نعقّد بلا فائدة).
+    """
+    symbols = resolve_symbols("crypto", "auto")
+    th = float(getattr(config, "TREND_MIN_SCORE", 85))
+    buf = getattr(config, "TREND_STOP_BUFFER_ATR", 0.5)
+    rr = float(getattr(config, "TREND_RR", 2.0))
+    base_kw = dict(
+        rr=rr, min_score=th, require_ema200=True, stop_buffer_atr=buf,
+        rsi_max=getattr(config, "TREND_RSI_MAX", 68.0),
+        require_macd=getattr(config, "TREND_REQUIRE_MACD", False),
+        stoch_max=getattr(config, "TREND_STOCH_MAX", None),
+    )
+    print(f"⏳ قياس فلتر فيبوناتشي على {len(symbols)} عملة ({timeframe})...")
+
+    series = fetch_many(symbols, "crypto", "auto", timeframe, limit=1000)
+    regime = None
+    try:
+        btc = fetch("BTC-USD", "crypto", "auto", timeframe, limit=1000)
+        regime = market_uptrend_map(btc, 50)
+    except Exception:  # noqa: BLE001
+        pass
+
+    variants = [
+        ("الأساس (بلا فيبو)", {}),
+        ("منطقة 0.382–0.618 (ذهبية)", {"fib_min": 0.382, "fib_max": 0.618}),
+        ("منطقة 0.500–0.786 (أعمق)", {"fib_min": 0.5, "fib_max": 0.786}),
+        ("منطقة 0.236–0.618 (أوسع)", {"fib_min": 0.236, "fib_max": 0.618}),
+        ("منطقة 0.382–0.786", {"fib_min": 0.382, "fib_max": 0.786}),
+    ]
+
+    print("\n" + "=" * 74)
+    print(f"{'المنطقة':>26} | {'صفقات':>6} | {'نجاح%':>6} | {'توقّع/R':>8} | {'إجمالي':>8}")
+    print("-" * 74)
+    base_exp = None
+    rows = []
+    for name, kw in variants:
+        tt = tw = 0
+        tr = 0.0
+        for s in series:
+            res = backtest_trend_pullback_series(s, regime=regime, **base_kw, **kw)
+            tt += res.n
+            tw += res.wins
+            tr += res.total_r
+        wr = (tw / tt * 100.0) if tt else 0.0
+        exp = (tr / tt) if tt else 0.0
+        if base_exp is None:
+            base_exp = exp
+        rows.append((name, tt, wr, exp, tr))
+        print(f"{name:>26} | {tt:>6} | {wr:>6.1f} | {exp:>+8.2f} | {tr:>+8.1f}")
+    print("=" * 74)
+
+    valid = [r for r in rows[1:] if r[1] >= 30]
+    if valid:
+        best = max(valid, key=lambda r: r[3])
+        if best[3] > (base_exp or 0) + 0.03:
+            print(f"\n✅ «{best[0]}» يرفع التوقّع من {base_exp:+.2f}R إلى {best[3]:+.2f}R "
+                  f"({best[1]} صفقة) — مرشّح للتفعيل.")
+        else:
+            print(f"\nℹ️ لا منطقة فيبوناتشي تتفوّق على الأساس ({base_exp:+.2f}R) بهامش واضح "
+                  "وعيّنة كافية — الأساس يبقى الأفضل (لا نضيف فيبو بلا فائدة مقاسة).")
+    else:
+        print("\n⚠️ العيّنات بعد فلتر فيبوناتشي صغيرة جدًا — لا قرار موثوق.")
+    return 0
+
+
 def reversal(source: str, timeframe: str) -> int:
     """
     قياس «الانعكاس» (MAE): كم تتحرّك الصفقة عكسك قبل ما تشتغل؟
@@ -1271,7 +1342,7 @@ def main(argv=None) -> int:
                  "optimize", "walkforward", "short", "precision", "momentum",
                  "stopbuffer", "diag", "framesweep", "breakout", "tfsweep",
                  "multitf", "profilter", "confluence", "breakeven",
-                 "reversal", "thresholds", "rrcmp"],
+                 "reversal", "fibonacci", "thresholds", "rrcmp"],
         default="signals",
         help="signals=إشارات شراء/بيع؛ prepump=ما قبل الاندفاع؛ "
         "trend=ارتداد داخل اتجاه صاعد؛ compare=قارن prepump مقابل trend؛ "
@@ -1316,6 +1387,8 @@ def main(argv=None) -> int:
         return breakeven(args.source, args.timeframe)
     if args.strategy == "reversal":
         return reversal(args.source, args.timeframe)
+    if args.strategy == "fibonacci":
+        return fibonacci(args.source, args.timeframe)
     if args.strategy == "thresholds":
         return threshold_cmp(args.source, args.timeframe)
     if args.strategy == "rrcmp":

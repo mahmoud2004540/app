@@ -138,6 +138,34 @@ def market_is_bullish(timeframe: str, source: str = "auto", symbol: str = "BTC-U
     return closes[-1] > e50
 
 
+def _fib_retracement_ok(series, fib_min, fib_max) -> bool:
+    """
+    هل عمق ارتداد الصفقة يقع في نطاق فيبوناتشي المطلوب؟ (long فقط، مصدر واحد للحقيقة).
+
+    نحسب الارتداد بالنسبة للموجة الصاعدة الأخيرة: آخر قمة ارتكاز (رأس الموجة) وآخر
+    قاع ارتكاز قبلها (بدايتها)، ثم نسبة نزول الشمعة الحالية داخل المدى. لو مفيش
+    هيكل موجة واضح → نرفض (إعداد بلا فيبو واضح ليس صفقة فيبوناتشي).
+    """
+    highs, lows = series.highs(), series.lows()
+    ph, pl = ind.swing_points(highs, lows, left=2, right=2)
+    if not ph:
+        return False
+    sh_idx, sh = ph[-1]
+    lows_before = [p for p in pl if p[0] < sh_idx]
+    if not lows_before:
+        return False
+    sl = lows_before[-1][1]
+    rng = sh - sl
+    if rng <= 0:
+        return False
+    retr = (sh - lows[-1]) / rng
+    if fib_min is not None and retr < fib_min:
+        return False
+    if fib_max is not None and retr > fib_max:
+        return False
+    return True
+
+
 def top_picks(
     markets: List[str],
     timeframe: str = None,
@@ -232,6 +260,11 @@ def top_picks(
                     st = ind.stochastic(series.highs(), series.lows(),
                                         series.closes(), k=14)
                     conf_ok = st is None or st <= stoch_max
+                # فيبوناتشي: عمق الارتداد لازم يقع في النطاق المقاس (0.5–0.786).
+                fib_min = getattr(config, "TREND_FIB_MIN", None)
+                fib_max = getattr(config, "TREND_FIB_MAX", None)
+                if conf_ok and (fib_min is not None or fib_max is not None):
+                    conf_ok = _fib_retracement_ok(series, fib_min, fib_max)
                 d._confluence_ok = conf_ok
                 # الزمن المتوقّع لوصول الهدف (تقديري من ATR الإطار الأساسي)
                 atr_v = ind.atr(series.highs(), series.lows(), series.closes(), 14)
