@@ -26,7 +26,7 @@ from deals_bot import paper_trading as pt
 from deals_bot.bot_loop import run_cycle
 from deals_bot.pipeline import _risk_engine
 from deals_bot.providers import fetch
-from deals_bot.strategy import resolve_symbols
+from deals_bot.strategy import market_is_bullish, resolve_symbols
 
 PAPER_STATE = os.path.join("journal", "paper_account.json")
 
@@ -62,9 +62,11 @@ def main() -> int:
         return 2
 
     market = os.environ.get("MARKETS", "crypto").split(",")[0].strip() or "crypto"
-    timeframe = os.environ.get("TIMEFRAME", "1h")
     confirm_tf = getattr(config, "CONFIRM_TIMEFRAME", "15m")
     equity0 = float(os.environ.get("PAPER_EQUITY", getattr(config, "ACCOUNT_BALANCE", 1000.0)))
+
+    # نتداول ورقيًا نفس فريمات البوت الحيّ (مسار الاستثمار 6س/يومي) — لا فريم واحد.
+    timeframes = getattr(config, "TREND_TIMEFRAMES", [os.environ.get("TIMEFRAME", "1h")])
 
     account = pt.load_account(equity0, PAPER_STATE)
     engine = _risk_engine()
@@ -72,14 +74,22 @@ def main() -> int:
     now_ts = time.time()
 
     print(f"📄 Paper Bot: {len(symbols)} رمزًا | رصيد {account.equity:.2f} | "
-          f"مفتوحة {len(account.positions)}")
+          f"مفتوحة {len(account.positions)} | فريمات {timeframes}")
 
-    events = run_cycle(
-        account, symbols, _fetch, now_ts, engine,
-        fetch_confirm=_fetch, market=market, base_tf=timeframe, confirm_tf=confirm_tf,
-        fee_rate=getattr(config, "FEE_RATE", 0.001),
-        slippage_rate=getattr(config, "SLIPPAGE_RATE", 0.0005),
-    )
+    events = []
+    for tf in timeframes:
+        # فلتر السوق العام مرّة لكل فريم (نفس منطق البوت الحيّ)
+        mkt_bull = None
+        if getattr(config, "TREND_MARKET_REGIME", True) and market == "crypto":
+            mkt_bull = market_is_bullish(tf)
+        # البوت الحيّ لا يشترط تأكيد 15م (إرسال فوري) → لا نمرّر fetch_confirm.
+        events += run_cycle(
+            account, symbols, _fetch, now_ts, engine,
+            fetch_confirm=None, market=market, base_tf=tf, confirm_tf=confirm_tf,
+            fee_rate=getattr(config, "FEE_RATE", 0.001),
+            slippage_rate=getattr(config, "SLIPPAGE_RATE", 0.0005),
+            market_bullish=mkt_bull,
+        )
     pt.save_account(account, PAPER_STATE)
 
     stats = pt.account_stats(account)

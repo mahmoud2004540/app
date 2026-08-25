@@ -89,3 +89,38 @@ def test_diversify_keeps_all_when_disabled(monkeypatch):
     monkeypatch.setattr(config, "CORR_FILTER_ENABLED", False)
     picks = [_deal("AAA", 95), _deal("BBB", 90)]
     assert len(strategy._diversify(picks)) == 2
+
+
+# ------------- التنفيذ الورقي: نفس فلاتر البوت الحيّ -------------
+def _uptrend_candles(n=260):
+    import math
+    out = []
+    for i in range(n):
+        base = 100 + i * 0.4 + (-3.0 if (i % 20) in (10, 11) else 0.0)
+        out.append(Candle(ts=i, open=base, high=max(base, base + 0.5) + 0.8,
+                          low=min(base, base + 0.5) - 1.2, close=base + 0.5,
+                          volume=1000.0 + i))
+    return out
+
+
+def test_paper_filters_reject_bear_market():
+    """المسار الورقي يرفض الشراء في سوق هابط (نفس بوّابة السوق الحيّة)."""
+    from deals_bot.pipeline import _passes_live_filters
+    s = Series("X", "crypto", _uptrend_candles())
+    ok, why = _passes_live_filters(s, {"rsi": 50.0}, market_bullish=False)
+    assert not ok and "هابط" in why
+
+
+def test_paper_filters_reject_high_rsi(monkeypatch):
+    """المسار الورقي يرفض RSI متمدّد (نفس سقف RSI الحيّ)."""
+    from deals_bot.pipeline import _passes_live_filters
+    monkeypatch.setattr(config, "TREND_REQUIRE_EMA200", False)
+    monkeypatch.setattr(config, "MIN_DOLLAR_VOL", 0)
+    monkeypatch.setattr(config, "TREND_REQUIRE_MACD", False)
+    monkeypatch.setattr(config, "TREND_STOCH_MAX", None)
+    monkeypatch.setattr(config, "TREND_FIB_MIN", None)
+    monkeypatch.setattr(config, "TREND_FIB_MAX", None)
+    monkeypatch.setattr(config, "TREND_RSI_MAX", 68.0)
+    s = Series("X", "crypto", _uptrend_candles())
+    ok, why = _passes_live_filters(s, {"rsi": 90.0}, market_bullish=True)
+    assert not ok and "RSI" in why
