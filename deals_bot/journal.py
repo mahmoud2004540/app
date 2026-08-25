@@ -191,6 +191,36 @@ def summary(path: str = DEFAULT_JOURNAL) -> dict:
     }
 
 
+def loss_streak(path: str = DEFAULT_JOURNAL) -> int:
+    """عدد الصفقات الخاسرة المتتالية حتى آخر صفقة مغلقة (بالترتيب الزمني)."""
+    closed = [t for t in load(path) if t.status in ("win", "loss")]
+    closed.sort(key=lambda t: (getattr(t, "closed_ts", None)
+                               or getattr(t, "recorded_ts", None) or 0.0))
+    streak = 0
+    for t in reversed(closed):
+        if t.status == "loss":
+            streak += 1
+        else:
+            break
+    return streak
+
+
+def streak_note(path: str = DEFAULT_JOURNAL, threshold: int = 3) -> str:
+    """
+    إنذار «قاطع الدائرة» (من أبحاث إدارة المخاطر): لو الخسائر تتابعت، نبّه المستخدم
+    ليقلّل الحجم أو يتوقّف مؤقتًا — لا نمنع الإشارة، فقط ننصح بالانضباط. يرجع "" لو
+    لا سلسلة تستدعي التنبيه.
+    """
+    n = loss_streak(path)
+    if n < threshold:
+        return ""
+    if n >= threshold + 2:
+        return (f"🛑 قاطع دائرة: {n} خسائر متتالية! توقّف مؤقتًا وراجع تنفيذك "
+                "(دخول/استوب/تعجّل). لا تكبّر الحجم لتعويض الخسائر — ده أكبر خطأ.")
+    return (f"⚠️ إنذار: {n} خسائر متتالية. سلسلة الخسارة طبيعية إحصائيًا، لكن "
+            "قلّل الحجم للنص واتأكد إنك بتنفّذ بالقواعد بالظبط قبل الصفقة الجاية.")
+
+
 def learning_note(path: str = DEFAULT_JOURNAL, backtest_expectancy: float = 0.38) -> str:
     """
     حلقة التعلّم: قارن الأداء الحيّ بالباك-تِست واستخلص ملاحظة.
