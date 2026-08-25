@@ -74,6 +74,11 @@ def _passes_live_filters(base: Series, tp: dict, market_bullish=None):
         st = ind.stochastic(highs, lows, closes, k=14)
         if st is not None and st > smax:
             return False, f"⛔ Stochastic {st:.0f} > {smax:.0f} (متشبّع)."
+    vmin = getattr(config, "TREND_VOL_SURGE_MIN", None)
+    if vmin is not None:
+        vs = ind.volume_surge(base.volumes(), period=20)
+        if vs is None or vs < vmin:
+            return False, f"⛔ لا اندفاع حجم كافٍ (< {vmin:g}×) — حركة ضعيفة."
     fmin = getattr(config, "TREND_FIB_MIN", None)
     fmax = getattr(config, "TREND_FIB_MAX", None)
     if fmin is not None or fmax is not None:

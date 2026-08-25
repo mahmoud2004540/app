@@ -45,6 +45,7 @@ def _patch_env(monkeypatch, stoch_max, require_macd):
     monkeypatch.setattr(config, "TREND_MIN_SCORE", 0)
     monkeypatch.setattr(config, "TREND_FIB_MIN", None)     # نعزل الـ stoch عن فلتر الفيبو
     monkeypatch.setattr(config, "TREND_FIB_MAX", None)
+    monkeypatch.setattr(config, "TREND_VOL_SURGE_MIN", None)  # وعن فلتر الحجم
 
 
 def test_stoch_gate_blocks_overbought(monkeypatch):
@@ -72,3 +73,12 @@ def test_fib_gate_blocks_out_of_zone(monkeypatch):
     picks, cands, _ = strategy.top_picks(["crypto"], timeframe="1h", top=5)
     assert cands                              # الإعداد موجود
     assert picks == []                        # لكن فلتر الفيبو منعه
+
+
+def test_vol_surge_gate_blocks_when_impossible(monkeypatch):
+    """عتبة حجم مستحيلة (1000×) → لا صفقة تمرّ (لا اندفاع حجم بهذا الحجم)."""
+    _patch_env(monkeypatch, stoch_max=100.0, require_macd=False)
+    monkeypatch.setattr(config, "TREND_VOL_SURGE_MIN", 1000.0)
+    picks, cands, _ = strategy.top_picks(["crypto"], timeframe="1h", top=5)
+    assert cands                              # الإعداد موجود
+    assert picks == []                        # لكن فلتر الحجم منعه

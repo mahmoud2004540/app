@@ -265,6 +265,11 @@ def top_picks(
                 fib_max = getattr(config, "TREND_FIB_MAX", None)
                 if conf_ok and (fib_min is not None or fib_max is not None):
                     conf_ok = _fib_retracement_ok(series, fib_min, fib_max)
+                # تأكيد الحجم (قاعدة Warrior، مقاس: +0.21R→+0.34R): اندفاع حجم حقيقي.
+                vmin = getattr(config, "TREND_VOL_SURGE_MIN", None)
+                if conf_ok and vmin is not None:
+                    vs = ind.volume_surge(series.volumes(), period=20)
+                    conf_ok = vs is not None and vs >= vmin
                 d._confluence_ok = conf_ok
                 # الزمن المتوقّع لوصول الهدف (تقديري من ATR الإطار الأساسي)
                 atr_v = ind.atr(series.highs(), series.lows(), series.closes(), 14)
