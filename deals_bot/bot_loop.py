@@ -73,6 +73,13 @@ def run_cycle(
             continue
         open_closes[pos.symbol] = series.closes()
         last = series.candles[-1]
+        # وقف متحرّك: مشّي الوقف خلف القمة بعد +ACTIVATE_R (مُثبت: يضاعف التوقّع).
+        import config as _cfg
+        pt.apply_trailing(
+            pos, last.high, last.low,
+            getattr(_cfg, "TREND_TRAIL_ACTIVATE_R", 0.0),
+            getattr(_cfg, "TREND_TRAIL_ATR", 0.0),
+        )
         ex = pt.check_exit(pos, last.high, last.low)
         if ex:
             exit_price, reason = ex
@@ -134,16 +141,17 @@ def run_cycle(
             continue
 
         opened_ts = base.candles[-1].ts if base.candles else now_ts
+        # ATR عند الدخول — يُخزّن للوقف المتحرّك (trailing)
+        atr_v = ind.atr(base.highs(), base.lows(), base.closes(), 14)
         pt.open_position(
             account, sym, market, dec.direction, dec.entry, dec.stop, dec.target,
             dec.qty, opened_ts, fee_rate=fee_rate, slippage_rate=slippage_rate,
-            ai_score=dec.ai_score,
+            ai_score=dec.ai_score, atr0=atr_v or 0.0,
         )
         open_symbols.add(sym)
         open_closes[sym] = base.closes()      # يُحسب ضمن الارتباط للمرشّح التالي
         daily.open_positions = len(account.positions)
         # الزمن المتوقّع للهدف (تقديري من ATR الإطار الأساسي)
-        atr_v = ind.atr(base.highs(), base.lows(), base.closes(), 14)
         eta = estimate_eta_hours(dec.entry, dec.target, atr_v,
                                  tf_hours=TF_HOURS.get(base_tf, 1.0))
         eta_txt = f" | ⏱️ متوقّع ~{eta:g}h" if eta else ""

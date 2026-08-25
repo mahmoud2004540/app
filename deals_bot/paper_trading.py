@@ -32,6 +32,9 @@ class PaperPosition:
     opened_ts: float
     fees_paid: float = 0.0
     ai_score: float = 0.0
+    atr0: float = 0.0            # ATR عند الدخول (للوقف المتحرّك)
+    risk0: float = 0.0           # مخاطرة الدخول الأصلية (entry-stop) للتفعيل
+    peak: float = 0.0            # أعلى سعر لصالح الصفقة (للوقف المتحرّك)
 
 
 @dataclass
@@ -130,7 +133,8 @@ def _apply_slippage(price: float, direction: str, slippage_rate: float, entering
 def open_position(acc: PaperAccount, symbol: str, market: str, direction: str,
                   entry: float, stop: float, target: float, qty: float,
                   opened_ts: float, fee_rate: float = 0.001,
-                  slippage_rate: float = 0.0005, ai_score: float = 0.0) -> PaperPosition:
+                  slippage_rate: float = 0.0005, ai_score: float = 0.0,
+                  atr0: float = 0.0) -> PaperPosition:
     """افتح صفقة ورقية: طبّق الانزلاق على الدخول واخصم رسوم الدخول."""
     fill = _apply_slippage(entry, direction, slippage_rate, entering=True)
     entry_fee = fill * qty * fee_rate
@@ -139,9 +143,32 @@ def open_position(acc: PaperAccount, symbol: str, market: str, direction: str,
         symbol=symbol, market=market, direction=direction, entry=fill,
         stop=stop, target=target, qty=qty, opened_ts=opened_ts,
         fees_paid=entry_fee, ai_score=ai_score,
+        atr0=atr0, risk0=abs(fill - stop), peak=fill,
     )
     acc.positions.append(pos)
     return pos
+
+
+def apply_trailing(pos: PaperPosition, high: float, low: float,
+                   activate_r: float, trail_atr: float) -> bool:
+    """
+    حدّث الوقف المتحرّك: بعد ربح +activate_r نمشّي الوقف خلف القمة بـtrail_atr×ATR.
+
+    Returns True if the stop was moved. Long only (the live bot is spot/long).
+    The stop only ever tightens (never loosens), so it locks in trend gains.
+    """
+    if activate_r <= 0 or trail_atr <= 0 or pos.atr0 <= 0 or pos.risk0 <= 0:
+        return False
+    if pos.direction != "BUY":
+        return False
+    pos.peak = max(pos.peak or pos.entry, high)
+    if pos.peak < pos.entry + activate_r * pos.risk0:
+        return False                       # لم يتفعّل بعد
+    new_stop = pos.peak - trail_atr * pos.atr0
+    if new_stop > pos.stop:
+        pos.stop = new_stop
+        return True
+    return False
 
 
 def close_position(acc: PaperAccount, pos: PaperPosition, exit_price: float,

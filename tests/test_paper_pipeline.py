@@ -95,3 +95,27 @@ def test_pipeline_runs_full_chain_without_crash():
     # يمرّ بالسلسلة ويُنتج قرارًا صالحًا
     assert dec.status in (APPROVED, "WAIT", NO_TRADE, "REJECTED")
     assert dec.reasons
+
+
+def test_trailing_stop_arms_after_activation_and_only_tightens():
+    acc = pt.PaperAccount(equity=1000.0, starting_equity=1000.0)
+    # دخول 100، وقف 98 (risk0=2)، ATR=1. تفعيل بعد +1R (سعر 102).
+    pos = pt.open_position(acc, "T-USD", "crypto", "BUY", 100.0, 98.0, 110.0, 1.0, 0,
+                           atr0=1.0)
+    # لسه تحت التفعيل (قمة 101 < 102) → لا تحريك
+    assert pt.apply_trailing(pos, high=101.0, low=100.0, activate_r=1.0, trail_atr=3.0) is False
+    assert pos.stop == 98.0
+    # قمة 106 → مفعّل، الوقف الجديد = 106 - 3×1 = 103 (> 98) → يتحرّك
+    assert pt.apply_trailing(pos, high=106.0, low=104.0, activate_r=1.0, trail_atr=3.0) is True
+    assert abs(pos.stop - 103.0) < 1e-9
+    # قمة أقل (104) → الوقف لا يرجع لتحت (يتشدّد فقط)
+    pt.apply_trailing(pos, high=104.0, low=103.5, activate_r=1.0, trail_atr=3.0)
+    assert abs(pos.stop - 103.0) < 1e-9
+
+
+def test_trailing_noop_when_disabled_or_no_atr():
+    acc = pt.PaperAccount(equity=1000.0, starting_equity=1000.0)
+    pos = pt.open_position(acc, "T-USD", "crypto", "BUY", 100.0, 98.0, 110.0, 1.0, 0,
+                           atr0=0.0)                       # بلا ATR → معطّل
+    assert pt.apply_trailing(pos, 130.0, 120.0, 1.0, 3.0) is False
+    assert pos.stop == 98.0

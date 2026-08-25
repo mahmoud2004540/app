@@ -341,6 +341,16 @@ def _pick_body(d: Deal) -> List[str]:
         lines.append(f"   🗓️ نوع الصفقة: {_trade_horizon(eta)}")
     if d.qty is not None:
         lines.append(f"   📦 حجم مقترح: {d.qty:g} وحدة (تخاطر بـ {d.risk_amount:g})")
+    # إدارة: وقف متحرّك (مُثبت بالقياس: يضاعف التوقّع +0.21R→+0.51R).
+    act_r = getattr(config, "TREND_TRAIL_ACTIVATE_R", 0.0)
+    tr_atr = getattr(config, "TREND_TRAIL_ATR", 0.0)
+    if act_r and tr_atr and d.direction == "BUY" and d.entry > 0:
+        risk = abs(d.entry - d.stop_loss)
+        act_price = d.entry + act_r * risk
+        lines.append(
+            f"   🔒 إدارة: بعد ما توصل +{act_r:g}R ({_fmt_price(act_price)}) — "
+            f"مشّي وقف الخسارة خلف أعلى سعر بمسافة {tr_atr:g}×ATR (يسيبها تجري وتمسك "
+            "الحركة الكبيرة بدل هدف ثابت).")
     if d.reasons:
         lines.append(f"   • {d.reasons[0]}")
     return lines
