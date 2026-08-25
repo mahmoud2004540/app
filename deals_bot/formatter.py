@@ -363,7 +363,13 @@ def format_picks(picks: List[Deal]) -> str:
         if d.confirmed is True:
             parts.append("   ✅ مؤكّدة على 30M (انغلاف + حجم + كسر بنية)")
         elif d.confirmed is False:
-            parts.append("   ⏳ بانتظار تأكيد 30M — راقبها قبل الدخول")
+            # في الوضع الفوري (لا نشترط التأكيد) لا نقول «راقبها قبل الدخول» — ده
+            # يناقض «قابلة للدخول الآن». الإشارة مكتملة على فريمها والتأكيد اختياري.
+            if getattr(config, "ALERT_REQUIRE_CONFIRM", True):
+                parts.append("   ⏳ بانتظار تأكيد 30M — راقبها قبل الدخول")
+            else:
+                parts.append("   ☑️ إشارة الفريم مكتملة — ادخل عند السعر ده "
+                             "(تأكيد 30M اختياري لزيادة الثقة)")
         sent = getattr(d, "_sentiment", None)
         if sent:
             parts.append(f"   📰 مشاعر الأخبار: {sent}")
