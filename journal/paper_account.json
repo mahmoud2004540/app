@@ -1,21 +1,59 @@
 {
-  "equity": 999.8925364244495,
+  "equity": 994.8372606417716,
   "starting_equity": 1000.0,
   "day": 20690,
   "day_start_equity": 1000.0,
   "positions": [
     {
-      "symbol": "FARTCOIN-USD",
+      "symbol": "CAP-USD",
       "market": "crypto",
       "direction": "BUY",
-      "entry": 0.18311150999999998,
-      "stop": 0.17495784883329552,
-      "target": 0.19914430233340893,
-      "qty": 586.87504434,
-      "opened_ts": 1787677200.0,
-      "fees_paid": 0.10746357555041434,
-      "ai_score": 80.6
+      "entry": 0.069604785,
+      "stop": 0.0655504054350948,
+      "target": 0.07760918912981042,
+      "qty": 1186.29873369,
+      "opened_ts": 1787659200.0,
+      "fees_paid": 0.08257206830426472,
+      "ai_score": 85.2
+    },
+    {
+      "symbol": "00-USD",
+      "market": "crypto",
+      "direction": "BUY",
+      "entry": 0.01593798501,
+      "stop": 0.01047634747590788,
+      "target": 0.02683736504818424,
+      "qty": 905.49855026,
+      "opened_ts": 1787616000.0,
+      "fees_paid": 0.014431822320620612,
+      "ai_score": 86.0
+    },
+    {
+      "symbol": "IMU-USD",
+      "market": "crypto",
+      "direction": "BUY",
+      "entry": 0.0026283135,
+      "stop": 0.0019499746697628519,
+      "target": 0.003981050660474297,
+      "qty": 7276.67364267,
+      "opened_ts": 1787616000.0,
+      "fees_paid": 0.019125379570123738,
+      "ai_score": 94.0
     }
   ],
-  "closed": []
+  "closed": [
+    {
+      "symbol": "FARTCOIN-USD",
+      "direction": "BUY",
+      "entry": 0.18311150999999998,
+      "exit": 0.1748703699088789,
+      "qty": 586.87504434,
+      "pnl": -4.9391,
+      "fees_paid": 0.2101,
+      "result_r": -1.032,
+      "reason": "stop",
+      "opened_ts": 1787677200.0,
+      "closed_ts": 1787659200.0
+    }
+  ]
 }
