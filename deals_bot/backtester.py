@@ -568,8 +568,10 @@ def backtest_trend_pullback_series(
         result_r = ((entry - exit_price) if is_short else (exit_price - entry)) / risk
         mae_r = max(0.0, adverse) / risk           # الانعكاس بمضاعفات المخاطرة
         # طبقة تأكيد ICT (اختيارية): كم تأكيد ICT يدعم هذه الإشارة عند دخولها؟
+        # عتبة 200 شمعة 1H تكفي لإعادة بناء 4H (≥50) واليومي كإضافة — عشان نقيس على
+        # عيّنة حقيقية (تاريخ 1H من yfinance محدود، لا يبلغ 720 غالبًا).
         conf = -1
-        if ict_confirm and not is_short and i >= 720:
+        if ict_confirm and not is_short and i >= 200:
             try:
                 from .ict import ict_confirmations
                 from .providers import resample_candles
