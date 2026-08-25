@@ -32,14 +32,16 @@ class FoldResult:
 
 
 def _aggregate(series_list: List[Series], min_score: float,
-               t0: float, t1: float, require_ema200: bool) -> Tuple[float, int, float]:
+               t0: float, t1: float, require_ema200: bool,
+               extra_kw: Optional[dict] = None) -> Tuple[float, int, float]:
     """توقّع/عدد/إجمالي R عبر كل الرموز لصفقات تُفتح داخل [t0, t1)."""
     tt = 0
     tr = 0.0
+    kw = dict(extra_kw or {})
     for s in series_list:
         res = backtest_trend_pullback_series(
             s, min_score=min_score, require_ema200=require_ema200,
-            entry_min_ts=t0, entry_max_ts=t1,
+            entry_min_ts=t0, entry_max_ts=t1, **kw,
         )
         tt += res.n
         tr += res.total_r
@@ -54,6 +56,7 @@ def walk_forward(
     require_ema200: bool = True,
     ts_lo: Optional[float] = None,
     ts_hi: Optional[float] = None,
+    extra_kw: Optional[dict] = None,
 ) -> List[FoldResult]:
     """
     شغّل المشي الأمامي عبر عدة طيّات، مُرجعًا نتيجة كل طيّة (خارج العيّنة).
@@ -81,7 +84,7 @@ def walk_forward(
         # تدريب: اختر العتبة التي تعظّم التوقّع داخل نافذة التدريب
         best_score, best_exp = thresholds[0], float("-inf")
         for th in thresholds:
-            exp, n, _ = _aggregate(series_list, th, train_t0, train_t1, require_ema200)
+            exp, n, _ = _aggregate(series_list, th, train_t0, train_t1, require_ema200, extra_kw)
             if n >= 5 and exp > best_exp:
                 best_exp, best_score = exp, th
         if best_exp == float("-inf"):
@@ -89,7 +92,7 @@ def walk_forward(
 
         # اختبار خارج العيّنة بالعتبة المختارة
         test_exp, test_n, test_tr = _aggregate(
-            series_list, best_score, test_t0, test_t1, require_ema200
+            series_list, best_score, test_t0, test_t1, require_ema200, extra_kw
         )
         results.append(FoldResult(
             fold=k + 1, train_best_score=best_score,

@@ -249,9 +249,19 @@ def walk_forward_run(source: str, timeframe: str) -> int:
     يجيب سؤال: هل الأفضلية تصمد على بيانات لم تُضبط عليها؟
     """
     symbols = resolve_symbols("crypto", "auto")[:BACKTEST_MAX_CRYPTO]
-    print(f"⏳ Walk-Forward على {len(symbols)} عملة ({timeframe})...")
+    print(f"⏳ Walk-Forward (بالإعداد الحيّ الكامل) على {len(symbols)} عملة ({timeframe})...")
     series = fetch_many(symbols, "crypto", "auto", timeframe, limit=1000)
-    results = walk_forward(series, folds=4, thresholds=(80.0, 85.0, 90.0), require_ema200=True)
+    # الإعداد الحيّ الكامل حتى يعكس OOS البوتَ الحقيقي (فيبو + مؤشرات + مسافة وقف + RSI)
+    live_kw = dict(
+        stop_buffer_atr=getattr(config, "TREND_STOP_BUFFER_ATR", 0.5),
+        rsi_max=getattr(config, "TREND_RSI_MAX", 68.0),
+        require_macd=getattr(config, "TREND_REQUIRE_MACD", False),
+        stoch_max=getattr(config, "TREND_STOCH_MAX", None),
+        fib_min=getattr(config, "TREND_FIB_MIN", None),
+        fib_max=getattr(config, "TREND_FIB_MAX", None),
+    )
+    results = walk_forward(series, folds=4, thresholds=(80.0, 85.0, 90.0),
+                           require_ema200=True, extra_kw=live_kw)
 
     print("\n" + "=" * 60)
     print(f"{'طيّة':>5} | {'عتبة تدريب':>10} | {'توقّع تدريب':>11} | "

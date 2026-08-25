@@ -356,9 +356,53 @@ def top_picks_multi(
                 best[d.symbol] = d
         return sorted(best.values(), key=lambda d: d.confidence, reverse=True)
 
-    picks = _dedupe(all_picks)[:top]
+    picks = _diversify(_dedupe(all_picks))[:top]
     candidates = _dedupe(all_cands)
     return picks, candidates, market_bullish
+
+
+def _diversify(picks: List[Deal]) -> List[Deal]:
+    """
+    فلتر الارتباط (من انضباط المحفظة المؤسسي): لا نبعت عملتين حركتهما شبه متطابقة —
+    لو صفقتان مرتبطتان جدًا (نفس الموجة) فهما مخاطرة واحدة مكرّرة، لا تنويع. نُبقي
+    الأعلى ثقة ونُسقط اللاحقة إن تجاوز ارتباط عوائدها الحدّ. آمن: على مشكلة بيانات
+    نُبقي الصفقة (لا نعاقب على نقص بيانات).
+    """
+    if not getattr(config, "CORR_FILTER_ENABLED", True) or len(picks) <= 1:
+        return picks
+    max_corr = float(getattr(config, "CORR_MAX", 0.9))
+    kept: List[Deal] = []
+    closes_cache: dict = {}
+
+    def _closes(d: Deal):
+        key = (d.symbol, getattr(d, "timeframe", None))
+        if key in closes_cache:
+            return closes_cache[key]
+        src = "auto" if d.market == "crypto" else "yfinance"
+        try:
+            cs = fetch(d.symbol, d.market, src,
+                      getattr(d, "timeframe", None) or config.DEFAULT_TIMEFRAME,
+                      limit=120).closes()
+        except Exception:  # noqa: BLE001
+            cs = None
+        closes_cache[key] = cs
+        return cs
+
+    for d in picks:                                    # مرتّبة تنازليًا بالثقة
+        dc = _closes(d)
+        too_close = False
+        if dc:
+            for k in kept:
+                kc = _closes(k)
+                if not kc:
+                    continue
+                corr = ind.returns_correlation(dc, kc, n=50)
+                if corr is not None and corr > max_corr:
+                    too_close = True
+                    break
+        if not too_close:
+            kept.append(d)
+    return kept
 
 
 def _htf_confirm_prepump(symbol: str, market: str, src: str, base_tf: str) -> bool:

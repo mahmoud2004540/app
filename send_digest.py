@@ -231,7 +231,17 @@ def _alert_immediate_message(picks, timeframe: str, market_bullish,
                      + "\n\n".join(followups))
 
     if parts:
-        return "\n\n".join(parts)
+        msg = "\n\n".join(parts)
+        # قاطع الدائرة: نبّه على سلسلة الخسارة قبل الصفقة الجديدة (انضباط، لا منع).
+        if new_picks and getattr(config, "STREAK_WARN_ENABLED", True):
+            try:
+                warn = journal.streak_note(
+                    threshold=int(getattr(config, "STREAK_WARN_THRESHOLD", 3)))
+                if warn:
+                    msg = warn + "\n\n" + msg
+            except Exception:  # noqa: BLE001 - الإنذار إضافة، لا يُفشل الإرسال
+                pass
+        return msg
 
     # لا جديد ولا متابعة → صامت (أو نبضة اليوم إن كانت مفعّلة)
     if suppress_heartbeat:
