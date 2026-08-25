@@ -533,8 +533,8 @@ def detect_trend_pullback(series: Series, rr: float = 2.0, direction: str = "lon
     e50 = ind.ema(closes, 50)
     e50_prev = ind.ema(closes[:-3], 50) if n > 53 else None
     rsi_v = ind.rsi(closes, 14)
-    if None in (e9, e21, e50, e50_prev, rsi_v):
-        return None
+    if None in (e9, e21, e50, e50_prev, rsi_v) or not e50_prev:
+        return None                      # e50_prev=0 (سعر ~صفر/بيانات تالفة) → تجاهل
 
     vs = ind.volume_surge(series.volumes(), 20)
     obv_up = ind.obv_rising(closes, series.volumes(), 10)

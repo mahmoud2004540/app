@@ -107,8 +107,11 @@ def run_cycle(
             except Exception:  # noqa: BLE001
                 conf_series = None
 
-        dec = evaluate(base, account.equity, daily, conf_series, engine,
-                       market_bullish=market_bullish)
+        try:
+            dec = evaluate(base, account.equity, daily, conf_series, engine,
+                           market_bullish=market_bullish)
+        except Exception:  # noqa: BLE001 - عملة واحدة تالفة يجب ألا تُسقط الدورة كلها
+            continue
         if dec.status != APPROVED:
             continue
 
