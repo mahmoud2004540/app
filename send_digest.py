@@ -168,12 +168,15 @@ def _followup_text(rec: dict) -> str:
     )
 
 
-def _alert_immediate_message(picks, timeframe: str, market_bullish):
+def _alert_immediate_message(picks, timeframe: str, market_bullish,
+                             suppress_heartbeat: bool = False):
     """
     وضع الإرسال الفوري: ابعت الصفقة القوية أول ما تظهر (حتى قبل التأكيد)، وابعت
     متابعة «✅ اتأكدت» لاحقًا لما يكتمل تأكيدها — بلا تكرار مزعج لنفس الإعداد.
 
     picks=None يعني تخطّينا الفحص (سوق هابط) → متابعة الإعدادات المعلّقة فقط.
+    suppress_heartbeat=True: لا تُصدر نبضة اليوم لو مفيش جديد (لأن قسمًا آخر —
+    بداية الاندفاع — عنده محتوى يقف لوحده).
     """
     now = time.time()
     resend_h = float(getattr(config, "SETUP_RESEND_HOURS", 12))
@@ -231,6 +234,8 @@ def _alert_immediate_message(picks, timeframe: str, market_bullish):
         return "\n\n".join(parts)
 
     # لا جديد ولا متابعة → صامت (أو نبضة اليوم إن كانت مفعّلة)
+    if suppress_heartbeat:
+        return None
     if _heartbeat_due():
         _mark_heartbeat()
         state = ("السوق صاعد 🟢 لكن لا إعداد جديد الآن"
@@ -238,6 +243,63 @@ def _alert_immediate_message(picks, timeframe: str, market_bullish):
         return _heartbeat_message(state)
     print("🔕 وضع الإرسال الفوري: لا جديد ولا متابعة الآن — لم تُرسل رسالة.")
     return None
+
+
+def _prepump_alert_section(markets, timeframe: str):
+    """
+    قسم «بداية اندفاع» منفصل (عالي المخاطرة) يُرفَق مع رسائل الدخول الفوري.
+
+    يفحص كاشفات ما قبل الاندفاع (تجميع/انضغاط + أول كسر بحجم)، مفلترة بالفعل عند
+    PREPUMP_MIN_SCORE داخل scan_universe، ويرسل الجديد فقط (تتبّع حالة منفصل بمفتاح
+    «PP:» حتى لا يتكرّر كل ساعة ولا يصطدم بمفاتيح صفقات الاتجاه). يرجع نص القسم أو
+    None لو مفيش جديد. تحذير صريح: نسبة نجاح أقل، ربح من الصفقة الكبيرة النادرة.
+    """
+    # فلتر السوق: في سوق هابط إشارات الكسر أضعف — نتخطّى القسم (نفس منطق البناء الكامل).
+    if getattr(config, "PREPUMP_MARKET_REGIME", True) and "crypto" in markets:
+        if market_is_bullish(timeframe) is False:
+            print("🔕 قسم بداية الاندفاع: السوق هابط — تخطّي (إشارات الكسر أضعف).")
+            return None
+    try:
+        _sig, accums, earlies = scan_universe(markets, timeframe=timeframe)
+    except Exception as exc:  # noqa: BLE001 - القسم إضافة، لا يُفشل رسالة الاتجاه
+        print(f"⚠️ فحص بداية الاندفاع: {exc}")
+        return None
+
+    picks = list(earlies or []) + list(accums or [])
+    if not picks:
+        return None
+
+    now = time.time()
+    resend_h = float(getattr(config, "SETUP_RESEND_HOURS", 12))
+    sent = _load_sent()
+    sent = {k: v for k, v in sent.items()
+            if now - float(v.get("sent_ts", 0)) <= resend_h * 3600}
+
+    fresh = []
+    for d in picks:
+        pid = "PP:" + _setup_id(d, timeframe)
+        if pid in sent:
+            continue                                   # اتبعتت قبل كده (خلال المهلة)
+        fresh.append(d)
+        sent[pid] = {
+            "sent_ts": now, "status": "prepump",
+            "symbol": d.symbol, "market": d.market,
+            "timeframe": getattr(d, "timeframe", None) or timeframe,
+            "entry": d.entry, "stop": d.stop_loss, "take_profit": d.take_profit,
+            "score": d.confidence,
+        }
+    _save_sent(sent)
+    if not fresh:
+        return None
+
+    head = (
+        "🚀 بداية اندفاع — قسم منفصل (عالية المخاطرة) ⚠️\n"
+        "دخول مبكّر من بداية الحركة (RR أبعد) — لكن نسبة النجاح أقل (~27% بالقياس): "
+        "توقّع إن أغلبها يضرب استوب وقلة قليلة تطلع كبيرة تغطّي الباقي (+0.17R/صفقة).\n"
+        "القواعد الإجبارية: حجم صغير ثابت (~1% مخاطرة)، استوب دايمًا، وخُد كل إشارة — "
+        "الربح من المجموعة مش من صفقة واحدة.\n\n"
+    )
+    return head + format_picks(fresh)
 
 
 def _apply_new_strategy(picks, timeframe: str) -> None:
@@ -387,9 +449,16 @@ def build_message():
     if picks:
         _apply_new_strategy(picks, timeframe)
 
-    # وضع الإرسال الفوري: ابعت الصفقة أول ما تظهر + متابعة «✅ اتأكدت» لاحقًا.
+    # وضع الإرسال الفوري: ابعت الصفقة أول ما تظهر + متابعة «✅ اتأكدت» لاحقًا،
+    # مع إرفاق قسم «بداية اندفاع» منفصل (بتحذير) إن كان مفعّلًا وفيه جديد.
     if immediate:
-        return _alert_immediate_message(picks, timeframe, market_bullish)
+        pp = None
+        if getattr(config, "PREPUMP_ALERT_APPEND", False):
+            pp = _prepump_alert_section(markets, timeframe)
+        trend_msg = _alert_immediate_message(
+            picks, timeframe, market_bullish, suppress_heartbeat=pp is not None)
+        segments = [seg for seg in (trend_msg, pp) if seg]
+        return "\n\n\n".join(segments) if segments else None
 
     # وضع الدخول فقط باشتراط التأكيد: لا نرسل إلا الصفقات اللي اكتمل تأكيدها فعلًا.
     if picks and alert_only and getattr(config, "ALERT_REQUIRE_CONFIRM", True):
