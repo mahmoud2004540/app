@@ -1265,6 +1265,84 @@ def confluence(source: str, timeframe: str) -> int:
     return 0
 
 
+def warrior(source: str, timeframe: str) -> int:
+    """
+    قياس فلاتر momentum (مدرسة Warrior/Ross Cameron) القابلة للقياس بشموعنا:
+      (1) تأكيد الحجم (Relative Volume) — دخول فقط مع اندفاع حجم حقيقي.
+      (2) «لا تطارد» (Anti-Extended) — رفض الدخول لو السعر ممتد فوق EMA9.
+    كلها فوق الإعداد الحيّ الكامل على الكون. لا نفعّل إلا ما يرفع التوقّع بعيّنة كافية.
+    """
+    symbols = resolve_symbols("crypto", "auto")
+    th = float(getattr(config, "TREND_MIN_SCORE", 85))
+    buf = getattr(config, "TREND_STOP_BUFFER_ATR", 0.5)
+    rr = float(getattr(config, "TREND_RR", 2.0))
+    rsi_cap = getattr(config, "TREND_RSI_MAX", 68.0)
+    fmin = getattr(config, "TREND_FIB_MIN", None)
+    fmax = getattr(config, "TREND_FIB_MAX", None)
+    macd_on = bool(getattr(config, "TREND_REQUIRE_MACD", False))
+    smax = getattr(config, "TREND_STOCH_MAX", None)
+    print(f"⏳ قياس فلاتر Warrior/Momentum على {len(symbols)} عملة ({timeframe})...")
+    series = fetch_many(symbols, "crypto", "auto", timeframe, limit=1000)
+    regime = None
+    try:
+        btc = fetch("BTC-USD", "crypto", "auto", timeframe, limit=1000)
+        regime = market_uptrend_map(btc, 50)
+    except Exception:  # noqa: BLE001
+        pass
+    base_kw = dict(rr=rr, min_score=th, regime=regime, require_ema200=True,
+                   stop_buffer_atr=buf, rsi_max=rsi_cap, require_macd=macd_on,
+                   stoch_max=smax, fib_min=fmin, fib_max=fmax)
+    variants = [
+        ("الأساس (الحالي)", {}),
+        ("+ حجم ≥ 1.5×", {"vol_surge_min": 1.5}),
+        ("+ حجم ≥ 2.0×", {"vol_surge_min": 2.0}),
+        ("+ لا تطارد (≤3×ATR)", {"max_ext_atr": 3.0}),
+        ("+ لا تطارد (≤2×ATR)", {"max_ext_atr": 2.0}),
+        ("+ حجم 1.5× + لا تطارد 3×", {"vol_surge_min": 1.5, "max_ext_atr": 3.0}),
+    ]
+
+    print("\n" + "=" * 72)
+    print(f"{'الفلتر':>26} | {'صفقات':>6} | {'نجاح%':>6} | {'توقّع/R':>8} | {'إجمالي':>8}")
+    print("-" * 72)
+    base_exp = None
+    rows = []
+    for name, kw in variants:
+        tt = tw = 0
+        tr = 0.0
+        for s in series:
+            try:
+                res = backtest_trend_pullback_series(s, **base_kw, **kw)
+            except Exception:  # noqa: BLE001
+                continue
+            tt += res.n
+            tw += res.wins
+            tr += res.total_r
+        wr = (tw / tt * 100.0) if tt else 0.0
+        exp = (tr / tt) if tt else 0.0
+        if base_exp is None:
+            base_exp = exp
+        rows.append((name, tt, wr, exp, tr))
+        print(f"{name:>26} | {tt:>6} | {wr:>6.1f} | {exp:>+8.2f} | {tr:>+8.1f}")
+    print("=" * 72)
+
+    cand = [r for r in rows[1:] if r[1] >= 30]
+    if cand:
+        best = max(cand, key=lambda r: r[3])
+        if best[3] > (base_exp or 0) + 0.03:
+            print(f"\n✅ «{best[0]}» يرفع التوقّع من {base_exp:+.2f}R إلى {best[3]:+.2f}R "
+                  f"({best[1]} صفقة) — مرشّح للتفعيل.")
+        else:
+            print(f"\nℹ️ لا فلتر يتفوّق على الأساس ({base_exp:+.2f}R) بهامش كافٍ وعيّنة كافية. "
+                  "جوهر Warrior (اندفاع→ارتداد→كسر) موجود أصلًا في استراتيجيتنا؛ "
+                  "إضافة فلاتره لا ترفع الربح على بياناتنا.")
+    else:
+        print("\n⚠️ العيّنات بعد الفلاتر صغيرة جدًا — الفلاتر تشدّد أكثر من اللازم (غير حاسم).")
+    print("\nℹ️ غير قابل للقياس بشموعنا (نتركه بصدق): أسهم صغيرة الفلوت + كتالِست أخبار + "
+          "Level 2/Time&Sales + سكالبينج 1د — روح Warrior الحقيقية تحتاج بيانات وأداة "
+          "مختلفة (نحن كريبتو سبوت على فريمات أطول).")
+    return 0
+
+
 def trailexample(source: str, timeframe: str) -> int:
     """
     أمثلة حقيقية: صفقات فعلية من التاريخ ربح فيها الوقف المتحرّك أكثر من الهدف الثابت.
@@ -1860,7 +1938,7 @@ def main(argv=None) -> int:
                  "optimize", "walkforward", "short", "precision", "momentum",
                  "stopbuffer", "diag", "framesweep", "breakout", "tfsweep",
                  "multitf", "profilter", "confluence", "smartmoney", "ictmeasure",
-                 "ictconfirm", "levers", "trailexample", "breakeven", "reversal", "fibonacci",
+                 "ictconfirm", "levers", "warrior", "trailexample", "breakeven", "reversal", "fibonacci",
                  "tca", "thresholds", "rrcmp"],
         default="signals",
         help="signals=إشارات شراء/بيع؛ prepump=ما قبل الاندفاع؛ "
@@ -1910,6 +1988,8 @@ def main(argv=None) -> int:
         return ictconfirm(args.source, args.timeframe)
     if args.strategy == "levers":
         return levers(args.source, args.timeframe)
+    if args.strategy == "warrior":
+        return warrior(args.source, args.timeframe)
     if args.strategy == "trailexample":
         return trailexample(args.source, args.timeframe)
     if args.strategy == "breakeven":

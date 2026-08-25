@@ -353,6 +353,8 @@ def backtest_trend_pullback_series(
     trail_activate_r: float = 0.0,
     trail_atr: float = 0.0,
     time_stop_bars: int = 0,
+    vol_surge_min: Optional[float] = None,
+    max_ext_atr: Optional[float] = None,
 ) -> BacktestResult:
     """
     باك-تِست لاستراتيجية «الارتداد داخل الاتجاه» (Long أو Short).
@@ -551,6 +553,19 @@ def backtest_trend_pullback_series(
             recent = candles[max(0, i - 19): i + 1]
             dv = sum(c.close * c.volume for c in recent) / max(1, len(recent))
             if dv < min_dollar_vol:
+                i += 1
+                continue
+        # --- Warrior/Momentum: تأكيد الحجم — الدخول فقط مع اندفاع حجم حقيقي ---
+        if vol_surge_min is not None and not is_short:
+            vs = ind.volume_surge(vols[: i + 1], period=20)
+            if vs is None or vs < vol_surge_min:
+                i += 1
+                continue
+        # --- Warrior/Momentum: «لا تطارد» — رفض الدخول لو السعر ممتد جدًا فوق EMA9 ---
+        if max_ext_atr is not None and not is_short:
+            e9 = ind.ema(closes[: i + 1], 9)
+            a9 = ind.atr(highs[: i + 1], lows[: i + 1], closes[: i + 1], 14)
+            if e9 and a9 and a9 > 0 and (closes[i] - e9) / a9 > max_ext_atr:
                 i += 1
                 continue
 

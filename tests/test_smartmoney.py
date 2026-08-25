@@ -118,3 +118,11 @@ def test_trailing_and_time_stop_run_and_keep_count():
     assert tstop.n == n_base
     for t in list(trail.trades) + list(tstop.trades):
         assert -5.0 <= t.result_r <= 20.0        # نتائج معقولة، لا استثناء
+
+
+def test_warrior_gates_selective():
+    s = _firing_series()
+    n_base = backtest_trend_pullback_series(s, min_score=0.0, rr=2.0).n
+    for gate in ({"vol_surge_min": 2.0}, {"max_ext_atr": 2.0}):
+        res = backtest_trend_pullback_series(s, min_score=0.0, rr=2.0, **gate)
+        assert res.n <= n_base, f"{gate} زادت الصفقات — يجب أن يكون فلترًا انتقائيًا"
