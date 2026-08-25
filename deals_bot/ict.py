@@ -330,6 +330,15 @@ def analyze_ict(symbol: str, fetch_fn: Callable, market: str = "crypto") -> Opti
         h1 = fetch_fn(symbol, market, "1h", 320)
     except Exception:  # noqa: BLE001
         return None
+    return analyze_ict_frames(symbol, market, d1, h4, h1)
+
+
+def analyze_ict_frames(symbol: str, market: str, d1: Series, h4: Series,
+                       h1: Series) -> Optional[ICTSetup]:
+    """
+    جوهر تحليل ICT من ثلاثة فريمات جاهزة (1D/4H/1H) — مفصول عن الجلب حتى يقدر
+    الباك-تِست يغذّيه بشموع تاريخية مقطوعة (نقطة-في-الزمن) لقياس أدائه الحقيقي.
+    """
     if not d1.candles or not h4.candles or not h1.candles:
         return None
     if len(h1.candles) < 60 or len(h4.candles) < 40 or len(d1.candles) < 30:

@@ -140,3 +140,12 @@ def test_format_tradeable_full_template():
                 "Setup Score:", "Invalidation:", "Risk/Reward:"):
         assert tag in out
     assert "88/100" in out
+
+
+# --------------------------- ICT backtester ------------------------------- #
+def test_backtest_ict_runs_without_error():
+    from deals_bot.backtester import BacktestResult, backtest_ict_series
+    up = _uptrend(n=900)                       # طويلة بما يكفي للإحماء (≥30 يومية)
+    res = backtest_ict_series(up, step=12, warmup=720)
+    assert isinstance(res, BacktestResult)
+    assert res.n >= 0                          # المهم: لا استثناء، بنية سليمة

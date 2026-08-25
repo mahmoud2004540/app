@@ -1265,6 +1265,83 @@ def confluence(source: str, timeframe: str) -> int:
     return 0
 
 
+def ictmeasure(source: str, timeframe: str) -> int:
+    """
+    قياس نموذج ICT الكامل تاريخيًا: هل نسبة نجاحه/توقّعه أعلى من الاستراتيجية الحالية؟
+
+    نشغّل باك-تِست ICT (نقطة-في-الزمن، متعدّد الفريمات) على عيّنة من الكون، ونقارنه
+    بالاستراتيجية الحيّة (ارتداد داخل اتجاه + كل الفلاتر) على *نفس* العملات — فنعرف
+    بالأرقام: هل ICT يرفع النجاح فعلًا، ولا لأ؟ (سبوت، صفقات شراء فقط.)
+    """
+    import os as _os
+
+    from deals_bot.backtester import backtest_ict_series
+
+    cap = int(_os.environ.get("ICT_BT_LIMIT", "120") or "120")
+    symbols = resolve_symbols("crypto", "auto")[:cap]
+    print(f"⏳ قياس نموذج ICT تاريخيًا على {len(symbols)} عملة (1H أساس + 4H/1D مُعاد بناؤها)...")
+    series = fetch_many(symbols, "crypto", "auto", "1h", limit=1000)
+
+    # الأساس: الاستراتيجية الحيّة الكاملة على نفس العملات (1H) — مرجع عادل.
+    th = float(getattr(config, "TREND_MIN_SCORE", 85))
+    buf = getattr(config, "TREND_STOP_BUFFER_ATR", 0.5)
+    rr = float(getattr(config, "TREND_RR", 2.0))
+    rsi_cap = getattr(config, "TREND_RSI_MAX", 68.0)
+    fmin = getattr(config, "TREND_FIB_MIN", None)
+    fmax = getattr(config, "TREND_FIB_MAX", None)
+    macd_on = bool(getattr(config, "TREND_REQUIRE_MACD", False))
+    smax = getattr(config, "TREND_STOCH_MAX", None)
+    regime = None
+    try:
+        btc = fetch("BTC-USD", "crypto", "auto", "1h", limit=1000)
+        regime = market_uptrend_map(btc, 50)
+    except Exception:  # noqa: BLE001
+        pass
+    base_kw = dict(rr=rr, min_score=th, regime=regime, require_ema200=True,
+                   stop_buffer_atr=buf, rsi_max=rsi_cap, require_macd=macd_on,
+                   stoch_max=smax, fib_min=fmin, fib_max=fmax)
+
+    def _tally(fn):
+        tt = tw = 0
+        tr = 0.0
+        for s in series:
+            try:
+                res = fn(s)
+            except Exception:  # noqa: BLE001 - عملة تالفة يجب ألا تُسقط القياس
+                continue
+            tt += res.n
+            tw += res.wins
+            tr += res.total_r
+        wr = (tw / tt * 100.0) if tt else 0.0
+        exp = (tr / tt) if tt else 0.0
+        return tt, wr, exp, tr
+
+    b_n, b_wr, b_exp, b_tr = _tally(lambda s: backtest_trend_pullback_series(s, **base_kw))
+    i_n, i_wr, i_exp, i_tr = _tally(backtest_ict_series)
+
+    print("\n" + "=" * 72)
+    print(f"{'النموذج':>26} | {'صفقات':>6} | {'نجاح%':>6} | {'توقّع/R':>8} | {'إجمالي':>8}")
+    print("-" * 72)
+    print(f"{'الاستراتيجية الحالية':>26} | {b_n:>6} | {b_wr:>6.1f} | {b_exp:>+8.2f} | {b_tr:>+8.1f}")
+    print(f"{'نموذج ICT (≥العتبة)':>26} | {i_n:>6} | {i_wr:>6.1f} | {i_exp:>+8.2f} | {i_tr:>+8.1f}")
+    print("=" * 72)
+
+    if i_n < 15:
+        print(f"\n⚠️ نموذج ICT أعطى {i_n} صفقة فقط على العيّنة — عيّنة صغيرة جدًا لحكم "
+              "موثوق. النموذج انتقائي جدًا (6 تأكيدات + درجة≥العتبة) لدرجة أنه نادرًا "
+              "ما يكتمل تاريخيًا. الندرة نفسها نتيجة: لا يكفي لإثبات رفع النجاح.")
+    elif i_wr > b_wr + 3.0 and i_exp > b_exp + 0.03:
+        print(f"\n✅ نموذج ICT يرفع النجاح ({b_wr:.1f}%→{i_wr:.1f}%) والتوقّع "
+              f"({b_exp:+.2f}R→{i_exp:+.2f}R) على {i_n} صفقة — يستحق التفعيل الحيّ.")
+    else:
+        print(f"\nℹ️ نموذج ICT لا يتفوّق على الاستراتيجية الحالية بهامش واضح "
+              f"(نجاح {i_wr:.1f}% مقابل {b_wr:.1f}%، توقّع {i_exp:+.2f}R مقابل {b_exp:+.2f}R). "
+              "منظومة ICT أنيقة نظريًا، لكن على بياناتنا لا ترفع النجاح فوق إعدادنا — "
+              "نفس الدرس المتكرر: الجودة من الإعداد المُثبت، لا من تكديس المفاهيم.")
+    print("\nℹ️ صدق: القياس يشمل ما نقدر نحسبه من الشموع فقط (لا Order Flow/CVD/Funding).")
+    return 0
+
+
 def smartmoney(source: str, timeframe: str) -> int:
     """
     قياس أدوات Smart Money / ICT + VWAP (من دليل الأدوات الاحترافية H1).
@@ -1523,8 +1600,8 @@ def main(argv=None) -> int:
         choices=["signals", "prepump", "trend", "compare", "trendsweep",
                  "optimize", "walkforward", "short", "precision", "momentum",
                  "stopbuffer", "diag", "framesweep", "breakout", "tfsweep",
-                 "multitf", "profilter", "confluence", "smartmoney", "breakeven",
-                 "reversal", "fibonacci", "tca", "thresholds", "rrcmp"],
+                 "multitf", "profilter", "confluence", "smartmoney", "ictmeasure",
+                 "breakeven", "reversal", "fibonacci", "tca", "thresholds", "rrcmp"],
         default="signals",
         help="signals=إشارات شراء/بيع؛ prepump=ما قبل الاندفاع؛ "
         "trend=ارتداد داخل اتجاه صاعد؛ compare=قارن prepump مقابل trend؛ "
@@ -1567,6 +1644,8 @@ def main(argv=None) -> int:
         return confluence(args.source, args.timeframe)
     if args.strategy == "smartmoney":
         return smartmoney(args.source, args.timeframe)
+    if args.strategy == "ictmeasure":
+        return ictmeasure(args.source, args.timeframe)
     if args.strategy == "breakeven":
         return breakeven(args.source, args.timeframe)
     if args.strategy == "reversal":

@@ -572,3 +572,75 @@ def backtest_trend_pullback_series(
         i = j + 1
 
     return BacktestResult(symbol=series.symbol, trades=trades)
+
+
+def backtest_ict_series(
+    series: Series,
+    step: int = 6,
+    warmup: int = 720,
+    fill_window: int = 36,
+    max_hold: int = 240,
+    min_score: Optional[float] = None,
+) -> BacktestResult:
+    """
+    باك-تِست لنموذج ICT الكامل (نقطة-في-الزمن) — يقيس أداءه التاريخي الحقيقي.
+
+    عند كل خطوة (كل `step` شمعة 1H، بعد إحماء يكفي لـ≥30 شمعة يومية) نعيد بناء
+    الفريمات الثلاثة من مقطع التاريخ حتى تلك اللحظة (بلا نظر مستقبلي)، ونشغّل
+    analyze_ict_frames. لو الإعداد صالح (score≥العتبة): ننتظر ارتداد السعر لمنطقة
+    الدخول (أمر محدّد ICT) خلال `fill_window`؛ فإن امتلأ نتتبّع حتى TP1/SL. هذا
+    يقيس: «لو دخلت إشارات ICT فعلًا، نسبة نجاحها وتوقّعها كام؟».
+    """
+    from .ict import ICT_MIN_SCORE, analyze_ict_frames
+    from .providers import resample_candles
+
+    thr = ICT_MIN_SCORE if min_score is None else min_score
+    c = series.candles
+    n = len(c)
+    trades: List[Trade] = []
+    i = max(warmup, 720)
+    while i < n - 1:
+        h1 = Series(series.symbol, series.market, c[: i + 1])
+        h4 = Series(series.symbol, series.market, resample_candles(c[: i + 1], 4))
+        d1 = Series(series.symbol, series.market, resample_candles(c[: i + 1], 24))
+        setup = analyze_ict_frames(series.symbol, series.market, d1, h4, h1)
+        if not setup or setup.score < thr or setup.entry <= 0 or setup.stop <= 0:
+            i += step
+            continue
+        entry, stop, target = setup.entry, setup.stop, setup.tp1
+        risk = entry - stop
+        if risk <= 0 or target <= entry:
+            i += step
+            continue
+
+        # انتظر ملء الأمر المحدّد (ارتداد السعر لمنطقة الدخول) خلال نافذة محدودة
+        filled_at = None
+        for j in range(i + 1, min(i + 1 + fill_window, n)):
+            if c[j].low <= entry:
+                filled_at = j
+                break
+        if filled_at is None:
+            i += step
+            continue
+
+        # تتبّع النتيجة بعد الملء: الوقف أولًا في الأسوأ
+        outcome = None
+        for k in range(filled_at, min(filled_at + max_hold, n)):
+            hi, lo = c[k].high, c[k].low
+            if lo <= stop:
+                outcome = (stop, False)
+                break
+            if hi >= target:
+                outcome = (target, True)
+                break
+        if outcome is None:
+            i = filled_at + 1
+            continue
+        exit_price, won = outcome
+        r = (exit_price - entry) / risk
+        trades.append(Trade(series.symbol, "BUY", entry, stop, target,
+                            exit_price, r, won))
+        # استأنف بعد خروج الصفقة
+        i = max(i + step, filled_at + 1)
+
+    return BacktestResult(symbol=series.symbol, trades=trades)
