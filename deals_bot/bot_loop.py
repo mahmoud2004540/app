@@ -73,14 +73,17 @@ def run_cycle(
             continue
         open_closes[pos.symbol] = series.closes()
         last = series.candles[-1]
-        # وقف متحرّك: مشّي الوقف خلف القمة بعد +ACTIVATE_R (مُثبت: يضاعف التوقّع).
+        # الوقف المتحرّك مبنيّ على الشموع السابقة (وُضِع في الدورة الماضية) — نفحص
+        # الخروج بالوقف الحالي *أولًا*، ثم نرفع الوقف بشمعة اليوم للدورة القادمة
+        # (لا نظرة مستقبلية: لا نستخدم قمة شمعة لضبط وقف تختبره بقاع نفس الشمعة).
         import config as _cfg
-        pt.apply_trailing(
-            pos, last.high, last.low,
-            getattr(_cfg, "TREND_TRAIL_ACTIVATE_R", 0.0),
-            getattr(_cfg, "TREND_TRAIL_ATR", 0.0),
-        )
         ex = pt.check_exit(pos, last.high, last.low)
+        if not ex:
+            pt.apply_trailing(
+                pos, last.high, last.low,
+                getattr(_cfg, "TREND_TRAIL_ACTIVATE_R", 0.0),
+                getattr(_cfg, "TREND_TRAIL_ATR", 0.0),
+            )
         if ex:
             exit_price, reason = ex
             trade = pt.close_position(account, pos, exit_price, reason, last.ts,

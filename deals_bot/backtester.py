@@ -566,13 +566,11 @@ def backtest_trend_pullback_series(
         while j < n:
             hi, lo = candles[j].high, candles[j].low
             cur_stop = entry if moved else stop
-            # --- رافعة (1أ): trailing stop — بعد +activate_r نمشّي الوقف خلف القمة ---
-            if not is_short and trail_atr > 0 and trail_activate_r > 0:
-                peak = max(peak, hi)
-                if not trail_on and hi >= entry + trail_activate_r * risk:
-                    trail_on = True
-                if trail_on:
-                    cur_stop = max(cur_stop, peak - trail_atr * atr_fixed)
+            # --- رافعة (1أ): trailing stop — الوقف مبنيّ على قمة الشموع *السابقة* فقط
+            # (بلا نظرة مستقبلية): نستخدم trail_on/peak المحدّثين من الشمعة الماضية،
+            # ثم نُحدّثهما بشمعة اليوم *بعد* فحوص الخروج (أسفل) للتكرار التالي.
+            if not is_short and trail_atr > 0 and trail_activate_r > 0 and trail_on:
+                cur_stop = max(cur_stop, peak - trail_atr * atr_fixed)
             # تتبّع أقصى انعكاس عكس الصفقة (قبل الخروج): للشراء = كم نزل تحت الدخول.
             adverse = max(adverse, (hi - entry) if is_short else (entry - lo))
             if is_short:
@@ -593,6 +591,11 @@ def backtest_trend_pullback_series(
                     break
                 if be_level is not None and not moved and hi >= be_level:
                     moved = True
+            # حدّث حالة التتبّع بشمعة اليوم للتكرار التالي (بعد الخروج — لا lookahead)
+            if not is_short and trail_atr > 0 and trail_activate_r > 0:
+                peak = max(peak, hi)
+                if not trail_on and hi >= entry + trail_activate_r * risk:
+                    trail_on = True
             # --- رافعة (1ب): خروج زمني — صفقة ميتة لم تُغلق خلال N شمعة نُخرجها بالسعر ---
             if time_stop_bars > 0 and (j - i) >= time_stop_bars:
                 px = candles[j].close
