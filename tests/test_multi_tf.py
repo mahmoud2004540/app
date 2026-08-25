@@ -103,6 +103,25 @@ def test_pro_filters_do_not_increase_trades(tmp_path):
         assert backtest_trend_pullback_series(s, min_score=0, **kw).n <= base
 
 
+def test_mae_recorded_and_nonnegative():
+    """كل صفقة تُسجَّل بأقصى انعكاس (MAE) ≥ 0؛ والخاسرة تلمس الوقف (MAE ≈ 1R)."""
+    from deals_bot.backtester import backtest_trend_pullback_series
+    from deals_bot.models import Candle, Series
+    # نفس بنّاء السلسلة المُثبت أنه يُفعّل الارتداد (اتجاه صاعد + تنفّس دوري)
+    candles = []
+    for i in range(400):
+        base = 100 + i * 0.4 + (-3.0 if (i % 20) in (10, 11) else 0.0)
+        candles.append(Candle(ts=i, open=base, high=max(base, base + 0.5) + 0.8,
+                              low=min(base, base + 0.5) - 1.2, close=base + 0.5,
+                              volume=1000.0))
+    res = backtest_trend_pullback_series(Series("UP", "crypto", candles))
+    assert res.n > 0
+    for t in res.trades:
+        assert t.mae_r >= 0.0                      # الانعكاس لا يكون سالبًا
+        if not t.won:
+            assert t.mae_r >= 0.99                 # الخاسرة لمست الوقف (~1R)
+
+
 def test_confluence_filters_do_not_increase_trades():
     """فلاتر تلاقي المؤشرات انتقائية: تقلّل أو تساوي عدد الصفقات، لا تزيده أبدًا."""
     import math

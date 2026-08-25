@@ -887,6 +887,73 @@ def pro_filter(source: str, timeframe: str) -> int:
     return 0
 
 
+def reversal(source: str, timeframe: str) -> int:
+    """
+    قياس «الانعكاس» (MAE): كم تتحرّك الصفقة عكسك قبل ما تشتغل؟
+
+    «زيرو انعكاس» مستحيل — كل صفقة (حتى الكسبانة) بتنزل شوية أولًا. نقيس على الكون
+    الكامل بالإعداد الحيّ: توزيع أقصى انعكاس (MAE بمضاعفات الوقف R) للصفقات
+    الكسبانة تحديدًا — عشان نعرف «النزول الطبيعي» اللي تحته بس تقلق، ونمنع الخروج
+    المرعوب اللي بيخسّرك صفقة كانت هتكسب.
+    """
+    symbols = resolve_symbols("crypto", "auto")
+    th = float(getattr(config, "TREND_MIN_SCORE", 85))
+    buf = getattr(config, "TREND_STOP_BUFFER_ATR", 0.5)
+    rr = float(getattr(config, "TREND_RR", 2.0))
+    base_kw = dict(
+        rr=rr, min_score=th, require_ema200=True, stop_buffer_atr=buf,
+        rsi_max=getattr(config, "TREND_RSI_MAX", 68.0),
+        require_macd=getattr(config, "TREND_REQUIRE_MACD", False),
+        stoch_max=getattr(config, "TREND_STOCH_MAX", None),
+    )
+    print(f"⏳ قياس الانعكاس (MAE) على {len(symbols)} عملة ({timeframe})...")
+
+    series = fetch_many(symbols, "crypto", "auto", timeframe, limit=1000)
+    regime = None
+    try:
+        btc = fetch("BTC-USD", "crypto", "auto", timeframe, limit=1000)
+        regime = market_uptrend_map(btc, 50)
+    except Exception:  # noqa: BLE001
+        pass
+
+    win_mae, loss_mae = [], []
+    for s in series:
+        res = backtest_trend_pullback_series(s, regime=regime, **base_kw)
+        for t in res.trades:
+            (win_mae if t.won else loss_mae).append(t.mae_r)
+
+    def _pct(vals, thr):
+        return (sum(1 for v in vals if v <= thr) / len(vals) * 100.0) if vals else 0.0
+
+    def _median(vals):
+        if not vals:
+            return 0.0
+        sv = sorted(vals)
+        m = len(sv) // 2
+        return sv[m] if len(sv) % 2 else (sv[m - 1] + sv[m]) / 2.0
+
+    nW = len(win_mae)
+    print("\n" + "=" * 66)
+    print(f"الصفقات الكسبانة: {nW} | الخاسرة: {len(loss_mae)}")
+    print("-" * 66)
+    if nW:
+        print(f"  متوسط الانعكاس قبل الفوز: {sum(win_mae)/nW:+.2f}R "
+              f"(الوسيط {_median(win_mae):.2f}R)")
+        print(f"  أقصى انعكاس لصفقة كسبانة: {max(win_mae):.2f}R")
+        print("  توزيع الصفقات الكسبانة حسب أقصى انعكاس:")
+        print(f"    • انعكست أقل من 0.25R (شبه بدون انعكاس): {_pct(win_mae,0.25):.0f}%")
+        print(f"    • انعكست أقل من 0.50R (نصف المسافة للوقف): {_pct(win_mae,0.50):.0f}%")
+        print(f"    • انعكست أقل من 0.75R: {_pct(win_mae,0.75):.0f}%")
+        print(f"    • انعكست أقل من 1.00R (لمست الوقف تقريبًا): {_pct(win_mae,1.0):.0f}%")
+    print("=" * 66)
+    print(
+        "\nℹ️ القراءة: «زيرو انعكاس» غير موجود — لكن أغلب الصفقات الكسبانة بتنزل "
+        "بمقدار محدود (وسيط الانعكاس) ثم تطلع. طالما الصفقة ما لمستش الوقف = طبيعية؛ "
+        "الخروج المرعوب قبل الوقف هو اللي بيحوّل صفقة كسبانة لخسارة. سيبها للوقف/الهدف."
+    )
+    return 0
+
+
 def breakeven(source: str, timeframe: str) -> int:
     """
     قياس «نقل الوقف لنقطة الدخول» (breakeven): يقلّل عدد الصفقات الخاسرة؟
@@ -1204,7 +1271,7 @@ def main(argv=None) -> int:
                  "optimize", "walkforward", "short", "precision", "momentum",
                  "stopbuffer", "diag", "framesweep", "breakout", "tfsweep",
                  "multitf", "profilter", "confluence", "breakeven",
-                 "thresholds", "rrcmp"],
+                 "reversal", "thresholds", "rrcmp"],
         default="signals",
         help="signals=إشارات شراء/بيع؛ prepump=ما قبل الاندفاع؛ "
         "trend=ارتداد داخل اتجاه صاعد؛ compare=قارن prepump مقابل trend؛ "
@@ -1247,6 +1314,8 @@ def main(argv=None) -> int:
         return confluence(args.source, args.timeframe)
     if args.strategy == "breakeven":
         return breakeven(args.source, args.timeframe)
+    if args.strategy == "reversal":
+        return reversal(args.source, args.timeframe)
     if args.strategy == "thresholds":
         return threshold_cmp(args.source, args.timeframe)
     if args.strategy == "rrcmp":

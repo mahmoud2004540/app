@@ -75,6 +75,7 @@ class Trade:
     exit_price: float
     result_r: float          # نتيجة الصفقة بمضاعفات المخاطرة (R)
     won: bool
+    mae_r: float = 0.0       # أقصى تحرّك عكس الصفقة قبل خروجها (بمضاعفات R) — «الانعكاس»
 
 
 @dataclass
@@ -476,12 +477,15 @@ def backtest_trend_pullback_series(
 
         outcome = None
         moved = False                              # هل نُقل الوقف لنقطة الدخول؟
+        adverse = 0.0                              # أقصى تحرّك عكس الصفقة (سعر)
         be_level = (entry - breakeven_r * risk if is_short
                     else entry + breakeven_r * risk) if breakeven_r > 0 else None
         j = i + 1
         while j < n:
             hi, lo = candles[j].high, candles[j].low
             cur_stop = entry if moved else stop
+            # تتبّع أقصى انعكاس عكس الصفقة (قبل الخروج): للشراء = كم نزل تحت الدخول.
+            adverse = max(adverse, (hi - entry) if is_short else (entry - lo))
             if is_short:
                 if hi >= cur_stop:                # short: الوقف فوق — الأسوأ أولًا
                     outcome = (cur_stop, cur_stop < entry)
@@ -507,8 +511,10 @@ def backtest_trend_pullback_series(
             continue
         exit_price, won = outcome
         result_r = ((entry - exit_price) if is_short else (exit_price - entry)) / risk
+        mae_r = max(0.0, adverse) / risk           # الانعكاس بمضاعفات المخاطرة
         trades.append(
-            Trade(series.symbol, side, entry, stop, target, exit_price, result_r, won)
+            Trade(series.symbol, side, entry, stop, target, exit_price,
+                  result_r, won, mae_r=mae_r)
         )
         i = j + 1
 
