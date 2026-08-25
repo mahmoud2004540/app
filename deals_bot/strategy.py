@@ -223,6 +223,16 @@ def top_picks(
                 # سقف RSI: نرفض العملة المتمدّدة (RSI عالٍ) — مقاس أنه يرفع الجودة
                 d._rsi_ok = (rsi_max is None or tp.get("rsi") is None
                              or tp["rsi"] <= rsi_max)
+                # تلاقي المؤشرات (مقاس: يضاعف التوقّع): MACD صاعد + Stochastic ≤ العتبة.
+                conf_ok = True
+                if getattr(config, "TREND_REQUIRE_MACD", False):
+                    conf_ok = conf_ok and ind.macd_hist_rising(series.closes())
+                stoch_max = getattr(config, "TREND_STOCH_MAX", None)
+                if conf_ok and stoch_max is not None:
+                    st = ind.stochastic(series.highs(), series.lows(),
+                                        series.closes(), k=14)
+                    conf_ok = st is None or st <= stoch_max
+                d._confluence_ok = conf_ok
                 # الزمن المتوقّع لوصول الهدف (تقديري من ATR الإطار الأساسي)
                 atr_v = ind.atr(series.highs(), series.lows(), series.closes(), 14)
                 d.eta_hours = estimate_eta_hours(
@@ -232,7 +242,7 @@ def top_picks(
                 if series.candles:
                     d.opened_ts = series.candles[-1].ts
                 candidates.append(d)
-                if tp["score"] >= min_score and ema200_ok and d._rsi_ok:
+                if tp["score"] >= min_score and ema200_ok and d._rsi_ok and conf_ok:
                     found += 1
         print(f"  ✅ «{market}»: {found} إعداد فوق الدرجة {min_score:.0f} "
               f"(إجمالي مرشّحين: {len(candidates)}).")
@@ -244,6 +254,7 @@ def top_picks(
         d for d in candidates
         if d.confidence >= min_score and regime_ok
         and getattr(d, "_ema200_ok", True) and getattr(d, "_rsi_ok", True)
+        and getattr(d, "_confluence_ok", True)
     ][:top]
 
     # حدّث السعر الفوري وحجم المخاطرة لكل ما سنعرضه (الصفقات + أفضل مرشّح للمراقبة)
