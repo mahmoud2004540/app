@@ -338,6 +338,8 @@ def backtest_trend_pullback_series(
     mfi_min: Optional[float] = None,
     mfi_max: Optional[float] = None,
     require_bb_inside: bool = False,
+    fib_min: Optional[float] = None,
+    fib_max: Optional[float] = None,
 ) -> BacktestResult:
     """
     باك-تِست لاستراتيجية «الارتداد داخل الاتجاه» (Long أو Short).
@@ -452,6 +454,29 @@ def backtest_trend_pullback_series(
             if require_bb_inside:
                 bb = ind.bollinger(win, period=20, mult=2.0)
                 if bb and closes[i] > bb[2]:
+                    i += 1
+                    continue
+            # فيبوناتشي: عمق الارتداد لازم يقع في منطقة فيبوناتشي (المنطقة الذهبية).
+            # نحسب ارتداد الشمعة الحالية بالنسبة للموجة الصاعدة الأخيرة (قاع→قمة).
+            if fib_min is not None or fib_max is not None:
+                ph, pl = ind.swing_points(highs[: i + 1], lows[: i + 1], left=2, right=2)
+                sh = pl_before = None
+                if ph:
+                    sh_idx, sh = ph[-1]                         # آخر قمة (رأس الموجة)
+                    lows_before = [p for p in pl if p[0] < sh_idx]
+                    pl_before = lows_before[-1] if lows_before else None
+                if sh is None or pl_before is None:
+                    i += 1
+                    continue                                   # لا هيكل موجة واضح
+                rng = sh - pl_before[1]
+                if rng <= 0:
+                    i += 1
+                    continue
+                retr = (sh - lows[i]) / rng                     # عمق الارتداد (0..1)
+                if fib_min is not None and retr < fib_min:
+                    i += 1
+                    continue
+                if fib_max is not None and retr > fib_max:
                     i += 1
                     continue
 

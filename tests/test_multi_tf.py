@@ -135,6 +135,7 @@ def test_confluence_filters_do_not_increase_trades():
     for kw in ({"require_macd": True}, {"require_obv": True},
                {"stoch_max": 70.0}, {"mfi_min": 40.0, "mfi_max": 85.0},
                {"require_bb_inside": True},
+               {"fib_min": 0.382, "fib_max": 0.618},
                {"require_macd": True, "require_obv": True, "stoch_max": 80.0}):
         assert backtest_trend_pullback_series(s, min_score=0, **kw).n <= base
 
