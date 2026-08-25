@@ -30,9 +30,12 @@ def test_new_pending_pick_is_sent_and_recorded(monkeypatch, tmp_path):
     msg = sd._alert_immediate_message([d], "1h", True)
     assert msg is not None
     assert "AAA" in msg
-    assert "بانتظار تأكيد" in msg
+    # الوضع الفوري (الافتراضي ALERT_REQUIRE_CONFIRM=False): إشارة مكتملة قابلة للدخول،
+    # لا نقول «راقبها قبل الدخول» (ده يناقض «قابلة للدخول الآن»).
+    assert "إشارة الفريم مكتملة" in msg
+    assert "راقبها قبل الدخول" not in msg
     sent = sd._load_sent()
-    assert sent["1h:AAA"]["status"] == "pending"
+    assert sent["1h:AAA"]["status"] == "pending"     # التتبّع الداخلي يبقى pending
 
 
 def test_same_pending_pick_not_resent(monkeypatch, tmp_path):
