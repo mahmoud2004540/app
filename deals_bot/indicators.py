@@ -288,6 +288,92 @@ def mfi(
     return 100.0 - (100.0 / (1.0 + ratio))
 
 
+def vwap(highs: List[float], lows: List[float], closes: List[float],
+         volumes: List[float], window: int = 50) -> Optional[float]:
+    """
+    VWAP على آخر `window` شمعة (السعر المرجّح بالحجم) — من دليل الأدوات (VWAP).
+
+    Volume-Weighted Average Price over the trailing window using the typical
+    price ((H+L+C)/3). It's the "fair value" reference price institutions watch:
+    price above it = trading at a premium to value, below = discount. Returns
+    None if there isn't enough data or the window carries no volume.
+    """
+    n = min(len(highs), len(lows), len(closes), len(volumes))
+    if n < window or window <= 0:
+        return None
+    num = den = 0.0
+    for k in range(n - window, n):
+        tp = (highs[k] + lows[k] + closes[k]) / 3.0
+        num += tp * volumes[k]
+        den += volumes[k]
+    if den <= 0:
+        return None
+    return num / den
+
+
+def has_bullish_fvg(highs: List[float], lows: List[float], lookback: int = 10) -> bool:
+    """
+    هل توجد فجوة قيمة عادلة صاعدة (Bullish FVG) خلال آخر `lookback` شمعة؟ — ICT.
+
+    A bullish Fair Value Gap is a 3-candle imbalance: candle A's high is below
+    candle C's low (the middle candle jumped up so hard it left an untraded gap
+    A.high→C.low). It marks an institutional footprint that price often revisits.
+    We scan the recent window for any such gap.
+    """
+    n = min(len(highs), len(lows))
+    if n < 3:
+        return False
+    start = max(1, n - lookback)
+    for m in range(start, n - 1):
+        if highs[m - 1] < lows[m + 1]:      # A.high < C.low → فجوة صاعدة
+            return True
+    return False
+
+
+def bos_bullish(highs: List[float], lows: List[float], closes: List[float],
+                left: int = 2, right: int = 2) -> bool:
+    """
+    كسر هيكل صاعد (Break of Structure): هل السعر كسر آخر قمة ارتكاز مؤكّدة؟ — ICT.
+
+    Bullish BOS = price closed above the most recent confirmed swing (pivot)
+    high, signalling the uptrend is making a higher high (structure continuation
+    up) rather than merely bouncing. Uses fractal pivots for the reference high.
+    """
+    ph, _pl = swing_points(highs, lows, left, right)
+    if not ph or not closes:
+        return False
+    last_high = ph[-1][1]
+    return closes[-1] > last_high
+
+
+def liquidity_sweep_bullish(highs: List[float], lows: List[float],
+                            closes: List[float], lookback: int = 10,
+                            left: int = 2, right: int = 2) -> bool:
+    """
+    كنس سيولة صاعد (Bullish Liquidity Sweep / stop-hunt): كسر قاع سابق ثم ارتداد.
+
+    A bullish sweep = within the recent window a candle dipped BELOW a prior
+    swing low (grabbing the stop-loss liquidity resting there) but CLOSED back
+    above it — a stop-hunt rejection that often precedes an up-move. Requires a
+    prior pivot low to exist before the sweeping candle.
+    """
+    n = min(len(highs), len(lows), len(closes))
+    if n < 4:
+        return False
+    ph, pl = swing_points(highs, lows, left, right)
+    if not pl:
+        return False
+    start = max(0, n - lookback)
+    for m in range(start, n):
+        prior = [p for p in pl if p[0] < m]     # قاع ارتكاز قبل هذه الشمعة
+        if not prior:
+            continue
+        low_ref = prior[-1][1]
+        if lows[m] < low_ref and closes[m] > low_ref:   # كنس ثم إغلاق فوقه
+            return True
+    return False
+
+
 def returns_correlation(a_closes: List[float], b_closes: List[float],
                         n: int = 50) -> Optional[float]:
     """

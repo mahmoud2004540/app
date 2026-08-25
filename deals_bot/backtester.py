@@ -340,6 +340,11 @@ def backtest_trend_pullback_series(
     require_bb_inside: bool = False,
     fib_min: Optional[float] = None,
     fib_max: Optional[float] = None,
+    require_vwap: bool = False,
+    require_fvg: bool = False,
+    require_bos: bool = False,
+    require_sweep: bool = False,
+    smc_lookback: int = 10,
 ) -> BacktestResult:
     """
     باك-تِست لاستراتيجية «الارتداد داخل الاتجاه» (Long أو Short).
@@ -479,6 +484,29 @@ def backtest_trend_pullback_series(
                 if fib_max is not None and retr > fib_max:
                     i += 1
                     continue
+
+            # --- أدوات Smart Money / ICT + VWAP (من دليل الأدوات) — تُقاس أولًا ---
+            hw = highs[: i + 1]
+            lw = lows[: i + 1]
+            # VWAP: ندخل فقط والسعر فوق السعر المرجعي المرجّح بالحجم (فوق القيمة).
+            if require_vwap:
+                vw = ind.vwap(hw, lw, win, vols[: i + 1], window=50)
+                if vw is None or closes[i] < vw:
+                    i += 1
+                    continue
+            # FVG: لازم توجد فجوة قيمة عادلة صاعدة حديثة (بصمة مؤسسات).
+            if require_fvg and not ind.has_bullish_fvg(hw, lw, lookback=smc_lookback):
+                i += 1
+                continue
+            # BOS: كسر هيكل صاعد (إغلاق فوق آخر قمة ارتكاز).
+            if require_bos and not ind.bos_bullish(hw, lw, win):
+                i += 1
+                continue
+            # Liquidity Sweep: كنس قاع سابق ثم ارتداد فوقه (stop-hunt صاعد).
+            if require_sweep and not ind.liquidity_sweep_bullish(
+                    hw, lw, win, lookback=smc_lookback):
+                i += 1
+                continue
 
         if require_ema200:
             e200 = ind.ema(closes[: i + 1], 200)

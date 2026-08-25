@@ -1,0 +1,68 @@
+name: ماسح ICT / Smart Money
+
+# يمسح الكون كله بمنهج ICT (HTF Bias → سيولة → تسليم السعر → دخول متعدّد
+# التأكيدات → درجة/100) ويبعت أفضل صفقة ≥80 فقط لتيليجرام. جودة لا كمية.
+# سبوت (صفقات شراء فقط). يعمل كل 3 ساعات (فحص متعدّد الفريمات ثقيل).
+on:
+  schedule:
+    - cron: "30 */3 * * *"
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: "حدّ عدد الرموز (0 = الكل؛ رقم صغير للتجربة السريعة)"
+        required: false
+        default: "0"
+      send_notrade:
+        description: "1 = ابعت رسالة NO TRADE أيضًا؛ 0 = صامت لو مفيش صفقة"
+        required: false
+        default: "0"
+
+concurrency:
+  group: ict-scanner
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  ict:
+    runs-on: ubuntu-latest
+    steps:
+      - name: تنزيل الكود
+        uses: actions/checkout@v4
+
+      - name: تجهيز بايثون
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: تثبيت المتطلبات
+        run: pip install -r requirements.txt
+
+      - name: مسح ICT وإرسال أفضل صفقة
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          MARKETS: "crypto"
+          ICT_LIMIT: ${{ github.event.inputs.limit || '0' }}
+          ICT_SEND_NOTRADE: ${{ github.event.inputs.send_notrade || '0' }}
+        run: python ict_bot.py
+
+      - name: حفظ حالة الإرسال (منع التكرار)
+        run: |
+          if [ -n "$(git status --porcelain journal/)" ]; then
+            git config user.name "ict-bot"
+            git config user.email "bot@users.noreply.github.com"
+            git add journal/
+            git commit -m "chore(ict): update dedup state [skip ci]"
+            for attempt in 1 2 3; do
+              if git push origin "HEAD:${GITHUB_REF_NAME}"; then
+                echo "✅ حُفظت حالة ICT."; break
+              fi
+              echo "↻ الفرع اتحرّك — إعادة الأساس ثم محاولة الدفع ($attempt)..."
+              git pull --rebase origin "${GITHUB_REF_NAME}" || true
+            done || true
+          else
+            echo "لا تغييرات."
+          fi
