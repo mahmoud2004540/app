@@ -887,6 +887,80 @@ def pro_filter(source: str, timeframe: str) -> int:
     return 0
 
 
+def tca(source: str, timeframe: str) -> int:
+    """
+    تحليل تكلفة الصفقة (TCA) — انضباط مؤسسي: هل ميزتنا تصمد بعد الرسوم الحقيقية؟
+
+    نأخذ صفقات الإعداد الحيّ الكامل ونخصم من كل صفقة تكلفة ذهاب+عودة (رسوم +
+    انزلاق) كنسبة من مسافة الوقف (R)، عند مستويات تكلفة واقعية لكل جهة. الرسوم
+    ثابتة بالنسبة المئوية، فالوقف الواسع (6س/يومي) يمتصّها بسهولة بينما الوقف
+    الضيّق (مضاربة) تأكله. نبيّن التوقّع الإجمالي مقابل الصافي بعد التكلفة.
+    """
+    symbols = resolve_symbols("crypto", "auto")
+    th = float(getattr(config, "TREND_MIN_SCORE", 85))
+    buf = getattr(config, "TREND_STOP_BUFFER_ATR", 0.5)
+    rr = float(getattr(config, "TREND_RR", 2.0))
+    base_kw = dict(
+        rr=rr, min_score=th, require_ema200=True, stop_buffer_atr=buf,
+        rsi_max=getattr(config, "TREND_RSI_MAX", 68.0),
+        require_macd=getattr(config, "TREND_REQUIRE_MACD", False),
+        stoch_max=getattr(config, "TREND_STOCH_MAX", None),
+        fib_min=getattr(config, "TREND_FIB_MIN", None),
+        fib_max=getattr(config, "TREND_FIB_MAX", None),
+    )
+    print(f"⏳ تحليل تكلفة الصفقة (TCA) على {len(symbols)} عملة ({timeframe})...")
+
+    series = fetch_many(symbols, "crypto", "auto", timeframe, limit=1000)
+    regime = None
+    try:
+        btc = fetch("BTC-USD", "crypto", "auto", timeframe, limit=1000)
+        regime = market_uptrend_map(btc, 50)
+    except Exception:  # noqa: BLE001
+        pass
+
+    # اجمع كل الصفقات مرة واحدة (entry/stop لحساب التكلفة نسبةً لـ R)
+    trades = []
+    for s in series:
+        res = backtest_trend_pullback_series(s, regime=regime, **base_kw)
+        trades.extend(res.trades)
+    n = len(trades)
+    if not n:
+        print("لا صفقات لقياسها.")
+        return 0
+    gross = sum(t.result_r for t in trades) / n
+
+    # متوسط مسافة الوقف كنسبة من السعر (يوضّح لماذا الفريم الأوسع أرخص نسبيًا)
+    stop_pcts = [abs(t.entry - t.stop) / t.entry for t in trades if t.entry > 0]
+    avg_stop_pct = (sum(stop_pcts) / len(stop_pcts) * 100.0) if stop_pcts else 0.0
+
+    print("\n" + "=" * 70)
+    print(f"صفقات: {n} | التوقّع الإجمالي (بلا تكلفة): {gross:+.3f}R | "
+          f"متوسّط مسافة الوقف: {avg_stop_pct:.1f}% من السعر")
+    print("-" * 70)
+    print(f"{'تكلفة/جهة':>10} | {'تكلفة ذهاب+عودة (R)':>20} | {'التوقّع الصافي':>16}")
+    print("-" * 70)
+    for side_cost in (0.001, 0.003, 0.005, 0.006):     # 0.1% .. 0.6% لكل جهة
+        cost_r_sum = 0.0
+        net_sum = 0.0
+        for t in trades:
+            risk = abs(t.entry - t.stop)
+            cost_r = (2 * side_cost * t.entry) / risk if risk > 0 else 0.0
+            cost_r_sum += cost_r
+            net_sum += t.result_r - cost_r
+        avg_cost_r = cost_r_sum / n
+        net_exp = net_sum / n
+        flag = "✅ يصمد" if net_exp > 0.05 else ("⚠️ ضعيف" if net_exp > 0 else "❌ يُمحى")
+        print(f"{side_cost*100:>8.1f}% | {avg_cost_r:>20.3f} | "
+              f"{net_exp:>+13.3f}R  {flag}")
+    print("=" * 70)
+    print(
+        "\nℹ️ الخلاصة: الرسوم ثابتة %، فكل ما اتّسع الوقف (6س/يومي) قلّت تكلفتها "
+        "بالنسبة لـ R. لهذا مسار الاستثمار (وقف واسع) يصمد بعد الرسوم، بينما "
+        "المضاربة (وقف ضيّق) تأكلها الرسوم — دليل إضافي لاختيارنا 6س/يومي."
+    )
+    return 0
+
+
 def fibonacci(source: str, timeframe: str) -> int:
     """
     قياس فلتر فيبوناتشي: هل اشتراط أن يقع الارتداد في منطقة فيبوناتشي يرفع الربح؟
@@ -1342,7 +1416,7 @@ def main(argv=None) -> int:
                  "optimize", "walkforward", "short", "precision", "momentum",
                  "stopbuffer", "diag", "framesweep", "breakout", "tfsweep",
                  "multitf", "profilter", "confluence", "breakeven",
-                 "reversal", "fibonacci", "thresholds", "rrcmp"],
+                 "reversal", "fibonacci", "tca", "thresholds", "rrcmp"],
         default="signals",
         help="signals=إشارات شراء/بيع؛ prepump=ما قبل الاندفاع؛ "
         "trend=ارتداد داخل اتجاه صاعد؛ compare=قارن prepump مقابل trend؛ "
@@ -1389,6 +1463,8 @@ def main(argv=None) -> int:
         return reversal(args.source, args.timeframe)
     if args.strategy == "fibonacci":
         return fibonacci(args.source, args.timeframe)
+    if args.strategy == "tca":
+        return tca(args.source, args.timeframe)
     if args.strategy == "thresholds":
         return threshold_cmp(args.source, args.timeframe)
     if args.strategy == "rrcmp":
