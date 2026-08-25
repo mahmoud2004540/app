@@ -606,3 +606,55 @@ def scan_ict(markets, fetch_fn, resolve_fn, limit_symbols: int = 0) -> Tuple[Opt
     tradeable = [s for s in setups if s.is_tradeable]
     best = tradeable[0] if tradeable else None
     return best, setups
+
+
+# ----------------------------------------------------------------------------- #
+# 7) طبقة تأكيد ICT فوق تحليلنا الأساسي (لا تحلّ محلّه — تضيف تأكيدًا)
+# ----------------------------------------------------------------------------- #
+ICT_CONFIRM_LABELS = [
+    "HTF Bias صاعد", "كنس سيولة", "اندفاع (Displacement)",
+    "FVG/Order Block", "تأكيد 1H", "منطقة خصم (Discount)",
+]
+
+
+def ict_confirmations(d1: Series, h4: Series, h1: Series) -> Tuple[int, List[str]]:
+    """
+    احسب كم تأكيد ICT يدعم إشارةً عند لحظتها (0..6) وأسماء المتحقّقة منها.
+
+    Confirmation layer — NOT a signal generator. Given the three frames up to the
+    signal bar, counts how many ICT pillars align (HTF bias, liquidity sweep,
+    displacement, FVG/OB, LTF confirm, discount). Used to grade OUR base signals:
+    a signal our proven engine already produced, additionally blessed by more ICT
+    pillars, is a higher-conviction signal.
+    """
+    got: List[str] = []
+    if not d1.candles or not h4.candles or not h1.candles:
+        return 0, got
+    st_1d = market_structure(d1)
+    st_4h = market_structure(h4)
+    st_1h = market_structure(h1)
+    bias, _s = _htf_bias(st_1d, st_4h)
+    if bias == "bullish":
+        got.append(ICT_CONFIRM_LABELS[0])
+
+    lv = prev_period_levels(d1)
+    _eq_h, eq_l = equal_levels(h4)
+    price = h1.candles[-1].close
+    sellside = [x for x in ([lv["pdl"], lv["pwl"]] + eq_l) if x and x < price]
+    swept = any(liquidity_sweep_of(h1, lvl) for lvl in sellside)
+    if not swept and st_1h["last_pl"]:
+        swept = liquidity_sweep_of(h1, st_1h["last_pl"])
+    if swept:
+        got.append(ICT_CONFIRM_LABELS[1])
+
+    disp_bull, _b, _s2 = displacement(h1)
+    if disp_bull:
+        got.append(ICT_CONFIRM_LABELS[2])
+    if find_bullish_fvg(h1) or find_bullish_ob(h1):
+        got.append(ICT_CONFIRM_LABELS[3])
+    if (st_1h["bias"] == "bullish" or st_1h["bos"] == "bullish"
+            or st_1h["choch"] == "bullish" or wick_rejection(h1, bull=True)):
+        got.append(ICT_CONFIRM_LABELS[4])
+    if premium_discount(h4).get("zone") == "discount":
+        got.append(ICT_CONFIRM_LABELS[5])
+    return len(got), got

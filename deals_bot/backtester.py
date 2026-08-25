@@ -76,6 +76,7 @@ class Trade:
     result_r: float          # نتيجة الصفقة بمضاعفات المخاطرة (R)
     won: bool
     mae_r: float = 0.0       # أقصى تحرّك عكس الصفقة قبل خروجها (بمضاعفات R) — «الانعكاس»
+    ict_confirm: int = -1    # عدد تأكيدات ICT عند الدخول (0..6)؛ -1 = لم يُحسب
 
 
 @dataclass
@@ -345,6 +346,7 @@ def backtest_trend_pullback_series(
     require_bos: bool = False,
     require_sweep: bool = False,
     smc_lookback: int = 10,
+    ict_confirm: bool = False,
 ) -> BacktestResult:
     """
     باك-تِست لاستراتيجية «الارتداد داخل الاتجاه» (Long أو Short).
@@ -565,9 +567,22 @@ def backtest_trend_pullback_series(
         exit_price, won = outcome
         result_r = ((entry - exit_price) if is_short else (exit_price - entry)) / risk
         mae_r = max(0.0, adverse) / risk           # الانعكاس بمضاعفات المخاطرة
+        # طبقة تأكيد ICT (اختيارية): كم تأكيد ICT يدعم هذه الإشارة عند دخولها؟
+        conf = -1
+        if ict_confirm and not is_short and i >= 720:
+            try:
+                from .ict import ict_confirmations
+                from .providers import resample_candles
+                sub = candles[: i + 1]
+                d1 = Series(series.symbol, series.market, resample_candles(sub, 24))
+                h4 = Series(series.symbol, series.market, resample_candles(sub, 4))
+                h1 = Series(series.symbol, series.market, sub)
+                conf, _got = ict_confirmations(d1, h4, h1)
+            except Exception:  # noqa: BLE001 - التأكيد إضافة، لا يُفشل القياس
+                conf = -1
         trades.append(
             Trade(series.symbol, side, entry, stop, target, exit_price,
-                  result_r, won, mae_r=mae_r)
+                  result_r, won, mae_r=mae_r, ict_confirm=conf)
         )
         i = j + 1
 

@@ -1265,6 +1265,89 @@ def confluence(source: str, timeframe: str) -> int:
     return 0
 
 
+def ictconfirm(source: str, timeframe: str) -> int:
+    """
+    قياس ICT كـ«طبقة تأكيد» فوق تحليلنا الأساسي (لا يحلّ محلّه).
+
+    نشغّل استراتيجيتنا المُثبتة كالمعتاد، وعند كل صفقة نحسب كم تأكيد ICT كان يدعمها
+    (0..6). ثم نقسّم الصفقات حسب عدد التأكيدات ونقارن نسبة النجاح/التوقّع. السؤال:
+    هل إشاراتنا التي *يؤكّدها ICT أكثر* تكسب أكثر فعلًا؟ لو أيوة → التأكيد قيمة
+    نضيفها على تحليلنا (تحليلنا يفضل الأساس، وICT تأكيد إضافي).
+    """
+    import os as _os
+
+    cap = int(_os.environ.get("ICT_BT_LIMIT", "150") or "150")
+    symbols = resolve_symbols("crypto", "auto")[:cap]
+    th = float(getattr(config, "TREND_MIN_SCORE", 85))
+    buf = getattr(config, "TREND_STOP_BUFFER_ATR", 0.5)
+    rr = float(getattr(config, "TREND_RR", 2.0))
+    rsi_cap = getattr(config, "TREND_RSI_MAX", 68.0)
+    fmin = getattr(config, "TREND_FIB_MIN", None)
+    fmax = getattr(config, "TREND_FIB_MAX", None)
+    macd_on = bool(getattr(config, "TREND_REQUIRE_MACD", False))
+    smax = getattr(config, "TREND_STOCH_MAX", None)
+    print(f"⏳ قياس «تأكيد ICT» فوق إشاراتنا على {len(symbols)} عملة (1H)...")
+    series = fetch_many(symbols, "crypto", "auto", "1h", limit=1000)
+    regime = None
+    try:
+        btc = fetch("BTC-USD", "crypto", "auto", "1h", limit=1000)
+        regime = market_uptrend_map(btc, 50)
+    except Exception:  # noqa: BLE001
+        pass
+    base_kw = dict(rr=rr, min_score=th, regime=regime, require_ema200=True,
+                   stop_buffer_atr=buf, rsi_max=rsi_cap, require_macd=macd_on,
+                   stoch_max=smax, fib_min=fmin, fib_max=fmax, ict_confirm=True)
+
+    all_trades = []
+    for s in series:
+        try:
+            res = backtest_trend_pullback_series(s, **base_kw)
+        except Exception:  # noqa: BLE001
+            continue
+        all_trades.extend(res.trades)
+
+    graded = [t for t in all_trades if t.ict_confirm >= 0]     # فقط ما أمكن حسابه
+    print(f"\nإجمالي صفقات الأساس: {len(all_trades)} | منها بتأكيد ICT محسوب: {len(graded)}")
+
+    def _stats(tr):
+        n = len(tr)
+        w = sum(1 for t in tr if t.won)
+        r = sum(t.result_r for t in tr)
+        return n, (w / n * 100.0 if n else 0.0), (r / n if n else 0.0)
+
+    buckets = [("0–2 تأكيد (ضعيف)", lambda c: c <= 2),
+               ("3–4 تأكيد (متوسط)", lambda c: 3 <= c <= 4),
+               ("5–6 تأكيد (قوي)", lambda c: c >= 5)]
+    print("\n" + "=" * 68)
+    print(f"{'مستوى تأكيد ICT':>22} | {'صفقات':>6} | {'نجاح%':>6} | {'توقّع/R':>8}")
+    print("-" * 68)
+    rows = []
+    for name, pred in buckets:
+        sub = [t for t in graded if pred(t.ict_confirm)]
+        n, wr, exp = _stats(sub)
+        rows.append((name, n, wr, exp))
+        print(f"{name:>22} | {n:>6} | {wr:>6.1f} | {exp:>+8.2f}")
+    gn, gwr, gexp = _stats(graded)
+    print("-" * 68)
+    print(f"{'كل الصفقات (مرجع)':>22} | {gn:>6} | {gwr:>6.1f} | {gexp:>+8.2f}")
+    print("=" * 68)
+
+    strong = next((r for r in rows if r[0].startswith("5")), None)
+    weak = next((r for r in rows if r[0].startswith("0")), None)
+    if strong and weak and strong[1] >= 10 and weak[1] >= 10:
+        if strong[2] > weak[2] + 5.0 and strong[3] > weak[3] + 0.05:
+            print(f"\n✅ إشاراتنا التي يؤكّدها ICT بقوة (5–6) تكسب أكثر "
+                  f"({strong[2]:.1f}% مقابل {weak[2]:.1f}% للضعيفة) — تأكيد ICT "
+                  "يفرز جودة فعلًا. يستحق أن يُعرض كتعزيز ثقة على إشاراتنا.")
+        else:
+            print(f"\nℹ️ تأكيد ICT لا يفرز جودة واضحة (قوي {strong[2]:.1f}% مقابل ضعيف "
+                  f"{weak[2]:.1f}%). على بياناتنا لا يضيف تمييزًا موثوقًا فوق تحليلنا.")
+    else:
+        print("\n⚠️ عيّنة غير كافية في أحد المستويات (تحتاج تاريخ 1H أعمق) — غير حاسم.")
+    print("\nℹ️ تحليلنا يبقى الأساس دائمًا؛ هذا يقيس هل ICT تأكيد مُميِّز يُضاف فوقه.")
+    return 0
+
+
 def ictmeasure(source: str, timeframe: str) -> int:
     """
     قياس نموذج ICT الكامل تاريخيًا: هل نسبة نجاحه/توقّعه أعلى من الاستراتيجية الحالية؟
@@ -1601,7 +1684,8 @@ def main(argv=None) -> int:
                  "optimize", "walkforward", "short", "precision", "momentum",
                  "stopbuffer", "diag", "framesweep", "breakout", "tfsweep",
                  "multitf", "profilter", "confluence", "smartmoney", "ictmeasure",
-                 "breakeven", "reversal", "fibonacci", "tca", "thresholds", "rrcmp"],
+                 "ictconfirm", "breakeven", "reversal", "fibonacci", "tca",
+                 "thresholds", "rrcmp"],
         default="signals",
         help="signals=إشارات شراء/بيع؛ prepump=ما قبل الاندفاع؛ "
         "trend=ارتداد داخل اتجاه صاعد؛ compare=قارن prepump مقابل trend؛ "
@@ -1646,6 +1730,8 @@ def main(argv=None) -> int:
         return smartmoney(args.source, args.timeframe)
     if args.strategy == "ictmeasure":
         return ictmeasure(args.source, args.timeframe)
+    if args.strategy == "ictconfirm":
+        return ictconfirm(args.source, args.timeframe)
     if args.strategy == "breakeven":
         return breakeven(args.source, args.timeframe)
     if args.strategy == "reversal":

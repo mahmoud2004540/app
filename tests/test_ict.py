@@ -149,3 +149,27 @@ def test_backtest_ict_runs_without_error():
     res = backtest_ict_series(up, step=12, warmup=720)
     assert isinstance(res, BacktestResult)
     assert res.n >= 0                          # المهم: لا استثناء، بنية سليمة
+
+
+# --------------------------- ICT confirmation layer ----------------------- #
+def test_ict_confirmations_counts_and_labels():
+    from deals_bot import ict as _ict
+    up = _uptrend(n=200)
+    d1 = Series("UP", "crypto", __import__("deals_bot.providers", fromlist=["resample_candles"]).resample_candles(up.candles, 24))
+    h4 = Series("UP", "crypto", __import__("deals_bot.providers", fromlist=["resample_candles"]).resample_candles(up.candles, 4))
+    n, got = _ict.ict_confirmations(d1, h4, up)
+    assert 0 <= n <= 6
+    assert len(got) == n
+    # عيّنة فارغة → صفر
+    empty = Series("E", "crypto", [])
+    assert _ict.ict_confirmations(empty, empty, empty) == (0, [])
+
+
+def test_backtest_records_ict_confirm_when_enabled():
+    from deals_bot.backtester import backtest_trend_pullback_series
+    # سلسلة صاعدة طويلة تُطلق إشارات (بعد الشمعة 720 حتى يُحسب التأكيد)
+    up = _uptrend(n=1000)
+    res = backtest_trend_pullback_series(up, min_score=0.0, rr=2.0, ict_confirm=True)
+    # لا نشترط صفقات، لكن لو وُجدت بعد 720 يجب أن يكون التأكيد ضمن 0..6 أو -1
+    for t in res.trades:
+        assert t.ict_confirm == -1 or 0 <= t.ict_confirm <= 6
