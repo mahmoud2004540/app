@@ -1265,6 +1265,76 @@ def confluence(source: str, timeframe: str) -> int:
     return 0
 
 
+def trailexample(source: str, timeframe: str) -> int:
+    """
+    أمثلة حقيقية: صفقات فعلية من التاريخ ربح فيها الوقف المتحرّك أكثر من الهدف الثابت.
+
+    نشغّل نفس الإعداد الحيّ مرّتين (بهدف ثابت مقابل وقف متحرّك) — الدخول واحد في
+    الحالتين، فنطابق الصفقات ونطبع أكبر الحالات فرقًا: نفس الدخول/الوقف، لكن الوقف
+    المتحرّك سيّبها تجري وتمسك حركة أكبر.
+    """
+    import os as _os
+
+    cap = int(_os.environ.get("ICT_BT_LIMIT", "120") or "120")
+    symbols = resolve_symbols("crypto", "auto")[:cap]
+    th = float(getattr(config, "TREND_MIN_SCORE", 85))
+    buf = getattr(config, "TREND_STOP_BUFFER_ATR", 0.5)
+    rr = float(getattr(config, "TREND_RR", 2.0))
+    rsi_cap = getattr(config, "TREND_RSI_MAX", 68.0)
+    fmin = getattr(config, "TREND_FIB_MIN", None)
+    fmax = getattr(config, "TREND_FIB_MAX", None)
+    macd_on = bool(getattr(config, "TREND_REQUIRE_MACD", False))
+    smax = getattr(config, "TREND_STOCH_MAX", None)
+    act_r = getattr(config, "TREND_TRAIL_ACTIVATE_R", 1.0)
+    tr_atr = getattr(config, "TREND_TRAIL_ATR", 3.0)
+    print(f"⏳ البحث عن أمثلة حقيقية للوقف المتحرّك على {len(symbols)} عملة ({timeframe})...")
+    series = fetch_many(symbols, "crypto", "auto", timeframe, limit=1000)
+    regime = None
+    try:
+        btc = fetch("BTC-USD", "crypto", "auto", timeframe, limit=1000)
+        regime = market_uptrend_map(btc, 50)
+    except Exception:  # noqa: BLE001
+        pass
+    base_kw = dict(rr=rr, min_score=th, regime=regime, require_ema200=True,
+                   stop_buffer_atr=buf, rsi_max=rsi_cap, require_macd=macd_on,
+                   stoch_max=smax, fib_min=fmin, fib_max=fmax)
+
+    examples = []
+    for s in series:
+        try:
+            fixed = backtest_trend_pullback_series(s, **base_kw)
+            trail = backtest_trend_pullback_series(
+                s, **base_kw, trail_activate_r=act_r, trail_atr=tr_atr)
+        except Exception:  # noqa: BLE001
+            continue
+        # الدخول واحد في الحالتين → نطابق بالترتيب
+        for ft, tt in zip(fixed.trades, trail.trades):
+            if abs(ft.entry - tt.entry) < 1e-12 and tt.result_r > ft.result_r + 0.5:
+                examples.append((tt.result_r - ft.result_r, s.symbol, ft, tt))
+    examples.sort(reverse=True, key=lambda x: x[0])
+
+    if not examples:
+        print("لم أجد مثالًا واضحًا في هذه العيّنة (جرّب عيّنة أكبر).")
+        return 0
+
+    print(f"\n✅ أفضل {min(3, len(examples))} أمثلة حقيقية (نفس الدخول، الوقف المتحرّك ربح أكثر):\n")
+    for k, (diff, sym, ft, tt) in enumerate(examples[:3], 1):
+        entry, stop = ft.entry, ft.stop
+        fix_pct = (ft.exit_price - entry) / entry * 100.0
+        tr_pct = (tt.exit_price - entry) / entry * 100.0
+        print(f"مثال {k}: {sym}")
+        print(f"   🟢 الدخول: {entry:.6g}   |   🛑 الوقف الأصلي: {stop:.6g}")
+        print(f"   📊 بالهدف الثابت: خرج عند {ft.exit_price:.6g} "
+              f"({fix_pct:+.1f}%) = {ft.result_r:+.2f}R "
+              f"({'ربح' if ft.won else 'خسارة'})")
+        print(f"   🚀 بالوقف المتحرّك: خرج عند {tt.exit_price:.6g} "
+              f"({tr_pct:+.1f}%) = {tt.result_r:+.2f}R (ربح)")
+        print(f"   ➕ الفرق لصالح المتحرّك: +{diff:.2f}R\n")
+    print("ℹ️ الوقف المتحرّك لا يضمن دائمًا — أحيانًا يخرج أبكر بربح أقل؛ لكن على "
+          "مجموع الصفقات رفع التوقّع (مقاس). الأمثلة توضّح الفكرة فقط.")
+    return 0
+
+
 def levers(source: str, timeframe: str) -> int:
     """
     قياس 3 رافعات لرفع التوقّع فوق الاستراتيجية المُثبتة (قبل أي تفعيل):
@@ -1790,7 +1860,7 @@ def main(argv=None) -> int:
                  "optimize", "walkforward", "short", "precision", "momentum",
                  "stopbuffer", "diag", "framesweep", "breakout", "tfsweep",
                  "multitf", "profilter", "confluence", "smartmoney", "ictmeasure",
-                 "ictconfirm", "levers", "breakeven", "reversal", "fibonacci",
+                 "ictconfirm", "levers", "trailexample", "breakeven", "reversal", "fibonacci",
                  "tca", "thresholds", "rrcmp"],
         default="signals",
         help="signals=إشارات شراء/بيع؛ prepump=ما قبل الاندفاع؛ "
@@ -1840,6 +1910,8 @@ def main(argv=None) -> int:
         return ictconfirm(args.source, args.timeframe)
     if args.strategy == "levers":
         return levers(args.source, args.timeframe)
+    if args.strategy == "trailexample":
+        return trailexample(args.source, args.timeframe)
     if args.strategy == "breakeven":
         return breakeven(args.source, args.timeframe)
     if args.strategy == "reversal":
