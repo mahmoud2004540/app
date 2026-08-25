@@ -56,6 +56,7 @@ def run_cycle(
     confirm_tf: str = "15m",
     fee_rate: float = 0.001,
     slippage_rate: float = 0.0005,
+    market_bullish: Optional[bool] = None,
 ) -> List[CycleEvent]:
     """شغّل دورة واحدة: راقب المفتوحة، ثم افتح المعتمدة الجديدة. يُرجع الأحداث."""
     events: List[CycleEvent] = []
@@ -106,7 +107,8 @@ def run_cycle(
             except Exception:  # noqa: BLE001
                 conf_series = None
 
-        dec = evaluate(base, account.equity, daily, conf_series, engine)
+        dec = evaluate(base, account.equity, daily, conf_series, engine,
+                       market_bullish=market_bullish)
         if dec.status != APPROVED:
             continue
 

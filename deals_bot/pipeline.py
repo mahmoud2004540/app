@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from typing import List, Optional
 
 import config
+from . import indicators as ind
 from .analyzer import detect_trend_pullback
 from .confirmation import confirm
 from .models import Series
@@ -44,6 +45,53 @@ class Decision:
     risk_amount: float = 0.0
 
 
+def _passes_live_filters(base: Series, tp: dict, market_bullish=None):
+    """
+    طبّق نفس فلاتر البوت الحيّ (strategy.top_picks) على إعداد الاتجاه حتى يتداول
+    المسار الورقي *نفس* إشارات البوت بالضبط: السوق + السيولة + EMA200 + سقف RSI +
+    MACD + Stochastic + فيبوناتشي. يرجع (ok, reason).
+    """
+    closes, highs, lows = base.closes(), base.highs(), base.lows()
+    if getattr(config, "TREND_MARKET_REGIME", True) and market_bullish is False:
+        return False, "⛔ السوق العام (BTC) هابط — لا شراء ضد التيار."
+    min_dv = getattr(config, "MIN_DOLLAR_VOL", 0)
+    if min_dv > 0 and base.candles:
+        recent = base.candles[-20:]
+        dv = sum(c.close * c.volume for c in recent) / len(recent)
+        if dv < min_dv:
+            return False, "⛔ سيولة ضعيفة (حجم دولاري منخفض)."
+    if getattr(config, "TREND_REQUIRE_EMA200", False):
+        e200 = ind.ema(closes, 200)
+        if not e200 or closes[-1] <= e200:
+            return False, "⛔ السعر تحت EMA200."
+    rmax = getattr(config, "TREND_RSI_MAX", None)
+    if rmax is not None and tp.get("rsi") is not None and tp["rsi"] > rmax:
+        return False, f"⛔ RSI {tp['rsi']:.0f} > {rmax:.0f} (متمدّد)."
+    if getattr(config, "TREND_REQUIRE_MACD", False) and not ind.macd_hist_rising(closes):
+        return False, "⛔ هيستوجرام MACD ليس صاعدًا."
+    smax = getattr(config, "TREND_STOCH_MAX", None)
+    if smax is not None:
+        st = ind.stochastic(highs, lows, closes, k=14)
+        if st is not None and st > smax:
+            return False, f"⛔ Stochastic {st:.0f} > {smax:.0f} (متشبّع)."
+    fmin = getattr(config, "TREND_FIB_MIN", None)
+    fmax = getattr(config, "TREND_FIB_MAX", None)
+    if fmin is not None or fmax is not None:
+        ok = False
+        ph, pl = ind.swing_points(highs, lows, 2, 2)
+        if ph:
+            sh_idx, sh = ph[-1]
+            lows_before = [p for p in pl if p[0] < sh_idx]
+            if lows_before:
+                rng = sh - lows_before[-1][1]
+                if rng > 0:
+                    retr = (sh - lows[-1]) / rng
+                    ok = (fmin is None or retr >= fmin) and (fmax is None or retr <= fmax)
+        if not ok:
+            return False, "⛔ الارتداد خارج منطقة فيبوناتشي المطلوبة."
+    return True, "✅ اجتاز كل فلاتر البوت الحيّ."
+
+
 def _risk_engine() -> RiskEngine:
     return RiskEngine(RiskConfig(
         risk_per_trade=getattr(config, "RISK_PER_TRADE_PRO", 0.005),
@@ -64,6 +112,7 @@ def evaluate(
     daily: DailyState,
     confirm_series: Optional[Series] = None,
     engine: Optional[RiskEngine] = None,
+    market_bullish: Optional[bool] = None,
 ) -> Decision:
     """
     قيّم فرصة واحدة عبر خط القرار الكامل. يفشل مغلقًا (NO_TRADE) عند أول شرط يسقط.
@@ -93,8 +142,17 @@ def evaluate(
     entry, stop, target = tp["price"], tp["stop"], tp["target"]
     reasons.append(f"📈 اتجاه صاعد + ارتداد (درجة AI = {ai_score:.0f}/100)")
 
-    # 2) بوّابة درجة AI (تقييم فقط — 80+ موافقة، 60–79 انتظار، <60 لا صفقة)
-    approve = getattr(config, "AI_APPROVE_SCORE", 80.0)
+    # 1-ب) فلاتر البوت الحيّ (نفس top_picks): سوق + سيولة + EMA200 + RSI + MACD +
+    # Stochastic + فيبوناتشي — حتى يتداول الورقي نفس الإشارات المُرسَلة بالضبط.
+    ok, why = _passes_live_filters(base, tp, market_bullish)
+    reasons.append(why)
+    if not ok:
+        return Decision(NO_TRADE, symbol, reasons, ai_score=ai_score,
+                        entry=entry, stop=stop, target=target)
+
+    # 2) بوّابة درجة AI: عتبة الدخول = نفس البوت الحيّ (TREND_MIN_SCORE).
+    approve = float(getattr(config, "TREND_MIN_SCORE",
+                            getattr(config, "AI_APPROVE_SCORE", 85.0)))
     wait = getattr(config, "AI_WAIT_SCORE", 60.0)
     if ai_score < wait:
         reasons.append(f"⛔ درجة AI < {wait:.0f} — NO TRADE.")
