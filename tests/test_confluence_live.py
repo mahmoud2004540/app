@@ -43,6 +43,8 @@ def _patch_env(monkeypatch, stoch_max, require_macd):
     monkeypatch.setattr(config, "MIN_DOLLAR_VOL", 0)
     monkeypatch.setattr(config, "TREND_RSI_MAX", None)
     monkeypatch.setattr(config, "TREND_MIN_SCORE", 0)
+    monkeypatch.setattr(config, "TREND_FIB_MIN", None)     # نعزل الـ stoch عن فلتر الفيبو
+    monkeypatch.setattr(config, "TREND_FIB_MAX", None)
 
 
 def test_stoch_gate_blocks_overbought(monkeypatch):
@@ -60,3 +62,13 @@ def test_stoch_gate_allows_when_high_threshold(monkeypatch):
     assert cands
     assert len(picks) >= 1                    # مرّت الصفقة (الفلتر مسموح)
     assert all(getattr(d, "_confluence_ok", True) for d in picks)
+
+
+def test_fib_gate_blocks_out_of_zone(monkeypatch):
+    """نطاق فيبوناتشي مستحيل (0.99–1.0) → لا صفقة تمرّ (الارتداد لا يقع فيه)."""
+    _patch_env(monkeypatch, stoch_max=100.0, require_macd=False)
+    monkeypatch.setattr(config, "TREND_FIB_MIN", 0.99)
+    monkeypatch.setattr(config, "TREND_FIB_MAX", 1.0)
+    picks, cands, _ = strategy.top_picks(["crypto"], timeframe="1h", top=5)
+    assert cands                              # الإعداد موجود
+    assert picks == []                        # لكن فلتر الفيبو منعه
