@@ -1265,6 +1265,112 @@ def confluence(source: str, timeframe: str) -> int:
     return 0
 
 
+def levers(source: str, timeframe: str) -> int:
+    """
+    قياس 3 رافعات لرفع التوقّع فوق الاستراتيجية المُثبتة (قبل أي تفعيل):
+      (1) إدارة الخروج: trailing stop بعد +1R + خروج زمني للصفقات الميتة.
+      (2) فلتر التقلّب: تجنّب الدخول في ATR% متطرّف.
+      (3) جودة السيولة: رفع حدّ الحجم الدولاري (استبعاد المُتلاعب بها).
+    كلها على الكون الكامل بالإعداد الحيّ. لا نفعّل إلا ما يرفع التوقّع بعيّنة كافية.
+    """
+    symbols = resolve_symbols("crypto", "auto")
+    th = float(getattr(config, "TREND_MIN_SCORE", 85))
+    buf = getattr(config, "TREND_STOP_BUFFER_ATR", 0.5)
+    rr = float(getattr(config, "TREND_RR", 2.0))
+    rsi_cap = getattr(config, "TREND_RSI_MAX", 68.0)
+    fmin = getattr(config, "TREND_FIB_MIN", None)
+    fmax = getattr(config, "TREND_FIB_MAX", None)
+    macd_on = bool(getattr(config, "TREND_REQUIRE_MACD", False))
+    smax = getattr(config, "TREND_STOCH_MAX", None)
+    print(f"⏳ قياس رافعات رفع التوقّع على {len(symbols)} عملة ({timeframe})...")
+    series = fetch_many(symbols, "crypto", "auto", timeframe, limit=1000)
+    regime = None
+    try:
+        btc = fetch("BTC-USD", "crypto", "auto", timeframe, limit=1000)
+        regime = market_uptrend_map(btc, 50)
+    except Exception:  # noqa: BLE001
+        pass
+    base_kw = dict(rr=rr, min_score=th, regime=regime, require_ema200=True,
+                   stop_buffer_atr=buf, rsi_max=rsi_cap, require_macd=macd_on,
+                   stoch_max=smax, fib_min=fmin, fib_max=fmax)
+
+    def _tally(extra):
+        tt = tw = 0
+        tr = 0.0
+        for s in series:
+            try:
+                res = backtest_trend_pullback_series(s, **base_kw, **extra)
+            except Exception:  # noqa: BLE001
+                continue
+            tt += res.n
+            tw += res.wins
+            tr += res.total_r
+        wr = (tw / tt * 100.0) if tt else 0.0
+        exp = (tr / tt) if tt else 0.0
+        return tt, wr, exp, tr
+
+    def _table(title, variants):
+        print("\n" + "=" * 72)
+        print(f"  {title}")
+        print(f"{'الخيار':>26} | {'صفقات':>6} | {'نجاح%':>6} | {'توقّع/R':>8} | {'إجمالي':>8}")
+        print("-" * 72)
+        base_exp = None
+        rows = []
+        for name, extra in variants:
+            tt, wr, exp, tr = _tally(extra)
+            if base_exp is None:
+                base_exp = exp
+            rows.append((name, tt, wr, exp, tr))
+            print(f"{name:>26} | {tt:>6} | {wr:>6.1f} | {exp:>+8.2f} | {tr:>+8.1f}")
+        print("=" * 72)
+        cand = [r for r in rows[1:] if r[1] >= 30]
+        if cand:
+            best = max(cand, key=lambda r: r[3])
+            if best[3] > (base_exp or 0) + 0.03:
+                print(f"✅ «{best[0]}»: توقّع {best[3]:+.2f}R > الأساس {base_exp:+.2f}R "
+                      f"({best[1]} صفقة) — مرشّح للتفعيل.")
+            else:
+                print(f"ℹ️ لا خيار يتفوّق على الأساس ({base_exp:+.2f}R) بهامش كافٍ.")
+        else:
+            print("⚠️ عيّنات صغيرة — غير حاسم.")
+        return rows
+
+    # (1) إدارة الخروج
+    _table("رافعة 1: إدارة الخروج (trailing + خروج زمني)", [
+        ("الأساس (الحالي)", {}),
+        ("Trailing 1R/2×ATR", {"trail_activate_r": 1.0, "trail_atr": 2.0}),
+        ("Trailing 1R/3×ATR", {"trail_activate_r": 1.0, "trail_atr": 3.0}),
+        ("Trailing 1.5R/2.5×ATR", {"trail_activate_r": 1.5, "trail_atr": 2.5}),
+        ("خروج زمني 48ش", {"time_stop_bars": 48}),
+        ("خروج زمني 96ش", {"time_stop_bars": 96}),
+        ("Trailing 1R/3×ATR + زمني 96", {"trail_activate_r": 1.0, "trail_atr": 3.0,
+                                          "time_stop_bars": 96}),
+    ])
+
+    # (2) فلتر التقلّب
+    _table("رافعة 2: فلتر التقلّب (ATR%)", [
+        ("الأساس (الحالي)", {}),
+        ("ATR% ≥ 1.0", {"atr_pct_min": 1.0}),
+        ("ATR% ≥ 2.0", {"atr_pct_min": 2.0}),
+        ("ATR% ≤ 8.0", {"atr_pct_max": 8.0}),
+        ("ATR% 1.5–8", {"atr_pct_min": 1.5, "atr_pct_max": 8.0}),
+        ("ATR% 2–6", {"atr_pct_min": 2.0, "atr_pct_max": 6.0}),
+    ])
+
+    # (3) جودة السيولة
+    cur_dv = getattr(config, "MIN_DOLLAR_VOL", 50000)
+    _table(f"رافعة 3: جودة السيولة (الحدّ الحالي {cur_dv:,})", [
+        ("الأساس (الحالي)", {}),
+        ("سيولة ≥ 100K", {"min_dollar_vol": 100000}),
+        ("سيولة ≥ 250K", {"min_dollar_vol": 250000}),
+        ("سيولة ≥ 500K", {"min_dollar_vol": 500000}),
+        ("سيولة ≥ 1M", {"min_dollar_vol": 1000000}),
+    ])
+
+    print("\nℹ️ الخلاصة: نفعّل فقط الرافعة التي ترفع التوقّع بعيّنة كافية — لا تخمين.")
+    return 0
+
+
 def ictconfirm(source: str, timeframe: str) -> int:
     """
     قياس ICT كـ«طبقة تأكيد» فوق تحليلنا الأساسي (لا يحلّ محلّه).
@@ -1684,8 +1790,8 @@ def main(argv=None) -> int:
                  "optimize", "walkforward", "short", "precision", "momentum",
                  "stopbuffer", "diag", "framesweep", "breakout", "tfsweep",
                  "multitf", "profilter", "confluence", "smartmoney", "ictmeasure",
-                 "ictconfirm", "breakeven", "reversal", "fibonacci", "tca",
-                 "thresholds", "rrcmp"],
+                 "ictconfirm", "levers", "breakeven", "reversal", "fibonacci",
+                 "tca", "thresholds", "rrcmp"],
         default="signals",
         help="signals=إشارات شراء/بيع؛ prepump=ما قبل الاندفاع؛ "
         "trend=ارتداد داخل اتجاه صاعد؛ compare=قارن prepump مقابل trend؛ "
@@ -1732,6 +1838,8 @@ def main(argv=None) -> int:
         return ictmeasure(args.source, args.timeframe)
     if args.strategy == "ictconfirm":
         return ictconfirm(args.source, args.timeframe)
+    if args.strategy == "levers":
+        return levers(args.source, args.timeframe)
     if args.strategy == "breakeven":
         return breakeven(args.source, args.timeframe)
     if args.strategy == "reversal":

@@ -96,3 +96,25 @@ def test_ict_combo_selective():
         s, min_score=0.0, rr=2.0,
         require_vwap=True, require_fvg=True, require_bos=True, require_sweep=True)
     assert res.n <= n_base
+
+
+# --------------------- exit/vol/liquidity levers -------------------------- #
+def test_volatility_and_liquidity_gates_selective():
+    s = _firing_series()
+    n_base = backtest_trend_pullback_series(s, min_score=0.0, rr=2.0).n
+    for gate in ({"atr_pct_min": 2.0}, {"atr_pct_max": 8.0}, {"min_dollar_vol": 1e12}):
+        res = backtest_trend_pullback_series(s, min_score=0.0, rr=2.0, **gate)
+        assert res.n <= n_base, f"{gate} زادت الصفقات — يجب أن يكون فلترًا انتقائيًا"
+
+
+def test_trailing_and_time_stop_run_and_keep_count():
+    s = _firing_series()
+    n_base = backtest_trend_pullback_series(s, min_score=0.0, rr=2.0).n
+    # إدارة الخروج تغيّر النتائج لكن لا تغيّر عدد الصفقات (نفس نقاط الدخول)
+    trail = backtest_trend_pullback_series(s, min_score=0.0, rr=2.0,
+                                           trail_activate_r=1.0, trail_atr=3.0)
+    tstop = backtest_trend_pullback_series(s, min_score=0.0, rr=2.0, time_stop_bars=48)
+    assert trail.n == n_base
+    assert tstop.n == n_base
+    for t in list(trail.trades) + list(tstop.trades):
+        assert -5.0 <= t.result_r <= 20.0        # نتائج معقولة، لا استثناء

@@ -347,6 +347,12 @@ def backtest_trend_pullback_series(
     require_sweep: bool = False,
     smc_lookback: int = 10,
     ict_confirm: bool = False,
+    atr_pct_min: Optional[float] = None,
+    atr_pct_max: Optional[float] = None,
+    min_dollar_vol: Optional[float] = None,
+    trail_activate_r: float = 0.0,
+    trail_atr: float = 0.0,
+    time_stop_bars: int = 0,
 ) -> BacktestResult:
     """
     باك-تِست لاستراتيجية «الارتداد داخل الاتجاه» (Long أو Short).
@@ -530,8 +536,29 @@ def backtest_trend_pullback_series(
             i += 1
             continue
 
+        # --- رافعة (2): فلتر التقلّب — تجنّب الدخول في ATR متطرّف (تشوّش/موت) ---
+        atr_here = ind.atr(highs[: i + 1], lows[: i + 1], closes[: i + 1], 14)
+        if (atr_pct_min is not None or atr_pct_max is not None) and atr_here and entry > 0:
+            atr_pct = atr_here / entry * 100.0
+            if atr_pct_min is not None and atr_pct < atr_pct_min:
+                i += 1
+                continue
+            if atr_pct_max is not None and atr_pct > atr_pct_max:
+                i += 1
+                continue
+        # --- رافعة (3): جودة السيولة — استبعاد العملات ضعيفة الحجم الدولاري ---
+        if min_dollar_vol is not None and min_dollar_vol > 0:
+            recent = candles[max(0, i - 19): i + 1]
+            dv = sum(c.close * c.volume for c in recent) / max(1, len(recent))
+            if dv < min_dollar_vol:
+                i += 1
+                continue
+
+        atr_fixed = atr_here or (entry * 0.01)     # ATR ثابت للـtrailing
         outcome = None
         moved = False                              # هل نُقل الوقف لنقطة الدخول؟
+        peak = entry                               # أقصى سعر لصالح الصفقة (للـtrailing)
+        trail_on = False
         adverse = 0.0                              # أقصى تحرّك عكس الصفقة (سعر)
         be_level = (entry - breakeven_r * risk if is_short
                     else entry + breakeven_r * risk) if breakeven_r > 0 else None
@@ -539,6 +566,13 @@ def backtest_trend_pullback_series(
         while j < n:
             hi, lo = candles[j].high, candles[j].low
             cur_stop = entry if moved else stop
+            # --- رافعة (1أ): trailing stop — بعد +activate_r نمشّي الوقف خلف القمة ---
+            if not is_short and trail_atr > 0 and trail_activate_r > 0:
+                peak = max(peak, hi)
+                if not trail_on and hi >= entry + trail_activate_r * risk:
+                    trail_on = True
+                if trail_on:
+                    cur_stop = max(cur_stop, peak - trail_atr * atr_fixed)
             # تتبّع أقصى انعكاس عكس الصفقة (قبل الخروج): للشراء = كم نزل تحت الدخول.
             adverse = max(adverse, (hi - entry) if is_short else (entry - lo))
             if is_short:
@@ -559,6 +593,11 @@ def backtest_trend_pullback_series(
                     break
                 if be_level is not None and not moved and hi >= be_level:
                     moved = True
+            # --- رافعة (1ب): خروج زمني — صفقة ميتة لم تُغلق خلال N شمعة نُخرجها بالسعر ---
+            if time_stop_bars > 0 and (j - i) >= time_stop_bars:
+                px = candles[j].close
+                outcome = (px, (px > entry) if not is_short else (px < entry))
+                break
             j += 1
 
         if outcome is None:
