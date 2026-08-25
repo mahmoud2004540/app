@@ -887,6 +887,141 @@ def pro_filter(source: str, timeframe: str) -> int:
     return 0
 
 
+def reversal(source: str, timeframe: str) -> int:
+    """
+    قياس «الانعكاس» (MAE): كم تتحرّك الصفقة عكسك قبل ما تشتغل؟
+
+    «زيرو انعكاس» مستحيل — كل صفقة (حتى الكسبانة) بتنزل شوية أولًا. نقيس على الكون
+    الكامل بالإعداد الحيّ: توزيع أقصى انعكاس (MAE بمضاعفات الوقف R) للصفقات
+    الكسبانة تحديدًا — عشان نعرف «النزول الطبيعي» اللي تحته بس تقلق، ونمنع الخروج
+    المرعوب اللي بيخسّرك صفقة كانت هتكسب.
+    """
+    symbols = resolve_symbols("crypto", "auto")
+    th = float(getattr(config, "TREND_MIN_SCORE", 85))
+    buf = getattr(config, "TREND_STOP_BUFFER_ATR", 0.5)
+    rr = float(getattr(config, "TREND_RR", 2.0))
+    base_kw = dict(
+        rr=rr, min_score=th, require_ema200=True, stop_buffer_atr=buf,
+        rsi_max=getattr(config, "TREND_RSI_MAX", 68.0),
+        require_macd=getattr(config, "TREND_REQUIRE_MACD", False),
+        stoch_max=getattr(config, "TREND_STOCH_MAX", None),
+    )
+    print(f"⏳ قياس الانعكاس (MAE) على {len(symbols)} عملة ({timeframe})...")
+
+    series = fetch_many(symbols, "crypto", "auto", timeframe, limit=1000)
+    regime = None
+    try:
+        btc = fetch("BTC-USD", "crypto", "auto", timeframe, limit=1000)
+        regime = market_uptrend_map(btc, 50)
+    except Exception:  # noqa: BLE001
+        pass
+
+    win_mae, loss_mae = [], []
+    for s in series:
+        res = backtest_trend_pullback_series(s, regime=regime, **base_kw)
+        for t in res.trades:
+            (win_mae if t.won else loss_mae).append(t.mae_r)
+
+    def _pct(vals, thr):
+        return (sum(1 for v in vals if v <= thr) / len(vals) * 100.0) if vals else 0.0
+
+    def _median(vals):
+        if not vals:
+            return 0.0
+        sv = sorted(vals)
+        m = len(sv) // 2
+        return sv[m] if len(sv) % 2 else (sv[m - 1] + sv[m]) / 2.0
+
+    nW = len(win_mae)
+    print("\n" + "=" * 66)
+    print(f"الصفقات الكسبانة: {nW} | الخاسرة: {len(loss_mae)}")
+    print("-" * 66)
+    if nW:
+        print(f"  متوسط الانعكاس قبل الفوز: {sum(win_mae)/nW:+.2f}R "
+              f"(الوسيط {_median(win_mae):.2f}R)")
+        print(f"  أقصى انعكاس لصفقة كسبانة: {max(win_mae):.2f}R")
+        print("  توزيع الصفقات الكسبانة حسب أقصى انعكاس:")
+        print(f"    • انعكست أقل من 0.25R (شبه بدون انعكاس): {_pct(win_mae,0.25):.0f}%")
+        print(f"    • انعكست أقل من 0.50R (نصف المسافة للوقف): {_pct(win_mae,0.50):.0f}%")
+        print(f"    • انعكست أقل من 0.75R: {_pct(win_mae,0.75):.0f}%")
+        print(f"    • انعكست أقل من 1.00R (لمست الوقف تقريبًا): {_pct(win_mae,1.0):.0f}%")
+    print("=" * 66)
+    print(
+        "\nℹ️ القراءة: «زيرو انعكاس» غير موجود — لكن أغلب الصفقات الكسبانة بتنزل "
+        "بمقدار محدود (وسيط الانعكاس) ثم تطلع. طالما الصفقة ما لمستش الوقف = طبيعية؛ "
+        "الخروج المرعوب قبل الوقف هو اللي بيحوّل صفقة كسبانة لخسارة. سيبها للوقف/الهدف."
+    )
+    return 0
+
+
+def breakeven(source: str, timeframe: str) -> int:
+    """
+    قياس «نقل الوقف لنقطة الدخول» (breakeven): يقلّل عدد الصفقات الخاسرة؟
+
+    نقيس فوق الإعداد الحيّ الكامل (سكور + سوق + EMA200 + مسافة وقف + سقف RSI +
+    فلتر المؤشرات MACD/Stochastic) نفس الاستراتيجية، مع نقل الوقف لنقطة الدخول
+    بعد ربح R معيّن. نعدّ لكل مستوى: كسبانة / خاسرة فعلًا / خارجة بصفر (تعادل) +
+    التوقّع، عشان نعرف: هل يقلّل الخسائر بلا خفض الربح؟ (يُفعَّل فقط لو نعم).
+    """
+    symbols = resolve_symbols("crypto", "auto")
+    th = float(getattr(config, "TREND_MIN_SCORE", 85))
+    buf = getattr(config, "TREND_STOP_BUFFER_ATR", 0.5)
+    rr = float(getattr(config, "TREND_RR", 2.0))
+    base_kw = dict(
+        rr=rr, min_score=th, require_ema200=True, stop_buffer_atr=buf,
+        rsi_max=getattr(config, "TREND_RSI_MAX", 68.0),
+        require_macd=getattr(config, "TREND_REQUIRE_MACD", False),
+        stoch_max=getattr(config, "TREND_STOCH_MAX", None),
+    )
+    print(f"⏳ قياس نقل الوقف لنقطة الدخول على {len(symbols)} عملة ({timeframe})...")
+
+    series = fetch_many(symbols, "crypto", "auto", timeframe, limit=1000)
+    regime = None
+    try:
+        btc = fetch("BTC-USD", "crypto", "auto", timeframe, limit=1000)
+        regime = market_uptrend_map(btc, 50)
+    except Exception:  # noqa: BLE001
+        pass
+
+    levels = [("الأساس (بلا نقل)", 0.0), ("breakeven @0.5R", 0.5),
+              ("breakeven @1.0R", 1.0), ("breakeven @1.5R", 1.5)]
+
+    print("\n" + "=" * 82)
+    print(f"{'المستوى':>18} | {'صفقات':>6} | {'كسب':>5} | {'خسارة':>6} | "
+          f"{'تعادل':>6} | {'نجاح%':>6} | {'توقّع/R':>8} | {'إجمالي':>8}")
+    print("-" * 82)
+    base_exp = None
+    base_loss = None
+    for name, be in levels:
+        tt = wins = losses = scratch = 0
+        tr = 0.0
+        for s in series:
+            res = backtest_trend_pullback_series(
+                s, regime=regime, breakeven_r=be, **base_kw)
+            for t in res.trades:
+                tt += 1
+                tr += t.result_r
+                if t.won:
+                    wins += 1
+                elif t.result_r < 0:
+                    losses += 1
+                else:
+                    scratch += 1
+        wr = (wins / tt * 100.0) if tt else 0.0
+        exp = (tr / tt) if tt else 0.0
+        if base_exp is None:
+            base_exp, base_loss = exp, losses
+        print(f"{name:>18} | {tt:>6} | {wins:>5} | {losses:>6} | {scratch:>6} | "
+              f"{wr:>6.1f} | {exp:>+8.2f} | {tr:>+8.1f}")
+    print("=" * 82)
+    print(
+        "\nℹ️ «تعادل» = صفقات خرجت بصفر بدل خسارة (نقل الوقف أنقذها). القرار: نفعّل "
+        "المستوى الذي يقلّل «خسارة» بوضوح مع بقاء «توقّع/R» ≥ الأساس (لا نضحّي بالربح "
+        "مقابل تقليل شكل الخسائر). نقل الوقف لا يجعل صفقة واحدة تخسر — يقلّل عددها فقط."
+    )
+    return 0
+
+
 def confluence(source: str, timeframe: str) -> int:
     """
     قياس «تلاقي المؤشرات»: أضف كل مؤشر شائع (MACD/OBV/Stochastic/MFI/Bollinger)
@@ -1135,7 +1270,8 @@ def main(argv=None) -> int:
         choices=["signals", "prepump", "trend", "compare", "trendsweep",
                  "optimize", "walkforward", "short", "precision", "momentum",
                  "stopbuffer", "diag", "framesweep", "breakout", "tfsweep",
-                 "multitf", "profilter", "confluence", "thresholds", "rrcmp"],
+                 "multitf", "profilter", "confluence", "breakeven",
+                 "reversal", "thresholds", "rrcmp"],
         default="signals",
         help="signals=إشارات شراء/بيع؛ prepump=ما قبل الاندفاع؛ "
         "trend=ارتداد داخل اتجاه صاعد؛ compare=قارن prepump مقابل trend؛ "
@@ -1176,6 +1312,10 @@ def main(argv=None) -> int:
         return pro_filter(args.source, args.timeframe)
     if args.strategy == "confluence":
         return confluence(args.source, args.timeframe)
+    if args.strategy == "breakeven":
+        return breakeven(args.source, args.timeframe)
+    if args.strategy == "reversal":
+        return reversal(args.source, args.timeframe)
     if args.strategy == "thresholds":
         return threshold_cmp(args.source, args.timeframe)
     if args.strategy == "rrcmp":
