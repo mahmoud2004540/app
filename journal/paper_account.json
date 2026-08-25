@@ -1,8 +1,21 @@
 {
-  "equity": 1000.0,
+  "equity": 999.8925364244495,
   "starting_equity": 1000.0,
   "day": 20690,
   "day_start_equity": 1000.0,
-  "positions": [],
+  "positions": [
+    {
+      "symbol": "FARTCOIN-USD",
+      "market": "crypto",
+      "direction": "BUY",
+      "entry": 0.18311150999999998,
+      "stop": 0.17495784883329552,
+      "target": 0.19914430233340893,
+      "qty": 586.87504434,
+      "opened_ts": 1787677200.0,
+      "fees_paid": 0.10746357555041434,
+      "ai_score": 80.6
+    }
+  ],
   "closed": []
 }
