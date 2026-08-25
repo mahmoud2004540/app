@@ -887,6 +887,94 @@ def pro_filter(source: str, timeframe: str) -> int:
     return 0
 
 
+def confluence(source: str, timeframe: str) -> int:
+    """
+    قياس «تلاقي المؤشرات»: أضف كل مؤشر شائع (MACD/OBV/Stochastic/MFI/Bollinger)
+    كفلتر فوق الإعداد الرابح الحالي — واحدًا واحدًا ثم أفضلها مجمّعة — على الكون
+    الكامل، عشان نعرف أيّهم يرفع التوقّع فعلًا (لا نكدّس مؤشرات بلا فائدة مقاسة).
+    """
+    symbols = resolve_symbols("crypto", "auto")
+    th = float(getattr(config, "TREND_MIN_SCORE", 85))
+    buf = getattr(config, "TREND_STOP_BUFFER_ATR", 0.5)
+    rr = float(getattr(config, "TREND_RR", 2.0))
+    rsi_cap = getattr(config, "TREND_RSI_MAX", 68.0)
+    print(f"⏳ قياس تلاقي المؤشرات على {len(symbols)} عملة ({timeframe})...")
+
+    series = fetch_many(symbols, "crypto", "auto", timeframe, limit=1000)
+    regime = None
+    try:
+        btc = fetch("BTC-USD", "crypto", "auto", timeframe, limit=1000)
+        regime = market_uptrend_map(btc, 50)
+    except Exception:  # noqa: BLE001
+        pass
+
+    # الأساس = الإعداد الحيّ الكامل (سكور≥العتبة + سوق + EMA200 + مسافة وقف + سقف RSI)
+    base_kw = dict(rr=rr, min_score=th, regime=regime,
+                   require_ema200=True, stop_buffer_atr=buf, rsi_max=rsi_cap)
+    variants = [
+        ("الأساس (الحالي)", {}),
+        ("+ MACD صاعد", {"require_macd": True}),
+        ("+ OBV صاعد", {"require_obv": True}),
+        ("+ Stochastic ≤ 80", {"stoch_max": 80.0}),
+        ("+ Stochastic ≤ 70", {"stoch_max": 70.0}),
+        ("+ MFI 40–85", {"mfi_min": 40.0, "mfi_max": 85.0}),
+        ("+ داخل بولنجر", {"require_bb_inside": True}),
+    ]
+
+    print("\n" + "=" * 72)
+    print(f"{'الفلتر':>20} | {'صفقات':>6} | {'نجاح%':>6} | {'توقّع/R':>8} | {'إجمالي':>8}")
+    print("-" * 72)
+    base_exp = None
+    rows = []
+    for name, kw in variants:
+        tt = tw = 0
+        tr = 0.0
+        for s in series:
+            res = backtest_trend_pullback_series(s, **base_kw, **kw)
+            tt += res.n
+            tw += res.wins
+            tr += res.total_r
+        wr = (tw / tt * 100.0) if tt else 0.0
+        exp = (tr / tt) if tt else 0.0
+        if base_exp is None:
+            base_exp = exp
+        rows.append((name, tt, wr, exp, tr, kw))
+        print(f"{name:>20} | {tt:>6} | {wr:>6.1f} | {exp:>+8.2f} | {tr:>+8.1f}")
+
+    # جرّب دمج كل الفلاتر اللي تفوّقت على الأساس (بعيّنة كافية) معًا
+    winners = [r for r in rows[1:] if r[1] >= 30 and r[3] > (base_exp or 0) + 0.02]
+    if len(winners) >= 2:
+        combo = {}
+        for r in winners:
+            combo.update(r[5])
+        tt = tw = 0
+        tr = 0.0
+        for s in series:
+            res = backtest_trend_pullback_series(s, **base_kw, **combo)
+            tt += res.n
+            tw += res.wins
+            tr += res.total_r
+        wr = (tw / tt * 100.0) if tt else 0.0
+        exp = (tr / tt) if tt else 0.0
+        rows.append(("+ أفضلها مجمّعة", tt, wr, exp, tr, combo))
+        print(f"{'+ أفضلها مجمّعة':>20} | {tt:>6} | {wr:>6.1f} | {exp:>+8.2f} | {tr:>+8.1f}")
+    print("=" * 72)
+
+    valid = [r for r in rows[1:] if r[1] >= 30]
+    if valid:
+        best = max(valid, key=lambda r: r[3])
+        if best[3] > (base_exp or 0) + 0.03:
+            print(f"\n✅ «{best[0]}» يرفع التوقّع من {base_exp:+.2f}R إلى {best[3]:+.2f}R "
+                  f"({best[1]} صفقة) — مرشّح للتفعيل الحيّ.")
+        else:
+            print(f"\nℹ️ لا مؤشر يتفوّق على الأساس ({base_exp:+.2f}R) بهامش واضح وعيّنة كافية. "
+                  "المؤشرات موجودة كلها بالفعل — لكن حشرها شرطًا لا يرفع الربح (overfit).")
+    else:
+        print("\n⚠️ العيّنات بعد الفلاتر صغيرة جدًا — لا قرار موثوق (المؤشرات تشدّد أكثر من اللازم).")
+    print("\nℹ️ الخلاصة: «صفقة ممتازة» = مؤشرات مقاسة إنها ترفع الربح، مش أكبر عدد مؤشرات.")
+    return 0
+
+
 def frame_sweep(source: str, timeframe: str) -> int:
     """
     قياس متعدد الفريمات: يجرّب نفس الإعداد الرابح (درجة≥85 + فلتر السوق + EMA200 +
@@ -1047,7 +1135,7 @@ def main(argv=None) -> int:
         choices=["signals", "prepump", "trend", "compare", "trendsweep",
                  "optimize", "walkforward", "short", "precision", "momentum",
                  "stopbuffer", "diag", "framesweep", "breakout", "tfsweep",
-                 "multitf", "profilter", "thresholds", "rrcmp"],
+                 "multitf", "profilter", "confluence", "thresholds", "rrcmp"],
         default="signals",
         help="signals=إشارات شراء/بيع؛ prepump=ما قبل الاندفاع؛ "
         "trend=ارتداد داخل اتجاه صاعد؛ compare=قارن prepump مقابل trend؛ "
@@ -1086,6 +1174,8 @@ def main(argv=None) -> int:
         return multi_tf(args.source, args.timeframe)
     if args.strategy == "profilter":
         return pro_filter(args.source, args.timeframe)
+    if args.strategy == "confluence":
+        return confluence(args.source, args.timeframe)
     if args.strategy == "thresholds":
         return threshold_cmp(args.source, args.timeframe)
     if args.strategy == "rrcmp":

@@ -331,6 +331,12 @@ def backtest_trend_pullback_series(
     rsi_max: Optional[float] = None,
     min_slope_pct: Optional[float] = None,
     rel_strength: Optional[dict] = None,
+    require_macd: bool = False,
+    require_obv: bool = False,
+    stoch_max: Optional[float] = None,
+    mfi_min: Optional[float] = None,
+    mfi_max: Optional[float] = None,
+    require_bb_inside: bool = False,
 ) -> BacktestResult:
     """
     باك-تِست لاستراتيجية «الارتداد داخل الاتجاه» (Long أو Short).
@@ -346,6 +352,9 @@ def backtest_trend_pullback_series(
     """
     candles = series.candles
     closes = [c.close for c in candles]
+    highs = [c.high for c in candles]
+    lows = [c.low for c in candles]
+    vols = [c.volume for c in candles]
     trades: List[Trade] = []
     n = len(candles)
     i = max(warmup, 55)
@@ -410,6 +419,41 @@ def backtest_trend_pullback_series(
             if is_short and coin_ret >= btc_ret:        # للبيع: أضعف من السوق
                 i += 1
                 continue
+        # --- فلاتر «تلاقي المؤشرات» (confluence) الاختيارية — long فقط، تُقاس أولًا ---
+        # كل واحد يُختبر منفردًا على الكون الكامل؛ لا نفعّل إلا ما يرفع التوقّع فعلًا.
+        if not is_short:
+            win = closes[: i + 1]
+            # MACD: الهيستوجرام في صعود (زخم إيجابي متسارع)
+            if require_macd and not ind.macd_hist_rising(win):
+                i += 1
+                continue
+            # OBV: تدفّق الحجم صاعد (تجميع، مش توزيع)
+            if require_obv and ind.obv_rising(win, vols[: i + 1], lookback=10) is not True:
+                i += 1
+                continue
+            # Stochastic %K: مش متشبّع شرائيًا (نتجنّب الدخول في القمة)
+            if stoch_max is not None:
+                st = ind.stochastic(highs[: i + 1], lows[: i + 1], win, k=14)
+                if st is not None and st > stoch_max:
+                    i += 1
+                    continue
+            # MFI: تدفّق أموال صحّي (شراء بمال حقيقي، بلا انفجار توزيعي)
+            if mfi_min is not None or mfi_max is not None:
+                mf = ind.mfi(highs[: i + 1], lows[: i + 1], win, vols[: i + 1], period=14)
+                if mf is not None:
+                    if mfi_min is not None and mf < mfi_min:
+                        i += 1
+                        continue
+                    if mfi_max is not None and mf > mfi_max:
+                        i += 1
+                        continue
+            # Bollinger: السعر لسه جوّه النطاق (مش ممدود فوق الباند العلوي)
+            if require_bb_inside:
+                bb = ind.bollinger(win, period=20, mult=2.0)
+                if bb and closes[i] > bb[2]:
+                    i += 1
+                    continue
+
         if require_ema200:
             e200 = ind.ema(closes[: i + 1], 200)
             if not e200:
