@@ -65,28 +65,6 @@ def market_return_map(btc: Series, lookback: int = 20) -> dict:
     return out
 
 
-def _sr_cluster(levels: List[float], tol_frac: float) -> List[float]:
-    """اجمع مستويات الأسعار المتقاربة (خلال tol_frac نسبيًا) → مستوى تمثيلي لكل عنقود.
-
-    Horizontal support/resistance = a price several pivots share (touched ≥2×).
-    Returns one representative price per cluster of size ≥2 — the classical
-    S/R levels. A lone pivot isn't a level yet.
-    """
-    out = []
-    used = [False] * len(levels)
-    for i, a in enumerate(levels):
-        if used[i] or a <= 0:
-            continue
-        group = [a]
-        for j in range(i + 1, len(levels)):
-            if not used[j] and abs(levels[j] - a) / a <= tol_frac:
-                used[j] = True
-                group.append(levels[j])
-        if len(group) >= 2:
-            out.append(sum(group) / len(group))
-    return out
-
-
 @dataclass
 class Trade:
     symbol: str
@@ -414,7 +392,8 @@ def backtest_trend_pullback_series(
         sub = Series(symbol=series.symbol, market=series.market, candles=candles[: i + 1])
         setup = detect_trend_pullback(sub, rr=rr, direction=direction,
                                       require_momentum=require_momentum,
-                                      stop_buffer_atr=stop_buffer_atr)
+                                      stop_buffer_atr=stop_buffer_atr,
+                                      target_at_resistance=target_at_resistance)
         if not setup or setup["score"] < min_score:
             i += 1
             continue
@@ -562,25 +541,19 @@ def backtest_trend_pullback_series(
             i += 1
             continue
 
-        # --- كلاسيكي: دعم/مقاومة أفقية (تجميع القيعان/القمم السابقة) ---
-        if (near_support_atr is not None or target_at_resistance) and not is_short:
+        # كلاسيكي: الهدف عند المقاومة مُطبَّق داخل detect_trend_pullback (مصدر واحد)
+        # — فـ setup["target"] أعلاه يحمله بالفعل. هنا فقط فلتر الدخول قرب الدعم.
+        # --- كلاسيكي: الدخول قريب من دعم أفقي حقيقي (تجميع قيعان سابقة) ---
+        if near_support_atr is not None and not is_short:
             atr_sr = ind.atr(highs[: i + 1], lows[: i + 1], closes[: i + 1], 14) \
                 or (entry * 0.01)
-            ph_sr, pl_sr = ind.swing_points(highs[: i + 1], lows[: i + 1], 2, 2)
-            supports = _sr_cluster([p[1] for p in pl_sr], 0.01)
-            resistances = _sr_cluster([p[1] for p in ph_sr], 0.01)
-            # الدخول لازم قريب من دعم أفقي حقيقي (تحت السعر بحدّ 2%)
-            if near_support_atr is not None:
-                near = [s for s in supports
-                        if abs(entry - s) <= near_support_atr * atr_sr and s <= entry * 1.02]
-                if not near:
-                    i += 1
-                    continue
-            # خُد الربح عند أقرب مقاومة فوق (لو RR لها ≥1.5)، وإلا نُبقي الهدف الثابت.
-            if target_at_resistance:
-                above = sorted(r for r in resistances if r > entry + 1.5 * risk)
-                if above:
-                    target = above[0]
+            _ph, pl_sr = ind.swing_points(highs[: i + 1], lows[: i + 1], 2, 2)
+            supports = ind.sr_cluster([p[1] for p in pl_sr], 0.01)
+            near = [s for s in supports
+                    if abs(entry - s) <= near_support_atr * atr_sr and s <= entry * 1.02]
+            if not near:
+                i += 1
+                continue
 
         # --- رافعة (2): فلتر التقلّب — تجنّب الدخول في ATR متطرّف (تشوّش/موت) ---
         atr_here = ind.atr(highs[: i + 1], lows[: i + 1], closes[: i + 1], 14)

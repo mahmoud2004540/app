@@ -500,7 +500,8 @@ def detect_pre_pump(series: Series):
 
 
 def detect_trend_pullback(series: Series, rr: float = 2.0, direction: str = "long",
-                          require_momentum: bool = False, stop_buffer_atr: float = 0.0):
+                          require_momentum: bool = False, stop_buffer_atr: float = 0.0,
+                          target_at_resistance: bool = False):
     """
     اكتشف «الارتداد داخل الاتجاه» — دخول مع الاتجاه لا ضدّه (Long أو Short).
 
@@ -605,6 +606,12 @@ def detect_trend_pullback(series: Series, rr: float = 2.0, direction: str = "lon
     if risk <= 0:
         return None
     target = price + rr * risk
+    # كلاسيكي (مقاس: +0.40R→+0.58R): خُد الربح عند أقرب مقاومة أفقية فوق الدخول
+    # (لو RR لها ≥1.5)، وإلا نُبقي الهدف الثابت.
+    if target_at_resistance:
+        rt = ind.nearest_resistance_target(series.highs(), series.lows(), price, risk)
+        if rt:
+            target = rt
 
     reasons = [
         "📈 ارتداد داخل اتجاه صاعد — دخول مع الاتجاه (أقوى إحصائيًا)",

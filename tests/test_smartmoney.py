@@ -136,3 +136,14 @@ def test_classical_support_gate_selective():
     # هدف عند مقاومة لا يغيّر عدد الصفقات (نفس الدخول)
     res2 = backtest_trend_pullback_series(s, min_score=0.0, rr=2.0, target_at_resistance=True)
     assert res2.n == n_base
+
+
+def test_nearest_resistance_target_and_detector_override():
+    # قمم متساوية عند ~120 (مقاومة أفقية)، دخول عند 100، مخاطرة 5 → مقاومة فوق 107.5
+    highs = [100, 110, 120, 110, 100, 110, 120.1, 110]
+    lows = [h - 5 for h in highs]
+    rt = ind.nearest_resistance_target(highs, lows, entry=100.0, risk=5.0, left=1, right=1)
+    assert rt is not None and 119 <= rt <= 121   # عند المقاومة ~120
+    # لا مقاومة فوق الحدّ → None (نُبقي الهدف الثابت)
+    assert ind.nearest_resistance_target(highs, lows, entry=100.0, risk=100.0,
+                                         left=1, right=1) is None

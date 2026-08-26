@@ -374,6 +374,47 @@ def liquidity_sweep_bullish(highs: List[float], lows: List[float],
     return False
 
 
+def sr_cluster(levels: List[float], tol: float = 0.01) -> List[float]:
+    """
+    اجمع مستويات الأسعار المتقاربة (خلال tol نسبيًا) → مستوى تمثيلي لكل عنقود ≥2.
+
+    Horizontal support/resistance = a price several pivots share (touched ≥2×).
+    A lone pivot isn't a level yet — needs repetition to count as classical S/R.
+    """
+    out: List[float] = []
+    used = [False] * len(levels)
+    for i, a in enumerate(levels):
+        if used[i] or a <= 0:
+            continue
+        group = [a]
+        for j in range(i + 1, len(levels)):
+            if not used[j] and abs(levels[j] - a) / a <= tol:
+                used[j] = True
+                group.append(levels[j])
+        if len(group) >= 2:
+            out.append(sum(group) / len(group))
+    return out
+
+
+def nearest_resistance_target(highs: List[float], lows: List[float], entry: float,
+                              risk: float, min_rr: float = 1.5,
+                              left: int = 2, right: int = 2) -> Optional[float]:
+    """
+    أقرب مقاومة أفقية فوق الدخول تعطي RR ≥ min_rr — كهدف كلاسيكي (بدل هدف ثابت).
+
+    Nearest overhead horizontal resistance (a clustered swing-high level) that is
+    at least min_rr×risk above entry. Classical wisdom: price stalls at
+    resistance, so a target placed there captures the realistic move. Returns
+    None if no qualifying resistance exists (caller keeps the fixed target).
+    """
+    if risk <= 0:
+        return None
+    ph, _pl = swing_points(highs, lows, left, right)
+    res = sr_cluster([p[1] for p in ph], tol=0.01)
+    above = sorted(r for r in res if r > entry + min_rr * risk)
+    return above[0] if above else None
+
+
 def returns_correlation(a_closes: List[float], b_closes: List[float],
                         n: int = 50) -> Optional[float]:
     """
