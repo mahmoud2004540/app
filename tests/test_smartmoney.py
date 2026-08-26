@@ -126,3 +126,13 @@ def test_warrior_gates_selective():
     for gate in ({"vol_surge_min": 2.0}, {"max_ext_atr": 2.0}):
         res = backtest_trend_pullback_series(s, min_score=0.0, rr=2.0, **gate)
         assert res.n <= n_base, f"{gate} زادت الصفقات — يجب أن يكون فلترًا انتقائيًا"
+
+
+def test_classical_support_gate_selective():
+    s = _firing_series()
+    n_base = backtest_trend_pullback_series(s, min_score=0.0, rr=2.0).n
+    res = backtest_trend_pullback_series(s, min_score=0.0, rr=2.0, near_support_atr=1.0)
+    assert res.n <= n_base, "فلتر الدعم يجب أن يكون انتقائيًا (لا يزيد الصفقات)"
+    # هدف عند مقاومة لا يغيّر عدد الصفقات (نفس الدخول)
+    res2 = backtest_trend_pullback_series(s, min_score=0.0, rr=2.0, target_at_resistance=True)
+    assert res2.n == n_base
