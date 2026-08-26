@@ -2005,6 +2005,102 @@ def pipeline_diag(source: str, timeframe: str) -> int:
     return 0
 
 
+def smallframes(source: str, timeframe: str) -> int:
+    """
+    قياس الفريمات الصغيرة (5m/15m/30m) مقابل 1h — بالإعداد الحيّ الكامل الحالي.
+
+    نطبّق *نفس* فلاتر البوت المفعّلة الآن (درجة≥العتبة + فلتر السوق + EMA200 +
+    مسافة وقف + سقف RSI + MACD + Stochastic + فيبوناتشي + فلتر الحجم 1.5× +
+    الهدف عند المقاومة + التتبّع 1R/2×ATR) على كل فريم عبر الكون الكامل — عشان
+    نعرف بالأرقام: هل الاستراتيجية الرابحة على 1h تصمد على الفريمات الأصغر؟
+
+    ⚠️ تحذير عيّنة مهم: مزوّد الأسعار (Coinbase) يرجّع 300 شمعة كحدّ أقصى لكل
+    عملة، فالفريم الأصغر يغطّي نافذة زمنية أقصر بكثير:
+      5m ≈ يوم واحد | 15m ≈ 3 أيام | 30m ≈ 3 أيام | 1h ≈ 12 يوم
+    فنتيجة الفريم الصغير تعكس *مزاج السوق الأخير فقط* — نقرأها بحذر ولا نعمّمها.
+    """
+    frames = ["5m", "15m", "30m", "1h"]
+    approx = {"5m": "≈ يوم", "15m": "≈ 3 أيام", "30m": "≈ 3 أيام", "1h": "≈ 12 يوم"}
+    symbols = resolve_symbols("crypto", "auto")
+    print(f"⏳ قياس الفريمات الصغيرة {frames} على {len(symbols)} عملة — الكون الكامل...")
+
+    # الإعداد الحيّ الكامل بالظبط (نفس ما يتداوله البوت الآن)
+    base_kw = dict(
+        rr=float(getattr(config, "TREND_RR", 2.0)),
+        min_score=float(getattr(config, "TREND_MIN_SCORE", 85)),
+        require_ema200=getattr(config, "TREND_REQUIRE_EMA200", True),
+        stop_buffer_atr=getattr(config, "TREND_STOP_BUFFER_ATR", 0.5),
+        rsi_max=getattr(config, "TREND_RSI_MAX", 68.0),
+        require_macd=getattr(config, "TREND_REQUIRE_MACD", True),
+        stoch_max=getattr(config, "TREND_STOCH_MAX", 70.0),
+        fib_min=getattr(config, "TREND_FIB_MIN", 0.5),
+        fib_max=getattr(config, "TREND_FIB_MAX", 0.786),
+        vol_surge_min=getattr(config, "TREND_VOL_SURGE_MIN", None),
+        target_at_resistance=getattr(config, "TREND_TARGET_AT_RESISTANCE", False),
+        trail_activate_r=getattr(config, "TREND_TRAIL_ACTIVATE_R", None),
+        trail_atr=getattr(config, "TREND_TRAIL_ATR", None),
+        min_dollar_vol=getattr(config, "MIN_DOLLAR_VOL", 0) or None,
+    )
+
+    print("\n" + "=" * 74)
+    print(f"{'فريم':>6} | {'نافذة':>8} | {'صفقات':>6} | {'نجاح%':>6} | "
+          f"{'توقّع/R':>8} | {'إجمالي':>8} | الحكم")
+    print("-" * 74)
+    rows = []
+    for tf in frames:
+        try:
+            series = fetch_many(symbols, "crypto", "auto", tf, limit=1000)
+        except Exception as exc:  # noqa: BLE001
+            print(f"{tf:>6} | تعذّر الجلب: {exc}")
+            continue
+        regime = None
+        try:
+            btc = fetch("BTC-USD", "crypto", "auto", tf, limit=1000)
+            regime = market_uptrend_map(btc, 50)
+        except Exception:  # noqa: BLE001
+            pass
+        tt = tw = 0
+        tr = 0.0
+        for s in series:
+            res = backtest_trend_pullback_series(s, regime=regime, **base_kw)
+            tt += res.n
+            tw += res.wins
+            tr += res.total_r
+        wr = (tw / tt * 100.0) if tt else 0.0
+        exp = (tr / tt) if tt else 0.0
+        ok = exp > 0 and tt >= 20
+        verdict = "✅ رابح" if ok else ("⚠️ عيّنة صغيرة" if tt < 20 else "❌ خاسر")
+        mark = " ← الأساس المُثبت" if tf == "1h" else ""
+        rows.append((tf, tt, wr, exp, tr, ok))
+        print(f"{tf:>6} | {approx[tf]:>8} | {tt:>6} | {wr:>6.1f} | "
+              f"{exp:>+8.2f} | {tr:>+8.1f} | {verdict}{mark}")
+    print("=" * 74)
+
+    cur = next((r for r in rows if r[0] == "1h"), None)
+    small = [r for r in rows if r[0] != "1h"]
+    winners = [r for r in small if r[5]]
+    if winners and cur:
+        best = max(winners, key=lambda r: r[3])
+        if cur[5] and best[3] > cur[3] + 0.05:
+            print(f"\n📈 «{best[0]}» تفوّق على 1h في هذه النافذة القصيرة "
+                  f"({best[3]:+.2f}R مقابل {cur[3]:+.2f}R) — لكن العيّنة قصيرة "
+                  f"ومزاج-سوق واحد؛ لا نثبّته إلا لو صمد على نافذة أطول.")
+        else:
+            print(f"\n👉 لا فريم صغير يتفوّق على 1h ({cur[3]:+.2f}R) بهامش موثوق — "
+                  f"1h يبقى الأساس، والفريمات الصغيرة أكثر ضجيجًا بلا ميزة مقاسة.")
+    elif cur and cur[5]:
+        print(f"\n👉 كل الفريمات الصغيرة سالبة/عيّنتها صغيرة — 1h ({cur[3]:+.2f}R) "
+              f"يبقى الأساس المُثبت الوحيد. لا نتداول الفريمات الأصغر.")
+    else:
+        print("\n⚠️ لا فريم بعيّنة كافية + توقّع موجب في هذه النافذة — لا قرار موثوق.")
+    print(
+        "\nℹ️ الفريم الأصغر أسرع للهدف لكن: (1) ضجيج أعلى، (2) الرسوم تأكل ميزته لأن "
+        "وقفه أضيق، (3) تاريخه المتاح قصير جدًا فالنتيجة غير ممثّلة. نتداول فقط ما "
+        "يثبت أفضليةً مقاسةً على عيّنة معقولة — لا نطارد سرعة بلا ميزة."
+    )
+    return 0
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description="باك-تِست لاستراتيجية بوت الصفقات.")
     p.add_argument("--market", "-m", choices=["crypto", "stocks", "forex", "all"], default="crypto")
@@ -2017,7 +2113,7 @@ def main(argv=None) -> int:
                  "stopbuffer", "diag", "framesweep", "breakout", "tfsweep",
                  "multitf", "profilter", "confluence", "smartmoney", "ictmeasure",
                  "ictconfirm", "levers", "warrior", "classical", "trailexample", "breakeven", "reversal", "fibonacci",
-                 "tca", "thresholds", "rrcmp"],
+                 "tca", "thresholds", "rrcmp", "smallframes"],
         default="signals",
         help="signals=إشارات شراء/بيع؛ prepump=ما قبل الاندفاع؛ "
         "trend=ارتداد داخل اتجاه صاعد؛ compare=قارن prepump مقابل trend؛ "
@@ -2084,6 +2180,8 @@ def main(argv=None) -> int:
         return threshold_cmp(args.source, args.timeframe)
     if args.strategy == "rrcmp":
         return rr_cmp(args.source, args.timeframe)
+    if args.strategy == "smallframes":
+        return smallframes(args.source, args.timeframe)
     if args.strategy == "breakout":
         return breakout_test(args.source, args.timeframe)
     return run(args.market, args.source, args.timeframe, args.strategy)
