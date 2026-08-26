@@ -2147,44 +2147,75 @@ def scaleout(source: str, timeframe: str) -> int:
         ("بيع 33% عند +1.5R", {"scale_out_r": 1.5, "scale_out_frac": 0.33}),
     ]
 
-    print("\n" + "=" * 74)
-    print(f"{'الصورة':>24} | {'صفقات':>6} | {'نجاح%':>6} | {'توقّع/R':>8} | {'إجمالي':>8}")
-    print("-" * 74)
-    base_exp = None
-    rows = []
-    for name, extra in variants:
-        tt = tw = 0
-        tr = 0.0
-        for s in series:
-            res = backtest_trend_pullback_series(s, regime=regime, **base_kw, **extra)
-            tt += res.n
-            tw += res.wins
-            tr += res.total_r
-        wr = (tw / tt * 100.0) if tt else 0.0
-        exp = (tr / tt) if tt else 0.0
-        if base_exp is None:
-            base_exp = exp
-        rows.append((name, tt, wr, exp, tr))
-        print(f"{name:>24} | {tt:>6} | {wr:>6.1f} | {exp:>+8.2f} | {tr:>+8.1f}")
-    print("=" * 74)
+    def run_panel(title, panel_kw, reg):
+        print("\n" + "=" * 74)
+        print(title)
+        print(f"{'الصورة':>24} | {'صفقات':>6} | {'نجاح%':>6} | {'توقّع/R':>8} | {'إجمالي':>8}")
+        print("-" * 74)
+        base_exp = None
+        rows = []
+        for name, extra in variants:
+            tt = tw = 0
+            tr = 0.0
+            for s in series:
+                res = backtest_trend_pullback_series(s, regime=reg, **panel_kw, **extra)
+                tt += res.n
+                tw += res.wins
+                tr += res.total_r
+            wr = (tw / tt * 100.0) if tt else 0.0
+            exp = (tr / tt) if tt else 0.0
+            if base_exp is None:
+                base_exp = exp
+            rows.append((name, tt, wr, exp, tr))
+            print(f"{name:>24} | {tt:>6} | {wr:>6.1f} | {exp:>+8.2f} | {tr:>+8.1f}")
+        print("=" * 74)
+        return base_exp, rows
 
-    # الحكم: أعلى توقّع بين الصور يتفوّق على الأساس بهامش واضح (≥0.03R) وعيّنة كافية
-    valid = [r for r in rows[1:] if r[1] >= 20]
-    if valid and base_exp is not None:
-        best = max(valid, key=lambda r: r[3])
-        if best[3] > base_exp + 0.03:
-            print(f"\n✅ «{best[0]}» يرفع التوقّع من {base_exp:+.2f}R إلى {best[3]:+.2f}R "
-                  f"({best[1]} صفقة) — مرشّح للتفعيل.")
+    # لوحة (أ): الإعداد الحيّ الكامل — يعكس صفقات البوت الفعلية (عيّنة أصغر لكنها الحقيقة).
+    a_base, a_rows = run_panel(
+        "(أ) الإعداد الحيّ الكامل — صفقات البوت الحقيقية", base_kw, regime)
+
+    # لوحة (ب): عيّنة كبيرة لعزل تأثير إدارة الخروج — نخفّف شرط الدخول (درجة≥0، بلا
+    # فلتر سوق/حجم) لتوليد مئات صفقات الارتداد داخل الاتجاه؛ الخروج الجزئي إدارةُ
+    # خروج، فتأثيره على توزيع R يُقاس بثقة على عيّنة كبيرة حتى بمدخل مخفّف.
+    big_kw = dict(
+        rr=float(getattr(config, "TREND_RR", 2.0)),
+        min_score=0.0,
+        require_ema200=True,
+        stop_buffer_atr=getattr(config, "TREND_STOP_BUFFER_ATR", 0.5),
+        trail_activate_r=getattr(config, "TREND_TRAIL_ACTIVATE_R", 0.0) or 0.0,
+        trail_atr=getattr(config, "TREND_TRAIL_ATR", 0.0) or 0.0,
+        target_at_resistance=getattr(config, "TREND_TARGET_AT_RESISTANCE", False),
+    )
+    b_base, b_rows = run_panel(
+        "(ب) عيّنة كبيرة (مدخل مخفّف) — قوّة إحصائية لإدارة الخروج", big_kw, None)
+
+    # الحكم يعتمد على اللوحة (ب) الكبيرة (≥100 صفقة) لأنها الموثوقة إحصائيًا،
+    # ونطلب أن توافقها اللوحة (أ) في الاتجاه (كلاهما يتحسّن) قبل التفعيل.
+    print("\n" + "#" * 74)
+    b_valid = [r for r in b_rows[1:] if r[1] >= 100]
+    if b_valid and b_base is not None:
+        b_best = max(b_valid, key=lambda r: r[3])
+        a_best = max(a_rows[1:], key=lambda r: r[3]) if len(a_rows) > 1 else None
+        a_agrees = a_best is not None and a_best[3] > (a_base or 0)
+        if b_best[3] > b_base + 0.03 and a_agrees:
+            print(f"✅ الخروج الجزئي يرفع التوقّع: العيّنة الكبيرة (ب) {b_base:+.2f}R → "
+                  f"{b_best[3]:+.2f}R عبر «{b_best[0]}» ({b_best[1]} صفقة)، واللوحة (أ) "
+                  f"توافق في الاتجاه — مرشّح قوي للتفعيل.")
+        elif b_best[3] > b_base + 0.03:
+            print(f"⚠️ العيّنة الكبيرة (ب) تُظهر تحسّنًا ({b_base:+.2f}R → {b_best[3]:+.2f}R) "
+                  f"لكن اللوحة الحيّة (أ) لا توافق بوضوح — مبشّر لكن ننتظر تأكيدًا.")
         else:
-            print(f"\nℹ️ لا صورة تتفوّق على الأساس ({base_exp:+.2f}R) بهامش واضح — "
-                  "الخروج الجزئي يقصّ الرابح الكبير بقدر ما يوسّد الخاسر، فالمحصّلة "
-                  "متعادلة. نبقى على الهدف الكامل + التتبّع (لا نعقّد بلا فائدة مقاسة).")
+            print(f"ℹ️ حتى على العيّنة الكبيرة (ب) لا صورة تتفوّق على الأساس "
+                  f"({b_base:+.2f}R) بهامش واضح — الخروج الجزئي يقصّ الرابح بقدر ما "
+                  f"يوسّد الخاسر، فالمحصّلة متعادلة. لا نفعّله.")
     else:
-        print("\n⚠️ العيّنة صغيرة — لا قرار موثوق في هذه النافذة.")
+        print("⚠️ حتى العيّنة الموسَّعة صغيرة — لا قرار موثوق (راجع بيانات المزوّد).")
+    print("#" * 74)
     print(
         "\nℹ️ الخروج الجزئي يرفع نسبة النجاح ويقلّل التذبذب لكنه *يقصّ* الحركة الكبيرة "
         "(الرابح الكامل 2R يصير 1.5R). يرفع التوقّع فقط لو الخسائر الموسَّدة تفوق "
-        "الربح المقصوص — وده اللي بنقيسه. على €250 التقسيم يزيد الرسوم أيضًا."
+        "الربح المقصوص. على €250 التقسيم يزيد الرسوم — نأخذه في الحسبان قبل التفعيل."
     )
     return 0
 
