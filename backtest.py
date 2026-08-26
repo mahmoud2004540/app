@@ -2101,6 +2101,94 @@ def smallframes(source: str, timeframe: str) -> int:
     return 0
 
 
+def scaleout(source: str, timeframe: str) -> int:
+    """
+    قياس «الخروج الجزئي» (Scale-out): بيع جزء عند +Nْ×R وترك الباقي يجري.
+
+    نقيس فوق الإعداد الحيّ الكامل الحالي (نفس فلاتر البوت + الهدف عند المقاومة +
+    التتبّع) على الكون الكامل. المقارنة *نظيفة*: الخروج الجزئي لا ينقل الوقف
+    للتعادل (رافعة قِسناها ورفضناها)، فالدخول والتوقيت والوقف/الهدف للباقي كلها
+    متطابقة مع الأساس — فيُعزَل تأثير الخروج الجزئي وحده. الصفّ الأول (بلا خروج
+    جزئي) هو الضابط؛ نفعّل صورةً فقط لو رفعت التوقّع بهامش واضح وعيّنة كافية.
+    """
+    symbols = resolve_symbols("crypto", "auto")
+    print(f"⏳ قياس الخروج الجزئي على {len(symbols)} عملة ({timeframe})...")
+
+    base_kw = dict(
+        rr=float(getattr(config, "TREND_RR", 2.0)),
+        min_score=float(getattr(config, "TREND_MIN_SCORE", 85)),
+        require_ema200=getattr(config, "TREND_REQUIRE_EMA200", True),
+        stop_buffer_atr=getattr(config, "TREND_STOP_BUFFER_ATR", 0.5),
+        rsi_max=getattr(config, "TREND_RSI_MAX", 68.0),
+        require_macd=getattr(config, "TREND_REQUIRE_MACD", True),
+        stoch_max=getattr(config, "TREND_STOCH_MAX", 70.0),
+        fib_min=getattr(config, "TREND_FIB_MIN", 0.5),
+        fib_max=getattr(config, "TREND_FIB_MAX", 0.786),
+        vol_surge_min=getattr(config, "TREND_VOL_SURGE_MIN", None),
+        target_at_resistance=getattr(config, "TREND_TARGET_AT_RESISTANCE", False),
+        trail_activate_r=getattr(config, "TREND_TRAIL_ACTIVATE_R", 0.0) or 0.0,
+        trail_atr=getattr(config, "TREND_TRAIL_ATR", 0.0) or 0.0,
+        min_dollar_vol=getattr(config, "MIN_DOLLAR_VOL", 0) or None,
+    )
+
+    series = fetch_many(symbols, "crypto", "auto", timeframe, limit=1000)
+    regime = None
+    try:
+        btc = fetch("BTC-USD", "crypto", "auto", timeframe, limit=1000)
+        regime = market_uptrend_map(btc, 50)
+    except Exception:  # noqa: BLE001
+        pass
+
+    variants = [
+        ("الأساس (بلا خروج جزئي)", {}),
+        ("بيع 50% عند +1R", {"scale_out_r": 1.0, "scale_out_frac": 0.5}),
+        ("بيع 50% عند +1.5R", {"scale_out_r": 1.5, "scale_out_frac": 0.5}),
+        ("بيع 33% عند +1R", {"scale_out_r": 1.0, "scale_out_frac": 0.33}),
+        ("بيع 33% عند +1.5R", {"scale_out_r": 1.5, "scale_out_frac": 0.33}),
+    ]
+
+    print("\n" + "=" * 74)
+    print(f"{'الصورة':>24} | {'صفقات':>6} | {'نجاح%':>6} | {'توقّع/R':>8} | {'إجمالي':>8}")
+    print("-" * 74)
+    base_exp = None
+    rows = []
+    for name, extra in variants:
+        tt = tw = 0
+        tr = 0.0
+        for s in series:
+            res = backtest_trend_pullback_series(s, regime=regime, **base_kw, **extra)
+            tt += res.n
+            tw += res.wins
+            tr += res.total_r
+        wr = (tw / tt * 100.0) if tt else 0.0
+        exp = (tr / tt) if tt else 0.0
+        if base_exp is None:
+            base_exp = exp
+        rows.append((name, tt, wr, exp, tr))
+        print(f"{name:>24} | {tt:>6} | {wr:>6.1f} | {exp:>+8.2f} | {tr:>+8.1f}")
+    print("=" * 74)
+
+    # الحكم: أعلى توقّع بين الصور يتفوّق على الأساس بهامش واضح (≥0.03R) وعيّنة كافية
+    valid = [r for r in rows[1:] if r[1] >= 20]
+    if valid and base_exp is not None:
+        best = max(valid, key=lambda r: r[3])
+        if best[3] > base_exp + 0.03:
+            print(f"\n✅ «{best[0]}» يرفع التوقّع من {base_exp:+.2f}R إلى {best[3]:+.2f}R "
+                  f"({best[1]} صفقة) — مرشّح للتفعيل.")
+        else:
+            print(f"\nℹ️ لا صورة تتفوّق على الأساس ({base_exp:+.2f}R) بهامش واضح — "
+                  "الخروج الجزئي يقصّ الرابح الكبير بقدر ما يوسّد الخاسر، فالمحصّلة "
+                  "متعادلة. نبقى على الهدف الكامل + التتبّع (لا نعقّد بلا فائدة مقاسة).")
+    else:
+        print("\n⚠️ العيّنة صغيرة — لا قرار موثوق في هذه النافذة.")
+    print(
+        "\nℹ️ الخروج الجزئي يرفع نسبة النجاح ويقلّل التذبذب لكنه *يقصّ* الحركة الكبيرة "
+        "(الرابح الكامل 2R يصير 1.5R). يرفع التوقّع فقط لو الخسائر الموسَّدة تفوق "
+        "الربح المقصوص — وده اللي بنقيسه. على €250 التقسيم يزيد الرسوم أيضًا."
+    )
+    return 0
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description="باك-تِست لاستراتيجية بوت الصفقات.")
     p.add_argument("--market", "-m", choices=["crypto", "stocks", "forex", "all"], default="crypto")
@@ -2113,7 +2201,7 @@ def main(argv=None) -> int:
                  "stopbuffer", "diag", "framesweep", "breakout", "tfsweep",
                  "multitf", "profilter", "confluence", "smartmoney", "ictmeasure",
                  "ictconfirm", "levers", "warrior", "classical", "trailexample", "breakeven", "reversal", "fibonacci",
-                 "tca", "thresholds", "rrcmp", "smallframes"],
+                 "tca", "thresholds", "rrcmp", "smallframes", "scaleout"],
         default="signals",
         help="signals=إشارات شراء/بيع؛ prepump=ما قبل الاندفاع؛ "
         "trend=ارتداد داخل اتجاه صاعد؛ compare=قارن prepump مقابل trend؛ "
@@ -2182,6 +2270,8 @@ def main(argv=None) -> int:
         return rr_cmp(args.source, args.timeframe)
     if args.strategy == "smallframes":
         return smallframes(args.source, args.timeframe)
+    if args.strategy == "scaleout":
+        return scaleout(args.source, args.timeframe)
     if args.strategy == "breakout":
         return breakout_test(args.source, args.timeframe)
     return run(args.market, args.source, args.timeframe, args.strategy)

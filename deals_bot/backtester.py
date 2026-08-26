@@ -357,6 +357,8 @@ def backtest_trend_pullback_series(
     max_ext_atr: Optional[float] = None,
     near_support_atr: Optional[float] = None,
     target_at_resistance: bool = False,
+    scale_out_r: float = 0.0,
+    scale_out_frac: float = 0.0,
 ) -> BacktestResult:
     """
     باك-تِست لاستراتيجية «الارتداد داخل الاتجاه» (Long أو Short).
@@ -592,6 +594,12 @@ def backtest_trend_pullback_series(
         peak = entry                               # أقصى سعر لصالح الصفقة (للـtrailing)
         trail_on = False
         adverse = 0.0                              # أقصى تحرّك عكس الصفقة (سعر)
+        # --- خروج جزئي (Scale-out) — long فقط: نبيع جزءًا عند +scale_out_r ونبنك
+        # ربحه، وننقل وقف الباقي لنقطة الدخول، والباقي يجري بالتتبّع/الهدف كالمعتاد.
+        do_scale = (scale_out_r > 0 and 0 < scale_out_frac < 1 and not is_short)
+        scaled = False
+        banked_r = 0.0                             # R المُبنَّك من الجزء المُباع
+        rem_frac = 1.0                             # الجزء المتبقّي من الصفقة
         be_level = (entry - breakeven_r * risk if is_short
                     else entry + breakeven_r * risk) if breakeven_r > 0 else None
         j = i + 1
@@ -616,10 +624,21 @@ def backtest_trend_pullback_series(
                     moved = True
             else:
                 if lo <= cur_stop:                # long: الوقف تحت — الأسوأ أولًا
-                    outcome = (cur_stop, cur_stop > entry)
+                    leg_r = (cur_stop - entry) / risk
+                    total_r = banked_r + rem_frac * leg_r
+                    outcome = (cur_stop, total_r > 0)
                     break
+                # خروج جزئي عند +scale_out_r: بنك الجزء، والباقي يجري بنفس الوقف/الهدف
+                # (بلا نقل للتعادل — ده رافعة منفصلة قِسناها) فيبقى التوقيت والدخول متطابقًا
+                # مع الأساس ونعزل تأثير الخروج الجزئي وحده بمقارنة نظيفة.
+                if do_scale and not scaled and hi >= entry + scale_out_r * risk:
+                    banked_r = scale_out_frac * scale_out_r
+                    rem_frac = 1.0 - scale_out_frac
+                    scaled = True
                 if hi >= target:
-                    outcome = (target, True)
+                    leg_r = (target - entry) / risk
+                    total_r = banked_r + rem_frac * leg_r
+                    outcome = (target, total_r > 0)
                     break
                 if be_level is not None and not moved and hi >= be_level:
                     moved = True
@@ -636,10 +655,17 @@ def backtest_trend_pullback_series(
             j += 1
 
         if outcome is None:
-            i += 1
-            continue
-        exit_price, won = outcome
-        result_r = ((entry - exit_price) if is_short else (exit_price - entry)) / risk
+            # صفقة لم تُغلق حتى نهاية البيانات: لو كنا بنكنا جزءًا بالفعل (scale-out)
+            # نُغلق الباقي بآخر سعر متاح حتى لا نضيّع الربح المُحقَّق؛ وإلا نتجاهلها.
+            if scaled and rem_frac > 0:
+                outcome = (candles[n - 1].close, True)
+            else:
+                i += 1
+                continue
+        exit_price, _won_hint = outcome
+        leg_r = ((entry - exit_price) if is_short else (exit_price - entry)) / risk
+        result_r = banked_r + rem_frac * leg_r     # يشمل الجزء المُبنَّك (scale-out)
+        won = result_r > 0
         mae_r = max(0.0, adverse) / risk           # الانعكاس بمضاعفات المخاطرة
         # طبقة تأكيد ICT (اختيارية): كم تأكيد ICT يدعم هذه الإشارة عند دخولها؟
         # عتبة 200 شمعة 1H تكفي لإعادة بناء 4H (≥50) واليومي كإضافة — عشان نقيس على

@@ -138,6 +138,31 @@ def test_classical_support_gate_selective():
     assert res2.n == n_base
 
 
+def test_scale_out_keeps_entries_and_caps_full_winner():
+    """الخروج الجزئي: نفس عدد الصفقات (نفس الدخول/التوقيت) والرابح الكامل 2R يصير 1.5R."""
+    s = _firing_series()
+    base = backtest_trend_pullback_series(s, min_score=0.0, rr=2.0)
+    scaled = backtest_trend_pullback_series(
+        s, min_score=0.0, rr=2.0, scale_out_r=1.0, scale_out_frac=0.5)
+    assert scaled.n == base.n, "الخروج الجزئي يجب ألا يغيّر عدد الصفقات (نفس الدخول/الوقف)"
+    for tb, ts in zip(base.trades, scaled.trades):
+        if abs(tb.result_r - 2.0) < 1e-6:            # رابح كامل 2R → 0.5*1 + 0.5*2 = 1.5R
+            assert abs(ts.result_r - 1.5) < 1e-6
+        if abs(tb.result_r + 1.0) < 1e-6:            # خاسر: إمّا −1R (ما لمسش) أو 0R (لمس ثم رجع)
+            assert abs(ts.result_r + 1.0) < 1e-6 or abs(ts.result_r) < 1e-6
+
+
+def test_scale_out_ignored_for_short_and_zero_frac():
+    """الخروج الجزئي long-only، ويُتجاهل عند frac=0 أو frac=1 (لا صورة نصفية)."""
+    s = _firing_series()
+    base = backtest_trend_pullback_series(s, min_score=0.0, rr=2.0)
+    # frac=0 → لا تغيير
+    z = backtest_trend_pullback_series(s, min_score=0.0, rr=2.0,
+                                       scale_out_r=1.0, scale_out_frac=0.0)
+    assert z.n == base.n
+    assert abs(z.total_r - base.total_r) < 1e-9
+
+
 def test_nearest_resistance_target_and_detector_override():
     # قمم متساوية عند ~120 (مقاومة أفقية)، دخول عند 100، مخاطرة 5 → مقاومة فوق 107.5
     highs = [100, 110, 120, 110, 100, 110, 120.1, 110]
