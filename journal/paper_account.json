@@ -1,8 +1,8 @@
 {
   "equity": 994.8372606417716,
   "starting_equity": 1000.0,
-  "day": 20690,
-  "day_start_equity": 1000.0,
+  "day": 20691,
+  "day_start_equity": 994.8372606417716,
   "positions": [
     {
       "symbol": "CAP-USD",
