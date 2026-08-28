@@ -1,15 +1,26 @@
 name: تنبيه فوري عند ظهور صفقة
 
-# تنبيه شبه-فوري: يفحص كل 30 دقيقة، لكنه رخيص جدًا في السوق الهابط
+# تنبيه شبه-فوري: يفحص عدّة مرّات في الساعة، لكنه رخيص جدًا في السوق الهابط
 # (يخرج بعد فحص البيتكوين فقط في ثوانٍ)، ولا يرسل إلا عند وجود صفقة مؤكّدة.
+#
+# لماذا دقائق فردية متعدّدة بدل "كل 30 دقيقة عند :00/:30"؟
+# مُجدوِل GitHub يتخطّى كثيرًا من التشغيلات المجدولة عند الدقيقة :00 (وقت ذروة
+# الضغط حيث تنطلق كرونات العالم كله معًا)، فتضيع إشارات المساء. الحل: 4 محاولات
+# في الساعة عند دقائق فردية بعيدة عن :00 — فحتى لو تخطّى GitHub بعضها، تكفي واحدة
+# ناجحة كل ساعة لالتقاط أي إعداد جديد. آمن ضد التكرار: نفس الإعداد لا يُعاد إرساله
+# خلال SETUP_RESEND_HOURS (حالة محفوظة في journal/sent_setups.json).
 on:
   schedule:
-    - cron: "*/30 * * * *"
+    - cron: "9,24,39,54 * * * *"
   workflow_dispatch:
 
 concurrency:
   group: entry-alert
   cancel-in-progress: false
+
+# صلاحية الكتابة لحفظ حالة «المُرسَل» (منع التكرار) في المستودع
+permissions:
+  contents: write
 
 jobs:
   alert:
@@ -35,3 +46,24 @@ jobs:
           TIMEFRAME: "1h"
           ALERT_ONLY: "1"
         run: python send_digest.py
+
+      # احفظ حالة «المُرسَل» (منع التكرار) حتى لا يتكرّر التنبيه مع التشغيل المتكرّر.
+      # دفع مرن: لو الفرع اتحرّك (تشغيل آخر/دفع متزامن) نعيد الأساس ثم ندفع — إضافة
+      # لا يجب أن تُفشِل التشغيل لو تعذّر الدفع.
+      - name: حفظ حالة الإرسال في المستودع
+        run: |
+          if [ -n "$(git status --porcelain journal/)" ]; then
+            git config user.name "trading-bot"
+            git config user.email "bot@users.noreply.github.com"
+            git add journal/
+            git commit -m "chore(journal): update sent-setups state [skip ci]"
+            for attempt in 1 2 3; do
+              if git push origin "HEAD:${GITHUB_REF_NAME}"; then
+                echo "✅ حُفظت حالة الإرسال."; break
+              fi
+              echo "↻ الفرع اتحرّك — إعادة الأساس ثم محاولة الدفع ($attempt)..."
+              git pull --rebase origin "${GITHUB_REF_NAME}" || true
+            done || true
+          else
+            echo "لا تغييرات في حالة الإرسال."
+          fi
