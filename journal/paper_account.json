@@ -1,39 +1,9 @@
 {
-  "equity": 994.8372606417716,
+  "equity": 999.7438838159569,
   "starting_equity": 1000.0,
-  "day": 20692,
+  "day": 20693,
   "day_start_equity": 994.8372606417716,
   "positions": [
-    {
-      "symbol": "CAP-USD",
-      "market": "crypto",
-      "direction": "BUY",
-      "entry": 0.069604785,
-      "stop": 0.0655504054350948,
-      "target": 0.07760918912981042,
-      "qty": 1186.29873369,
-      "opened_ts": 1787659200.0,
-      "fees_paid": 0.08257206830426472,
-      "ai_score": 85.2,
-      "atr0": 0.0,
-      "risk0": 0.0,
-      "peak": 0.0
-    },
-    {
-      "symbol": "00-USD",
-      "market": "crypto",
-      "direction": "BUY",
-      "entry": 0.01593798501,
-      "stop": 0.01047634747590788,
-      "target": 0.02683736504818424,
-      "qty": 905.49855026,
-      "opened_ts": 1787616000.0,
-      "fees_paid": 0.014431822320620612,
-      "ai_score": 86.0,
-      "atr0": 0.0,
-      "risk0": 0.0,
-      "peak": 0.0
-    },
     {
       "symbol": "IMU-USD",
       "market": "crypto",
@@ -63,6 +33,32 @@
       "reason": "stop",
       "opened_ts": 1787677200.0,
       "closed_ts": 1787659200.0
+    },
+    {
+      "symbol": "CAP-USD",
+      "direction": "BUY",
+      "entry": 0.069604785,
+      "exit": 0.06551763023237725,
+      "qty": 1186.29873369,
+      "pnl": -4.9263,
+      "fees_paid": 0.1603,
+      "result_r": -1.024,
+      "reason": "stop",
+      "opened_ts": 1787659200.0,
+      "closed_ts": 1787875200.0
+    },
+    {
+      "symbol": "00-USD",
+      "direction": "BUY",
+      "entry": 0.01593798501,
+      "exit": 0.02682394636566015,
+      "qty": 905.49855026,
+      "pnl": 9.8329,
+      "fees_paid": 0.0387,
+      "result_r": 1.988,
+      "reason": "target",
+      "opened_ts": 1787616000.0,
+      "closed_ts": 1787875200.0
     }
   ]
 }
