@@ -102,6 +102,49 @@ def render(account, m, recent) -> str:
     dl = getattr(config, "MAX_DAILY_LOSS_PCT", 0.015) * 100
     cl = getattr(config, "MAX_CONSECUTIVE_LOSSES", 3)
     rr = getattr(config, "MIN_RISK_REWARD", 2.0)
+    cap0 = m["starting_equity"] or getattr(config, "ACCOUNT_BALANCE", 250.0)
+
+    # قسم «بياناتي»: العميل يُدخل رأس ماله ونسبة مخاطرته، تُحفظ في المتصفّح
+    # (localStorage) فتبقى موجودة بعد إغلاق/فتح الصفحة، وتُحدَّث الأرقام المشتقّة
+    # فورًا أثناء الكتابة بلا أي إعادة تحميل للصفحة.
+    mydata_card = f"""
+  <section class="card" id="myData">
+    <h2>بياناتي <span class="badge-proven">تُحفَظ تلقائيًا</span></h2>
+    <div class="cols">
+      <div class="rows">
+        <label class="row"><span class="k">رأس المال</span>
+          <input id="inCapital" class="inp" type="number" min="0" step="1" value="{cap0:.0f}" inputmode="decimal"></label>
+        <label class="row"><span class="k">المخاطرة لكل صفقة (%)</span>
+          <input id="inRisk" class="inp" type="number" min="0" step="0.1" value="{rp:.1f}" inputmode="decimal"></label>
+      </div>
+      <div class="rows">
+        <div class="row"><span class="k">قيمة المخاطرة لكل صفقة</span><span class="v" id="outRiskAmt">—</span></div>
+        <div class="row"><span class="k">أقصى خسارة يومية</span><span class="v" id="outDailyAmt">—</span></div>
+        <div class="row"><span class="k"></span><span class="v muted" id="savedNote" style="font-size:.78rem;color:var(--muted)"></span></div>
+      </div>
+    </div>
+  </section>"""
+
+    # سكربت الحفظ الحيّ (localStorage): يستعيد القيم عند الفتح، ويحفظ ويُعيد الحساب
+    # لحظة الكتابة — كله بلا سيرفر وبلا رفريش. مغلّف بـtry/catch (وضع التصفّح الخاص).
+    mydata_script = (
+        "<script>(function(){"
+        "var KEY='botClientData_v1';"
+        "var cap=document.getElementById('inCapital'),rk=document.getElementById('inRisk');"
+        "var oR=document.getElementById('outRiskAmt'),oD=document.getElementById('outDailyAmt'),note=document.getElementById('savedNote');"
+        "var DL=__DL0__;"
+        "function f(n){return (isFinite(n)?n:0).toLocaleString('en-US',{maximumFractionDigits:2});}"
+        "function calc(){var c=parseFloat(cap.value)||0,r=parseFloat(rk.value)||0;"
+        "oR.textContent=f(c*r/100);oD.textContent=f(c*DL/100);}"
+        "function save(){try{localStorage.setItem(KEY,JSON.stringify({cap:cap.value,risk:rk.value}));"
+        "if(note){note.textContent='\\u2705 \\u0645\\u062d\\u0641\\u0648\\u0638 \\u062a\\u0644\\u0642\\u0627\\u0626\\u064a\\u064b\\u0627';}}"
+        "catch(e){if(note){note.textContent='\\u26a0\\ufe0f \\u0627\\u0644\\u0645\\u062a\\u0635\\u0641\\u0651\\u062d \\u064a\\u0645\\u0646\\u0639 \\u0627\\u0644\\u062d\\u0641\\u0638';}}}"
+        "function load(){try{var s=localStorage.getItem(KEY);if(s){var d=JSON.parse(s);"
+        "if(d.cap!=null&&d.cap!=='')cap.value=d.cap;if(d.risk!=null&&d.risk!=='')rk.value=d.risk;}}catch(e){}}"
+        "load();calc();"
+        "[cap,rk].forEach(function(el){el.addEventListener('input',function(){calc();save();});});"
+        "})();</script>"
+    ).replace("__DL0__", f"{dl:.4f}")
 
     return f"""<!doctype html>
 <html lang="ar" dir="rtl">
@@ -188,6 +231,12 @@ td.empty {{ text-align:center; color:var(--muted); padding:20px; }}
 footer {{ margin-top:28px; color:var(--muted); font-size:.78rem; text-align:center; line-height:1.7; }}
 .badge-proven {{ display:inline-block; font-size:.72rem; font-weight:700; color:var(--accent);
   border:1px solid color-mix(in srgb,var(--accent) 40%,var(--border)); border-radius:6px; padding:2px 7px; }}
+label.row {{ cursor:text; }}
+.inp {{ width:130px; max-width:48%; text-align:end; font-family:ui-monospace,Menlo,monospace;
+  font-variant-numeric:tabular-nums; font-size:.95rem; font-weight:600; color:var(--text);
+  background:var(--surface2); border:1px solid var(--border); border-radius:9px; padding:7px 10px; }}
+.inp:focus {{ outline:none; border-color:var(--accent);
+  box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 20%,transparent); }}
 </style>
 </head>
 <body>
@@ -236,6 +285,8 @@ footer {{ margin-top:28px; color:var(--muted); font-size:.78rem; text-align:cent
     </div>
   </section>
 
+  {mydata_card}
+
   <section class="card">
     <h2>الصفقات المفتوحة</h2>
     <div class="tablewrap"><table>
@@ -257,6 +308,7 @@ footer {{ margin-top:28px; color:var(--muted); font-size:.78rem; text-align:cent
     التداول الحقيقي مُعطَّل بالتصميم؛ كل الأرقام من التنفيذ الورقي والباك-تِست.
   </footer>
 </div>
+{mydata_script}
 </body>
 </html>"""
 
