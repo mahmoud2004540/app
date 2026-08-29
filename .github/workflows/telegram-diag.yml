@@ -1,0 +1,24 @@
+name: تشخيص تيليجرام
+
+# أداة تشخيص يدوية فقط: تكشف هوية البوت والشات الذي تصله الرسائل فعلًا، وتبعت
+# رسالة اختبار حيّة — لتحديد سبب عدم استلام المستخدم رغم أن اللوج يقول «تم الإرسال».
+on:
+  workflow_dispatch:
+
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    steps:
+      - name: تنزيل الكود
+        uses: actions/checkout@v4
+
+      - name: تجهيز بايثون
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: تشخيص + رسالة اختبار
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python telegram_diag.py
