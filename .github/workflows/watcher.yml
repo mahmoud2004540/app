@@ -1,0 +1,67 @@
+name: مراقب مستمر للصفقات
+
+# لماذا هذا الـworkflow؟
+# مُجدوِل GitHub غير موثوق: يرمي معظم التشغيلات المجدولة (رأينا تفعيل ~1 من كل 36).
+# فبدل الاعتماد على GitHub ليشغّلنا كل 15 دقيقة، نشغّل *تشغيلة واحدة تعيش ~5.5 ساعة*
+# وتفحص داخليًا كل 15 دقيقة بنفسها. يكفي أن يفعّلنا GitHub *مرّة كل عدة ساعات* لتبقى
+# التغطية شبه مستمرّة. cancel-in-progress=true: أي تفعيل جديد يستبدل القديم بسلاسة.
+on:
+  schedule:
+    - cron: "26 * * * *"     # محاولة كل ساعة؛ يكفي أن تنجح واحدة كل ≤5.5 ساعة
+  workflow_dispatch:
+
+concurrency:
+  group: watcher
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350       # ~5.8 ساعة (أقل من حدّ GitHub 6 ساعات)
+    steps:
+      - name: تنزيل الكود
+        uses: actions/checkout@v4
+
+      - name: تجهيز بايثون
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: تثبيت المتطلبات
+        run: pip install -r requirements.txt
+
+      - name: حلقة مراقبة كل 15 دقيقة (~5.5 ساعة)
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          MARKETS: "crypto"
+          TIMEFRAME: "1h"
+          ALERT_ONLY: "1"
+        run: |
+          git config user.name "trading-bot"
+          git config user.email "bot@users.noreply.github.com"
+          END=$(( $(date +%s) + 5*3600 + 1800 ))   # نخرج بعد 5.5 ساعة (قبل مهلة الـjob)
+          iter=0
+          while [ "$(date +%s)" -lt "$END" ]; do
+            iter=$((iter+1))
+            echo "──── دورة $iter — $(date -u '+%Y-%m-%d %H:%M:%S UTC') ────"
+            # الفحص + الإرسال (لا يُرسِل إلا عند صفقة جديدة؛ منع التكرار محفوظ في journal/)
+            python send_digest.py || echo "⚠️ دورة فشلت — نكمل"
+            # احفظ حالة «المُرسَل» حتى لا يتكرّر التنبيه لو أُعيد تشغيل المراقب
+            if [ -n "$(git status --porcelain journal/)" ]; then
+              git add journal/
+              git commit -m "chore(journal): watcher dedup state [skip ci]" || true
+              for attempt in 1 2 3; do
+                if git push origin "HEAD:${GITHUB_REF_NAME}"; then break; fi
+                git pull --rebase origin "${GITHUB_REF_NAME}" || true
+              done || true
+            fi
+            # لو بقي أقل من 15 دقيقة على نهاية النافذة، اخرج بدل نوم ناقص
+            [ "$(( END - $(date +%s) ))" -lt 900 ] && break
+            sleep 900   # 15 دقيقة
+          done
+          echo "انتهت نافذة المراقبة — GitHub سيعيد التشغيل من الكرون/التفعيل التالي."
