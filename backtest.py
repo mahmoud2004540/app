@@ -2220,6 +2220,104 @@ def scaleout(source: str, timeframe: str) -> int:
     return 0
 
 
+def fasttrades(source: str, timeframe: str) -> int:
+    """
+    قياس «الصفقات السريعة بنفس التوقّع»: هل تصفية الإعداد الرابح إلى الصفقات التي
+    يُقدَّر أن تصل هدفها خلال اليوم (≤24 ساعة) تحافظ على التوقّع أم تضرّه؟
+
+    نشغّل نفس الإعداد الحيّ الكامل على فريمات البوت (TREND_TIMEFRAMES) ونسجّل لكل
+    صفقة زمنها المقدّر عند الدخول (نفس معادلة البوت)، ثم نقارن توقّع «كل الصفقات»
+    مقابل «خلال اليوم فقط». لو السريعة تحافظ على التوقّع → نقدر نبرزها بأمان.
+    """
+    from deals_bot.analyzer import TF_HOURS
+
+    frames = getattr(config, "TREND_TIMEFRAMES", ["6h", "1d"])
+    symbols = resolve_symbols("crypto", "auto")
+    print(f"⏳ قياس الصفقات السريعة على فريمات البوت {frames} — {len(symbols)} عملة...")
+
+    base_kw = dict(
+        rr=float(getattr(config, "TREND_RR", 2.0)),
+        min_score=float(getattr(config, "TREND_MIN_SCORE", 85)),
+        require_ema200=getattr(config, "TREND_REQUIRE_EMA200", True),
+        stop_buffer_atr=getattr(config, "TREND_STOP_BUFFER_ATR", 0.5),
+        rsi_max=getattr(config, "TREND_RSI_MAX", 68.0),
+        require_macd=getattr(config, "TREND_REQUIRE_MACD", True),
+        stoch_max=getattr(config, "TREND_STOCH_MAX", 70.0),
+        fib_min=getattr(config, "TREND_FIB_MIN", 0.5),
+        fib_max=getattr(config, "TREND_FIB_MAX", 0.786),
+        vol_surge_min=getattr(config, "TREND_VOL_SURGE_MIN", None),
+        target_at_resistance=getattr(config, "TREND_TARGET_AT_RESISTANCE", False),
+        trail_activate_r=getattr(config, "TREND_TRAIL_ACTIVATE_R", 0.0) or 0.0,
+        trail_atr=getattr(config, "TREND_TRAIL_ATR", 0.0) or 0.0,
+        min_dollar_vol=getattr(config, "MIN_DOLLAR_VOL", 0) or None,
+    )
+
+    all_trades = []
+    for tf in frames:
+        try:
+            series = fetch_many(symbols, "crypto", "auto", tf, limit=1000)
+        except Exception as exc:  # noqa: BLE001
+            print(f"  {tf}: تعذّر الجلب: {exc}")
+            continue
+        regime = None
+        try:
+            btc = fetch("BTC-USD", "crypto", "auto", tf, limit=1000)
+            regime = market_uptrend_map(btc, 50)
+        except Exception:  # noqa: BLE001
+            pass
+        tfh = TF_HOURS.get(tf, 1.0)
+        for s in series:
+            res = backtest_trend_pullback_series(s, regime=regime, tf_hours=tfh, **base_kw)
+            all_trades.extend(res.trades)
+
+    if not all_trades:
+        print("لا صفقات لقياسها في هذه النافذة.")
+        return 0
+
+    def stats(trades):
+        n = len(trades)
+        if not n:
+            return 0, 0.0, 0.0
+        wins = sum(1 for t in trades if t.won)
+        tr = sum(t.result_r for t in trades)
+        return n, wins / n * 100.0, tr / n
+
+    buckets = [
+        ("كل الصفقات (الأساس)", all_trades),
+        ("⚡ خلال ساعات (≤8س)", [t for t in all_trades if 0 < t.eta_hours <= 8]),
+        ("📅 خلال اليوم (≤24س)", [t for t in all_trades if 0 < t.eta_hours <= 24]),
+        ("🕰️ أطول (>24س)", [t for t in all_trades if t.eta_hours > 24]),
+    ]
+
+    print("\n" + "=" * 70)
+    print(f"{'الفئة':>22} | {'صفقات':>6} | {'نجاح%':>6} | {'توقّع/R':>8} | {'% من الكل':>9}")
+    print("-" * 70)
+    base_n, _, base_exp = stats(all_trades)
+    for name, tt in buckets:
+        n, wr, exp = stats(tt)
+        share = (n / base_n * 100.0) if base_n else 0.0
+        print(f"{name:>22} | {n:>6} | {wr:>6.1f} | {exp:>+8.2f} | {share:>8.0f}%")
+    print("=" * 70)
+
+    # الحكم: هل «خلال اليوم» يحافظ على التوقّع (≥ الأساس ناقص هامش صغير) بعيّنة كافية؟
+    day = [t for t in all_trades if 0 < t.eta_hours <= 24]
+    dn, dwr, dexp = stats(day)
+    print()
+    if dn < 20:
+        print(f"⚠️ «خلال اليوم» عيّنتها صغيرة ({dn} صفقة) — لا حكم موثوق في هذه النافذة.")
+    elif dexp >= base_exp - 0.02:
+        print(f"✅ الصفقات «خلال اليوم» تحافظ على التوقّع: {dexp:+.2f}R مقابل {base_exp:+.2f}R "
+              f"للأساس ({dn} صفقة = {dn/base_n*100:.0f}% من الفرص). يمكن إبرازها/تصفيتها بأمان.")
+    else:
+        print(f"❌ الصفقات «خلال اليوم» توقّعها أقل ({dexp:+.2f}R مقابل {base_exp:+.2f}R) — "
+              f"التصفية للسرعة تضرّ التوقّع. لا نصفّي على السرعة، ونُبقي كل الصفقات.")
+    print(
+        "\nℹ️ «الزمن المقدّر» تقديري عند الدخول (مسافة الهدف ÷ ATR × ساعات الفريم) — نفس ما "
+        "يعرضه البوت. الهدف: صفقات أسرع دون تضحية بالتوقّع؛ نصفّي فقط إن حافظت السرعة عليه."
+    )
+    return 0
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description="باك-تِست لاستراتيجية بوت الصفقات.")
     p.add_argument("--market", "-m", choices=["crypto", "stocks", "forex", "all"], default="crypto")
@@ -2232,7 +2330,7 @@ def main(argv=None) -> int:
                  "stopbuffer", "diag", "framesweep", "breakout", "tfsweep",
                  "multitf", "profilter", "confluence", "smartmoney", "ictmeasure",
                  "ictconfirm", "levers", "warrior", "classical", "trailexample", "breakeven", "reversal", "fibonacci",
-                 "tca", "thresholds", "rrcmp", "smallframes", "scaleout"],
+                 "tca", "thresholds", "rrcmp", "smallframes", "scaleout", "fasttrades"],
         default="signals",
         help="signals=إشارات شراء/بيع؛ prepump=ما قبل الاندفاع؛ "
         "trend=ارتداد داخل اتجاه صاعد؛ compare=قارن prepump مقابل trend؛ "
@@ -2303,6 +2401,8 @@ def main(argv=None) -> int:
         return smallframes(args.source, args.timeframe)
     if args.strategy == "scaleout":
         return scaleout(args.source, args.timeframe)
+    if args.strategy == "fasttrades":
+        return fasttrades(args.source, args.timeframe)
     if args.strategy == "breakout":
         return breakout_test(args.source, args.timeframe)
     return run(args.market, args.source, args.timeframe, args.strategy)

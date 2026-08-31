@@ -26,6 +26,7 @@ from .analyzer import (
     detect_early_pump,
     detect_pre_pump,
     detect_trend_pullback,
+    estimate_eta_hours,
 )
 from .models import Series
 
@@ -77,6 +78,8 @@ class Trade:
     won: bool
     mae_r: float = 0.0       # أقصى تحرّك عكس الصفقة قبل خروجها (بمضاعفات R) — «الانعكاس»
     ict_confirm: int = -1    # عدد تأكيدات ICT عند الدخول (0..6)؛ -1 = لم يُحسب
+    eta_hours: float = 0.0   # الزمن المقدّر للوصول للهدف عند الدخول (ساعات، تقديري)
+    bars_held: int = 0       # عدد الشموع حتى الخروج فعليًا (المدة الحقيقية)
 
 
 @dataclass
@@ -359,6 +362,7 @@ def backtest_trend_pullback_series(
     target_at_resistance: bool = False,
     scale_out_r: float = 0.0,
     scale_out_frac: float = 0.0,
+    tf_hours: float = 1.0,
 ) -> BacktestResult:
     """
     باك-تِست لاستراتيجية «الارتداد داخل الاتجاه» (Long أو Short).
@@ -682,9 +686,13 @@ def backtest_trend_pullback_series(
                 conf, _got = ict_confirmations(d1, h4, h1)
             except Exception:  # noqa: BLE001 - التأكيد إضافة، لا يُفشل القياس
                 conf = -1
+        # الزمن المقدّر للهدف عند الدخول (نفس معادلة البوت الحيّ) + المدة الفعلية
+        eta_h = estimate_eta_hours(entry, target, atr_fixed, tf_hours) or 0.0
+        bars_held = j - i
         trades.append(
             Trade(series.symbol, side, entry, stop, target, exit_price,
-                  result_r, won, mae_r=mae_r, ict_confirm=conf)
+                  result_r, won, mae_r=mae_r, ict_confirm=conf,
+                  eta_hours=eta_h, bars_held=bars_held)
         )
         i = j + 1
 
