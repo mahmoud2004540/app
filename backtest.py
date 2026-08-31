@@ -2252,28 +2252,6 @@ def fasttrades(source: str, timeframe: str) -> int:
         min_dollar_vol=getattr(config, "MIN_DOLLAR_VOL", 0) or None,
     )
 
-    all_trades = []
-    for tf in frames:
-        try:
-            series = fetch_many(symbols, "crypto", "auto", tf, limit=1000)
-        except Exception as exc:  # noqa: BLE001
-            print(f"  {tf}: تعذّر الجلب: {exc}")
-            continue
-        regime = None
-        try:
-            btc = fetch("BTC-USD", "crypto", "auto", tf, limit=1000)
-            regime = market_uptrend_map(btc, 50)
-        except Exception:  # noqa: BLE001
-            pass
-        tfh = TF_HOURS.get(tf, 1.0)
-        for s in series:
-            res = backtest_trend_pullback_series(s, regime=regime, tf_hours=tfh, **base_kw)
-            all_trades.extend(res.trades)
-
-    if not all_trades:
-        print("لا صفقات لقياسها في هذه النافذة.")
-        return 0
-
     def stats(trades):
         n = len(trades)
         if not n:
@@ -2282,38 +2260,84 @@ def fasttrades(source: str, timeframe: str) -> int:
         tr = sum(t.result_r for t in trades)
         return n, wins / n * 100.0, tr / n
 
-    buckets = [
-        ("كل الصفقات (الأساس)", all_trades),
-        ("⚡ خلال ساعات (≤8س)", [t for t in all_trades if 0 < t.eta_hours <= 8]),
-        ("📅 خلال اليوم (≤24س)", [t for t in all_trades if 0 < t.eta_hours <= 24]),
-        ("🕰️ أطول (>24س)", [t for t in all_trades if t.eta_hours > 24]),
-    ]
+    def collect(panel_kw, reg_on):
+        pooled = []
+        for tf in frames:
+            try:
+                series = fetch_many(symbols, "crypto", "auto", tf, limit=1000)
+            except Exception as exc:  # noqa: BLE001
+                print(f"  {tf}: تعذّر الجلب: {exc}")
+                continue
+            regime = None
+            if reg_on:
+                try:
+                    btc = fetch("BTC-USD", "crypto", "auto", tf, limit=1000)
+                    regime = market_uptrend_map(btc, 50)
+                except Exception:  # noqa: BLE001
+                    pass
+            tfh = TF_HOURS.get(tf, 1.0)
+            for s in series:
+                res = backtest_trend_pullback_series(
+                    s, regime=regime, tf_hours=tfh, **panel_kw)
+                pooled.extend(res.trades)
+        return pooled
 
-    print("\n" + "=" * 70)
-    print(f"{'الفئة':>22} | {'صفقات':>6} | {'نجاح%':>6} | {'توقّع/R':>8} | {'% من الكل':>9}")
-    print("-" * 70)
-    base_n, _, base_exp = stats(all_trades)
-    for name, tt in buckets:
-        n, wr, exp = stats(tt)
-        share = (n / base_n * 100.0) if base_n else 0.0
-        print(f"{name:>22} | {n:>6} | {wr:>6.1f} | {exp:>+8.2f} | {share:>8.0f}%")
-    print("=" * 70)
+    def panel(title, trades):
+        print("\n" + "=" * 70)
+        print(title)
+        print(f"{'الفئة':>22} | {'صفقات':>6} | {'نجاح%':>6} | {'توقّع/R':>8} | {'% من الكل':>9}")
+        print("-" * 70)
+        base_n, _, base_exp = stats(trades)
+        for name, sub in [
+            ("كل الصفقات (الأساس)", trades),
+            ("⚡ خلال ساعات (≤8س)", [t for t in trades if 0 < t.eta_hours <= 8]),
+            ("📅 خلال اليوم (≤24س)", [t for t in trades if 0 < t.eta_hours <= 24]),
+            ("🕰️ أطول (>24س)", [t for t in trades if t.eta_hours > 24]),
+        ]:
+            n, wr, exp = stats(sub)
+            share = (n / base_n * 100.0) if base_n else 0.0
+            print(f"{name:>22} | {n:>6} | {wr:>6.1f} | {exp:>+8.2f} | {share:>8.0f}%")
+        print("=" * 70)
+        return base_n, base_exp
 
-    # الحكم: هل «خلال اليوم» يحافظ على التوقّع (≥ الأساس ناقص هامش صغير) بعيّنة كافية؟
-    day = [t for t in all_trades if 0 < t.eta_hours <= 24]
-    dn, dwr, dexp = stats(day)
-    print()
-    if dn < 20:
-        print(f"⚠️ «خلال اليوم» عيّنتها صغيرة ({dn} صفقة) — لا حكم موثوق في هذه النافذة.")
-    elif dexp >= base_exp - 0.02:
-        print(f"✅ الصفقات «خلال اليوم» تحافظ على التوقّع: {dexp:+.2f}R مقابل {base_exp:+.2f}R "
-              f"للأساس ({dn} صفقة = {dn/base_n*100:.0f}% من الفرص). يمكن إبرازها/تصفيتها بأمان.")
+    # لوحة (أ): الإعداد الحيّ الكامل — صفقات البوت الحقيقية (عيّنة أصغر لكنها الحقيقة)
+    a_trades = collect(base_kw, reg_on=True)
+    if a_trades:
+        panel("(أ) الإعداد الحيّ الكامل — صفقات البوت الحقيقية", a_trades)
     else:
-        print(f"❌ الصفقات «خلال اليوم» توقّعها أقل ({dexp:+.2f}R مقابل {base_exp:+.2f}R) — "
-              f"التصفية للسرعة تضرّ التوقّع. لا نصفّي على السرعة، ونُبقي كل الصفقات.")
+        print("لا صفقات في اللوحة (أ) بهذه النافذة.")
+
+    # لوحة (ب): عيّنة كبيرة (مدخل مخفّف) لعزل أثر السرعة على التوقّع بقوّة إحصائية
+    big_kw = dict(
+        rr=float(getattr(config, "TREND_RR", 2.0)), min_score=0.0, require_ema200=True,
+        stop_buffer_atr=getattr(config, "TREND_STOP_BUFFER_ATR", 0.5),
+        trail_activate_r=getattr(config, "TREND_TRAIL_ACTIVATE_R", 0.0) or 0.0,
+        trail_atr=getattr(config, "TREND_TRAIL_ATR", 0.0) or 0.0,
+        target_at_resistance=getattr(config, "TREND_TARGET_AT_RESISTANCE", False),
+    )
+    b_trades = collect(big_kw, reg_on=False)
+    b_base_n, b_base_exp = (0, 0.0)
+    if b_trades:
+        b_base_n, b_base_exp = panel(
+            "(ب) عيّنة كبيرة (مدخل مخفّف) — قوّة إحصائية لأثر السرعة", b_trades)
+
+    # الحكم من اللوحة الكبيرة (ب): هل «خلال اليوم» يحافظ على التوقّع؟
+    day = [t for t in b_trades if 0 < t.eta_hours <= 24]
+    dn, _, dexp = stats(day)
+    print("\n" + "#" * 70)
+    if dn < 50:
+        print(f"⚠️ حتى العيّنة الكبيرة صغيرة ({dn} صفقة «خلال اليوم») — لا حكم موثوق.")
+    elif dexp >= b_base_exp - 0.02:
+        print(f"✅ الصفقات «خلال اليوم» تحافظ على التوقّع: {dexp:+.2f}R مقابل "
+              f"{b_base_exp:+.2f}R للأساس ({dn} صفقة = {dn/b_base_n*100:.0f}% من الفرص). "
+              f"→ البوت أصلاً يعطيك صفقات سريعة بنفس التوقّع؛ تُبرَز بأمان بلا فريم خاسر.")
+    else:
+        print(f"❌ «خلال اليوم» توقّعها أقل ({dexp:+.2f}R مقابل {b_base_exp:+.2f}R) — "
+              f"التصفية للسرعة تضرّ التوقّع؛ نُبقي كل الصفقات ولا نصفّي على السرعة.")
+    print("#" * 70)
     print(
-        "\nℹ️ «الزمن المقدّر» تقديري عند الدخول (مسافة الهدف ÷ ATR × ساعات الفريم) — نفس ما "
-        "يعرضه البوت. الهدف: صفقات أسرع دون تضحية بالتوقّع؛ نصفّي فقط إن حافظت السرعة عليه."
+        "\nℹ️ «الزمن المقدّر» تقديري عند الدخول (مسافة الهدف ÷ ATR × ساعات الفريم) — نفس "
+        "ما يعرضه البوت. الأهم: نسبة الصفقات «خلال اليوم» ومحافظتها على التوقّع."
     )
     return 0
 
