@@ -2342,6 +2342,84 @@ def fasttrades(source: str, timeframe: str) -> int:
     return 0
 
 
+def entrybar(source: str, timeframe: str) -> int:
+    """
+    قياس أثر عتبة الدخول: كم صفقة إضافية تأتي لو خفّضنا العتبة، وماذا يحدث للتوقّع؟
+
+    نشغّل نفس إعداد البوت الحيّ الكامل على فريماته (TREND_TIMEFRAMES) عند عتبات
+    مختلفة (80..86)، ونطبع لكل عتبة: عدد الصفقات + نسبة النجاح + التوقّع. القرار
+    بالأرقام: نخفّض فقط إن بقي التوقّع موجبًا وعدد الفرص ازداد بوضوح.
+    """
+    from deals_bot.analyzer import TF_HOURS
+
+    frames = getattr(config, "TREND_TIMEFRAMES", ["6h", "1d"])
+    symbols = resolve_symbols("crypto", "auto")
+    print(f"⏳ قياس عتبة الدخول على فريمات البوت {frames} — {len(symbols)} عملة...")
+
+    def kw_for(min_score):
+        return dict(
+            rr=float(getattr(config, "TREND_RR", 2.0)),
+            min_score=float(min_score),
+            require_ema200=getattr(config, "TREND_REQUIRE_EMA200", True),
+            stop_buffer_atr=getattr(config, "TREND_STOP_BUFFER_ATR", 0.5),
+            rsi_max=getattr(config, "TREND_RSI_MAX", 68.0),
+            require_macd=getattr(config, "TREND_REQUIRE_MACD", True),
+            stoch_max=getattr(config, "TREND_STOCH_MAX", 70.0),
+            fib_min=getattr(config, "TREND_FIB_MIN", 0.5),
+            fib_max=getattr(config, "TREND_FIB_MAX", 0.786),
+            vol_surge_min=getattr(config, "TREND_VOL_SURGE_MIN", None),
+            target_at_resistance=getattr(config, "TREND_TARGET_AT_RESISTANCE", False),
+            trail_activate_r=getattr(config, "TREND_TRAIL_ACTIVATE_R", 0.0) or 0.0,
+            trail_atr=getattr(config, "TREND_TRAIL_ATR", 0.0) or 0.0,
+            min_dollar_vol=getattr(config, "MIN_DOLLAR_VOL", 0) or None,
+        )
+
+    # اجلب السلاسل + خريطة السوق لكل فريم مرّة واحدة (نعيد استخدامها لكل العتبات)
+    per_frame = []
+    for tf in frames:
+        try:
+            series = fetch_many(symbols, "crypto", "auto", tf, limit=1000)
+        except Exception as exc:  # noqa: BLE001
+            print(f"  {tf}: تعذّر الجلب: {exc}")
+            continue
+        regime = None
+        try:
+            btc = fetch("BTC-USD", "crypto", "auto", tf, limit=1000)
+            regime = market_uptrend_map(btc, 50)
+        except Exception:  # noqa: BLE001
+            pass
+        per_frame.append((tf, series, regime))
+
+    cur = int(getattr(config, "TREND_MIN_SCORE", 85))
+    print("\n" + "=" * 64)
+    print(f"{'عتبة':>6} | {'صفقات':>6} | {'نجاح%':>6} | {'توقّع/R':>8} | {'إجمالي':>8} | الحكم")
+    print("-" * 64)
+    for th in [80, 82, 83, 84, 85, 86]:
+        tt = tw = 0
+        tr = 0.0
+        kw = kw_for(th)
+        for tf, series, regime in per_frame:
+            tfh = TF_HOURS.get(tf, 1.0)
+            for s in series:
+                res = backtest_trend_pullback_series(s, regime=regime, tf_hours=tfh, **kw)
+                tt += res.n
+                tw += res.wins
+                tr += res.total_r
+        wr = (tw / tt * 100.0) if tt else 0.0
+        exp = (tr / tt) if tt else 0.0
+        ok = exp > 0 and tt >= 20
+        verdict = "✅ رابح" if ok else ("⚠️ عيّنة صغيرة" if tt < 20 else "❌ خاسر")
+        mark = " ← الحالي" if th == cur else ""
+        print(f"{th:>6} | {tt:>6} | {wr:>6.1f} | {exp:>+8.2f} | {tr:>+8.1f} | {verdict}{mark}")
+    print("=" * 64)
+    print(
+        "\nℹ️ العتبة الأقل = صفقات أكثر لكن أقل نقاءً. نخفّض فقط إن بقي التوقّع موجبًا "
+        "وعدد الفرص ازداد بوضوح وبعيّنة كافية (≥20). صِغَر العيّنة على 6h/1d بسبب حدّ "
+        "تاريخ المزوّد — نقرأ الاتجاه بحذر."
+    )
+    return 0
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description="باك-تِست لاستراتيجية بوت الصفقات.")
     p.add_argument("--market", "-m", choices=["crypto", "stocks", "forex", "all"], default="crypto")
@@ -2354,7 +2432,7 @@ def main(argv=None) -> int:
                  "stopbuffer", "diag", "framesweep", "breakout", "tfsweep",
                  "multitf", "profilter", "confluence", "smartmoney", "ictmeasure",
                  "ictconfirm", "levers", "warrior", "classical", "trailexample", "breakeven", "reversal", "fibonacci",
-                 "tca", "thresholds", "rrcmp", "smallframes", "scaleout", "fasttrades"],
+                 "tca", "thresholds", "rrcmp", "smallframes", "scaleout", "fasttrades", "entrybar"],
         default="signals",
         help="signals=إشارات شراء/بيع؛ prepump=ما قبل الاندفاع؛ "
         "trend=ارتداد داخل اتجاه صاعد؛ compare=قارن prepump مقابل trend؛ "
@@ -2427,6 +2505,8 @@ def main(argv=None) -> int:
         return scaleout(args.source, args.timeframe)
     if args.strategy == "fasttrades":
         return fasttrades(args.source, args.timeframe)
+    if args.strategy == "entrybar":
+        return entrybar(args.source, args.timeframe)
     if args.strategy == "breakout":
         return breakout_test(args.source, args.timeframe)
     return run(args.market, args.source, args.timeframe, args.strategy)
