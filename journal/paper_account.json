@@ -1,8 +1,8 @@
 {
   "equity": 995.6782234348568,
   "starting_equity": 1000.0,
-  "day": 20699,
-  "day_start_equity": 1000.7177759195024,
+  "day": 20700,
+  "day_start_equity": 995.6782234348568,
   "positions": [
     {
       "symbol": "IMU-USD",
