@@ -2706,6 +2706,90 @@ def fundingmeasure(source: str, timeframe: str) -> int:
     return 0
 
 
+def datasourceprobe(source: str, timeframe: str) -> int:
+    """
+    فحص وصول + هل فيه تاريخ؟ لباقي مصادر البيانات (OI / تصفيات / دفتر أوامر / on-chain).
+
+    نفس منطق fundingprobe بالظبط، بس الأهمّ هنا: هل المصدر يدّي *تاريخ* (يتقاس على
+    الباك-تِست) ولا *لقطة لحظية* بس (لا يتقاس)؟ نصنّف كل endpoint:
+      • HISTORY  = سلسلة زمنية → يصلح للقياس التاريخي.
+      • SNAPSHOT = اللحظة الحالية فقط → لا يصلح للباك-تِست (حيّ فقط).
+    القرار: نبني قياسًا (نسخة fundingmeasure) فقط للمصادر اللي تطلع HISTORY وتوصل.
+    """
+    import json as _json
+    import urllib.request as _rq
+
+    # (الفئة، الاسم، الرابط، نوع البيانات، ملاحظة)
+    endpoints = [
+        # ── العقود المفتوحة Open Interest ──
+        ("OI", "OKX-تاريخ",
+         "https://www.okx.com/api/v5/rubik/stat/contracts/open-interest-volume"
+         "?ccy=BTC&period=1D", "HISTORY", "سلسلة OI يومية"),
+        ("OI", "OKX-لحظي",
+         "https://www.okx.com/api/v5/public/open-interest?instId=BTC-USDT-SWAP",
+         "SNAPSHOT", "OI الحالي فقط"),
+        # ── التصفيات Liquidations ──
+        ("تصفيات", "OKX",
+         "https://www.okx.com/api/v5/public/liquidation-orders"
+         "?instType=SWAP&uly=BTC-USDT&state=filled&limit=5", "RECENT", "أحدث تصفيات فقط"),
+        ("تصفيات", "Bybit",
+         "https://api.bybit.com/v5/market/recent-trade"
+         "?category=linear&symbol=BTCUSDT&limit=5", "RECENT", "أحدث صفقات (لا تصفيات تاريخية)"),
+        # ── دفتر/تدفّق الأوامر Order Book / Flow ──
+        ("دفتر أوامر", "OKX",
+         "https://www.okx.com/api/v5/market/books?instId=BTC-USDT-SWAP&sz=5",
+         "SNAPSHOT", "عمق اللحظة فقط — لا تاريخ"),
+        ("تدفّق أوامر", "OKX-صفقات",
+         "https://www.okx.com/api/v5/market/trades?instId=BTC-USDT-SWAP&limit=5",
+         "RECENT", "أحدث صفقات فقط (تاريخ ضحل)"),
+        # ── On-chain (نشاط الشبكة) ──
+        ("on-chain", "Blockchain.com",
+         "https://api.blockchain.info/charts/n-transactions"
+         "?timespan=1year&format=json", "HISTORY", "عدد معاملات BTC يوميًا — سنة"),
+        ("on-chain", "Blockchain.com-عناوين",
+         "https://api.blockchain.info/charts/n-unique-addresses"
+         "?timespan=1year&format=json", "HISTORY", "عناوين نشطة يوميًا — سنة"),
+    ]
+    print("⏳ فحص وصول + توفّر تاريخ لباقي مصادر البيانات...\n")
+    print("=" * 74)
+    history_ok = []
+    for cat, name, url, kind, note in endpoints:
+        label = f"{cat}/{name}"
+        try:
+            req = _rq.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            with _rq.urlopen(req, timeout=15) as resp:
+                raw = resp.read().decode("utf-8", "replace")
+            body = _json.loads(raw)
+            # كم نقطة رجعت؟ (لتمييز التاريخ الحقيقي من اللقطة)
+            npts = 0
+            if isinstance(body, dict):
+                d = body.get("data")
+                if isinstance(d, list):
+                    npts = len(d)
+                elif isinstance(body.get("values"), list):
+                    npts = len(body["values"])   # blockchain.com
+            sample = str(body)[:90].replace("\n", " ")
+            tag = f"[{kind}]"
+            print(f"✅ {label:<22} وصل | {tag:<10} نقاط≈{npts:<5} | {note}")
+            print(f"      عيّنة: {sample}")
+            if kind == "HISTORY" and npts >= 30:
+                history_ok.append(label)
+        except Exception as exc:  # noqa: BLE001
+            msg = str(exc)[:70].replace("\n", " ")
+            print(f"❌ {label:<22} فشل: {msg}")
+    print("=" * 74)
+    print("\nالخلاصة (القرار بالأرقام):")
+    if history_ok:
+        print(f"✅ مصادر لها *تاريخ* يصلح للقياس: {', '.join(history_ok)}")
+        print("   → نبني لكلٍّ منها قياسًا (نسخة fundingmeasure) ونشوف هل يرفع التوقّع.")
+    else:
+        print("⚠️ لا مصدر إضافي يوفّر تاريخًا كافيًا للقياس من هنا.")
+    print("ℹ️ ملاحظة أمينة: SNAPSHOT/RECENT = اللحظة أو آخر لقطات فقط → لا يُقاس على "
+          "التاريخ (دفتر الأوامر والتصفيات غالبًا كده مجّانًا). دول ممكن يُستخدَموا "
+          "*حيًّا فقط* لو ثبت لهم نفع، مش في الباك-تِست.")
+    return 0
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description="باك-تِست لاستراتيجية بوت الصفقات.")
     p.add_argument("--market", "-m", choices=["crypto", "stocks", "forex", "all"], default="crypto")
@@ -2719,7 +2803,7 @@ def main(argv=None) -> int:
                  "multitf", "profilter", "confluence", "smartmoney", "ictmeasure",
                  "ictconfirm", "levers", "warrior", "classical", "trailexample", "breakeven", "reversal", "fibonacci",
                  "tca", "thresholds", "rrcmp", "smallframes", "scaleout", "fasttrades", "entrybar",
-                 "momentumbet", "fundingprobe", "fundingmeasure"],
+                 "momentumbet", "fundingprobe", "fundingmeasure", "datasourceprobe"],
         default="signals",
         help="signals=إشارات شراء/بيع؛ prepump=ما قبل الاندفاع؛ "
         "trend=ارتداد داخل اتجاه صاعد؛ compare=قارن prepump مقابل trend؛ "
@@ -2800,6 +2884,8 @@ def main(argv=None) -> int:
         return fundingprobe(args.source, args.timeframe)
     if args.strategy == "fundingmeasure":
         return fundingmeasure(args.source, args.timeframe)
+    if args.strategy == "datasourceprobe":
+        return datasourceprobe(args.source, args.timeframe)
     if args.strategy == "breakout":
         return breakout_test(args.source, args.timeframe)
     return run(args.market, args.source, args.timeframe, args.strategy)
