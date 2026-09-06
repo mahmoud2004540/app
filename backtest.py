@@ -2539,6 +2539,173 @@ def fundingprobe(source: str, timeframe: str) -> int:
     return 0
 
 
+def fundingmeasure(source: str, timeframe: str) -> int:
+    """
+    قياس: هل مُعدّل التمويل (Funding) يضيف ميزةً للبوت؟ (قبل تفعيل أي شيء)
+
+    الخطوات:
+      1) نشغّل الاستراتيجية الحيّة الكاملة (نفس فلاتر البوت) على فريماته
+         (TREND_TIMEFRAMES) عبر الكون الكامل — ونجمع كل الصفقات بتوقيت دخولها.
+      2) نجلب تاريخ funding من OKX لكل عملة، ونطابق كل صفقة مع «آخر funding سارٍ
+         قبل الدخول» (بلا تسريب مستقبلي).
+      3) نقسّم الصفقات إلى ثلاثات حسب الـfunding (منخفض/متوسط/مرتفع=ازدحام شراء)،
+         ونقارن التوقّع/R في كل فئة.
+      4) نختبر فلاتر ملموسة («تجاهل لو funding ≥ عتبة») ونطبع التوقّع وعدد الصفقات
+         مقابل الأساس.
+
+    القرار بالأرقام فقط: نفعّل فلتر funding حيًّا *إن* رفع التوقّع بهامش واضح مع
+    عيّنة كافية؛ وإلا نرفضه بصراحة ونسيبه.
+
+    ⚠️ التغطية مهمّة: لو تاريخ OKX لا يغطّي إلا جزءًا من صفقاتنا، نقولها ولا نعمّم.
+    """
+    from deals_bot.analyzer import TF_HOURS
+    from deals_bot.funding import build_lookup
+
+    frames = getattr(config, "TREND_TIMEFRAMES", ["6h", "1d"])
+    symbols = resolve_symbols("crypto", "auto")
+    print(f"⏳ قياس أثر الـFunding على فريمات البوت {frames} — {len(symbols)} عملة...")
+
+    kw = dict(
+        rr=float(getattr(config, "TREND_RR", 2.0)),
+        min_score=float(getattr(config, "TREND_MIN_SCORE", 85)),
+        require_ema200=getattr(config, "TREND_REQUIRE_EMA200", True),
+        stop_buffer_atr=getattr(config, "TREND_STOP_BUFFER_ATR", 0.5),
+        rsi_max=getattr(config, "TREND_RSI_MAX", 68.0),
+        require_macd=getattr(config, "TREND_REQUIRE_MACD", True),
+        stoch_max=getattr(config, "TREND_STOCH_MAX", 70.0),
+        fib_min=getattr(config, "TREND_FIB_MIN", 0.5),
+        fib_max=getattr(config, "TREND_FIB_MAX", 0.786),
+        vol_surge_min=getattr(config, "TREND_VOL_SURGE_MIN", None),
+        target_at_resistance=getattr(config, "TREND_TARGET_AT_RESISTANCE", False),
+        trail_activate_r=getattr(config, "TREND_TRAIL_ACTIVATE_R", 0.0) or 0.0,
+        trail_atr=getattr(config, "TREND_TRAIL_ATR", 0.0) or 0.0,
+        min_dollar_vol=getattr(config, "MIN_DOLLAR_VOL", 0) or None,
+    )
+
+    # 1) اجمع كل الصفقات (لكل عملة نحتفظ بصفقاتها معًا لمطابقة funding العملة نفسها)
+    trades_by_symbol: dict[str, list] = {}
+    for tf in frames:
+        try:
+            series = fetch_many(symbols, "crypto", "auto", tf, limit=1000)
+        except Exception as exc:  # noqa: BLE001
+            print(f"  {tf}: تعذّر الجلب: {exc}")
+            continue
+        regime = None
+        try:
+            btc = fetch("BTC-USD", "crypto", "auto", tf, limit=1000)
+            regime = market_uptrend_map(btc, 50)
+        except Exception:  # noqa: BLE001
+            pass
+        tfh = TF_HOURS.get(tf, 1.0)
+        for s in series:
+            res = backtest_trend_pullback_series(s, regime=regime, tf_hours=tfh, **kw)
+            if res.trades:
+                trades_by_symbol.setdefault(s.symbol, []).extend(res.trades)
+
+    total_trades = sum(len(v) for v in trades_by_symbol.values())
+    if total_trades == 0:
+        print("⚠️ لا صفقات في هذه النافذة — لا يمكن قياس أثر funding. (سوق هادئ/عيّنة قصيرة)")
+        return 0
+    print(f"  إجمالي الصفقات المُولَّدة: {total_trades} عبر {len(trades_by_symbol)} عملة")
+
+    # 2) اجلب funding وطابق (آخر معدّل قبل الدخول)
+    print("⏳ جلب تاريخ funding من OKX ومطابقته بكل صفقة...")
+    matched = []          # (rate, result_r, won)
+    unmatched = 0
+    no_history = []       # عملات بلا عقد OKX/تاريخ
+    for sym, trs in trades_by_symbol.items():
+        look = build_lookup(sym)
+        if len(look) == 0:
+            no_history.append(sym)
+            unmatched += len(trs)
+            continue
+        for t in trs:
+            rate = look.at(getattr(t, "entry_ts", 0.0) or 0.0)
+            if rate is None:
+                unmatched += 1
+                continue
+            matched.append((rate, t.result_r, t.won))
+
+    cov = (len(matched) / total_trades * 100.0) if total_trades else 0.0
+    print(f"  مطابَق بـfunding: {len(matched)}/{total_trades} ({cov:.0f}%) | "
+          f"بلا مطابقة: {unmatched}")
+    if no_history:
+        preview = ", ".join(no_history[:8]) + ("..." if len(no_history) > 8 else "")
+        print(f"  عملات بلا تاريخ OKX ({len(no_history)}): {preview}")
+
+    if len(matched) < 20:
+        print("\n⚠️ العيّنة المُطابَقة أقل من 20 صفقة — لا قرار موثوق. تاريخ funding "
+              "المتاح لا يغطّي إلا جزءًا صغيرًا من صفقاتنا في هذه النافذة.")
+        return 0
+
+    def _stats(rows):
+        n = len(rows)
+        if n == 0:
+            return 0, 0.0, 0.0
+        wins = sum(1 for _, _, w in rows if w)
+        tr = sum(r for _, r, _ in rows)
+        return n, wins / n * 100.0, tr / n
+
+    # الأساس (كل الصفقات المُطابَقة)
+    b_n, b_wr, b_exp = _stats(matched)
+
+    # 3) ثلاثات حسب الـfunding
+    rates_sorted = sorted(m[0] for m in matched)
+    q1 = rates_sorted[len(rates_sorted) // 3]
+    q2 = rates_sorted[2 * len(rates_sorted) // 3]
+    low = [m for m in matched if m[0] <= q1]
+    mid = [m for m in matched if q1 < m[0] <= q2]
+    high = [m for m in matched if m[0] > q2]
+
+    print("\n" + "=" * 70)
+    print("① الأساس مقابل الثلاثات (منخفض = تمويل هادئ/سالب، مرتفع = ازدحام شراء)")
+    print("-" * 70)
+    print(f"{'الفئة':>22} | {'صفقات':>6} | {'نجاح%':>6} | {'توقّع/R':>8}")
+    print("-" * 70)
+    print(f"{'الأساس (الكل)':>22} | {b_n:>6} | {b_wr:>6.1f} | {b_exp:>+8.2f}")
+    for label, grp in ((f"منخفض (≤{q1:.4%})", low),
+                       (f"متوسط", mid),
+                       (f"مرتفع (>{q2:.4%})", high)):
+        n, wr, exp = _stats(grp)
+        print(f"{label:>22} | {n:>6} | {wr:>6.1f} | {exp:>+8.2f}")
+    print("=" * 70)
+
+    # 4) فلاتر ملموسة: «تجاهل لو funding ≥ عتبة» (نستبعد الازدحام المتطرّف)
+    print("\n② فلتر مقترح: تجاهل الصفقة لو funding ≥ عتبة (نتجنّب ازدحام الشراء)")
+    print("-" * 70)
+    print(f"{'العتبة':>12} | {'صفقات':>6} | {'مُستبعَد':>7} | {'نجاح%':>6} | "
+          f"{'توقّع/R':>8} | الحكم مقابل الأساس")
+    print("-" * 70)
+    best = (b_exp, None)
+    for thr in (0.0003, 0.0005, 0.0008, 0.0010, 0.0015):
+        kept = [m for m in matched if m[0] < thr]
+        n, wr, exp = _stats(kept)
+        excluded = len(matched) - n
+        if n >= 20 and exp > best[0] + 0.03:
+            best = (exp, thr)
+        gain = exp - b_exp
+        verdict = ("↑ أفضل" if gain > 0.03 else ("↓ أسوأ" if gain < -0.03 else "≈ مثله"))
+        if n < 20:
+            verdict = "عيّنة صغيرة"
+        print(f"{thr:>11.4%} | {n:>6} | {excluded:>7} | {wr:>6.1f} | "
+              f"{exp:>+8.2f} | {verdict} ({gain:+.2f}R)")
+    print("=" * 70)
+
+    # الحكم النهائي بالأرقام
+    print()
+    if best[1] is not None:
+        print(f"📈 أفضل فلتر مقاس: «تجاهل لو funding ≥ {best[1]:.4%}» → التوقّع "
+              f"{best[0]:+.2f}R مقابل {b_exp:+.2f}R للأساس (+{best[0]-b_exp:.2f}R). "
+              f"يستحق التفعيل — لكن نأكّد على عيّنة أطول قبل ما نثبّته حيًّا.")
+    else:
+        print(f"👉 لا عتبة funding رفعت التوقّع بهامش موثوق فوق الأساس ({b_exp:+.2f}R). "
+              f"الـfunding لا يضيف ميزةً مقاسةً هنا — نرفضه ولا نعقّد البوت به.")
+    print("\nℹ️ تنبيه عيّنة: تاريخ funding وتاريخ الأسعار محدودان، والتقاطع بينهما "
+          "أصغر من كامل صفقاتنا. نقرأ الاتجاه، ولا نثبّت فلترًا إلا لو صمد على "
+          "نافذة أطول وبعيّنة ≥ ~50 صفقة مُطابَقة.")
+    return 0
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description="باك-تِست لاستراتيجية بوت الصفقات.")
     p.add_argument("--market", "-m", choices=["crypto", "stocks", "forex", "all"], default="crypto")
@@ -2552,7 +2719,7 @@ def main(argv=None) -> int:
                  "multitf", "profilter", "confluence", "smartmoney", "ictmeasure",
                  "ictconfirm", "levers", "warrior", "classical", "trailexample", "breakeven", "reversal", "fibonacci",
                  "tca", "thresholds", "rrcmp", "smallframes", "scaleout", "fasttrades", "entrybar",
-                 "momentumbet", "fundingprobe"],
+                 "momentumbet", "fundingprobe", "fundingmeasure"],
         default="signals",
         help="signals=إشارات شراء/بيع؛ prepump=ما قبل الاندفاع؛ "
         "trend=ارتداد داخل اتجاه صاعد؛ compare=قارن prepump مقابل trend؛ "
@@ -2631,6 +2798,8 @@ def main(argv=None) -> int:
         return momentumbet(args.source, args.timeframe)
     if args.strategy == "fundingprobe":
         return fundingprobe(args.source, args.timeframe)
+    if args.strategy == "fundingmeasure":
+        return fundingmeasure(args.source, args.timeframe)
     if args.strategy == "breakout":
         return breakout_test(args.source, args.timeframe)
     return run(args.market, args.source, args.timeframe, args.strategy)

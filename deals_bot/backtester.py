@@ -80,6 +80,7 @@ class Trade:
     ict_confirm: int = -1    # عدد تأكيدات ICT عند الدخول (0..6)؛ -1 = لم يُحسب
     eta_hours: float = 0.0   # الزمن المقدّر للوصول للهدف عند الدخول (ساعات، تقديري)
     bars_held: int = 0       # عدد الشموع حتى الخروج فعليًا (المدة الحقيقية)
+    entry_ts: float = 0.0    # توقيت شمعة الدخول (Unix ثوانٍ) — لمطابقة بيانات خارجية كالـfunding
 
 
 @dataclass
@@ -692,7 +693,7 @@ def backtest_trend_pullback_series(
         trades.append(
             Trade(series.symbol, side, entry, stop, target, exit_price,
                   result_r, won, mae_r=mae_r, ict_confirm=conf,
-                  eta_hours=eta_h, bars_held=bars_held)
+                  eta_hours=eta_h, bars_held=bars_held, entry_ts=candles[i].ts)
         )
         i = j + 1
 
