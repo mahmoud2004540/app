@@ -34,13 +34,15 @@ jobs:
       - name: تثبيت المتطلبات
         run: pip install -r requirements.txt
 
-      - name: حلقة مراقبة كل 15 دقيقة (~5.5 ساعة)
+      - name: حلقة مراقبة كل ساعة (~5.5 ساعة)
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           MARKETS: "crypto"
           TIMEFRAME: "1h"
-          ALERT_ONLY: "1"
+          # 0 = يبعت ملخّص كل ساعة (صفقات اللحظة + مرشّحون للمراقبة) فتشوف نتيجة
+          # الفحص كل ساعة مضمونة — بدل تنبيه مفرّق سهل يفوت. (طلب المستخدم)
+          ALERT_ONLY: "0"
         run: |
           git config user.name "trading-bot"
           git config user.email "bot@users.noreply.github.com"
@@ -60,8 +62,8 @@ jobs:
                 git pull --rebase origin "${GITHUB_REF_NAME}" || true
               done || true
             fi
-            # لو بقي أقل من 15 دقيقة على نهاية النافذة، اخرج بدل نوم ناقص
-            [ "$(( END - $(date +%s) ))" -lt 900 ] && break
-            sleep 900   # 15 دقيقة
+            # لو بقي أقل من ساعة على نهاية النافذة، اخرج بدل نوم ناقص
+            [ "$(( END - $(date +%s) ))" -lt 3600 ] && break
+            sleep 3600   # ساعة
           done
           echo "انتهت نافذة المراقبة — GitHub سيعيد التشغيل من الكرون/التفعيل التالي."
