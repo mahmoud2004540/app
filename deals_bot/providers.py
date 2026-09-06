@@ -70,7 +70,8 @@ _BINANCE_INTERVAL = {"1m": "1m", "5m": "5m", "15m": "15m", "1h": "1h", "6h": "6h
 # --------------------------------------------------------------------------- #
 # yfinance provider (crypto + stocks + forex)
 # --------------------------------------------------------------------------- #
-def fetch_yf(symbol: str, market: str, timeframe: str = "1h", limit: int = 300) -> Series:
+def fetch_yf(symbol: str, market: str, timeframe: str = "1h", limit: int = 300,
+             period: Optional[str] = None) -> Series:
     """
     اجلب الشموع عبر yfinance.
 
@@ -78,6 +79,9 @@ def fetch_yf(symbol: str, market: str, timeframe: str = "1h", limit: int = 300) 
       crypto : "BTC-USD", "ETH-USD"
       stocks : "AAPL", "MSFT"
       forex  : "EURUSD=X", "GBPUSD=X"
+
+    period: لتعميق التاريخ (مثل "max" لـ1d أو "730d" لـ1h) — للقياس فقط. None =
+    النافذة الافتراضية من _YF_RANGE (المسار الحيّ لا يتأثّر).
     """
     try:
         import yfinance as yf
@@ -86,7 +90,8 @@ def fetch_yf(symbol: str, market: str, timeframe: str = "1h", limit: int = 300) 
             "مكتبة yfinance غير مثبّتة. ثبّتها بـ: pip install yfinance"
         ) from exc
 
-    interval, period = _YF_RANGE.get(timeframe, ("60m", "3mo"))
+    interval, def_period = _YF_RANGE.get(timeframe, ("60m", "3mo"))
+    period = period or def_period
     df = yf.download(
         symbol,
         interval=interval,
@@ -464,7 +469,8 @@ def resample_candles(candles: List[Candle], factor: int) -> List[Candle]:
 # --------------------------------------------------------------------------- #
 # Unified dispatch
 # --------------------------------------------------------------------------- #
-def fetch(symbol: str, market: str, source: str, timeframe: str, limit: int = 300) -> Series:
+def fetch(symbol: str, market: str, source: str, timeframe: str, limit: int = 300,
+          period: Optional[str] = None) -> Series:
     """
     نقطة دخول موحّدة لاختيار المزوّد المناسب.
 
@@ -475,19 +481,25 @@ def fetch(symbol: str, market: str, source: str, timeframe: str, limit: int = 30
       "auto"     (كريبتو: Coinbase لحظي ثم Yahoo احتياطيًا؛ غيره: Yahoo)
 
     الأطر غير الأصلية (مثل 30m) تُبنى بجلب إطار أصغر ثم دمجه.
+    period: تعميق تاريخ yfinance (للقياس فقط)؛ عند تعيينه نتجاوز Coinbase (محدود
+    بـ300 شمعة) ونذهب مباشرةً لـYahoo بالنافذة الأعمق. None = السلوك الحيّ المعتاد.
     """
     if timeframe in _RESAMPLE_FROM:
         base_tf, factor = _RESAMPLE_FROM[timeframe]
-        base = fetch(symbol, market, source, base_tf, limit=limit * factor + factor)
+        base = fetch(symbol, market, source, base_tf,
+                     limit=limit * factor + factor, period=period)
         merged = resample_candles(base.candles, factor)[-limit:]
         return Series(symbol=base.symbol, market=base.market, candles=merged)
+    # تعميق التاريخ يتطلّب Yahoo (Coinbase محدود) — نتجاوز المصادر اللحظية.
+    if period is not None and source in ("auto", "coinbase"):
+        return fetch_yf(symbol, market, timeframe=timeframe, limit=limit, period=period)
     if source == "binance":
         return fetch_binance(symbol, timeframe=timeframe, limit=limit)
     if source == "coinbase":
         return fetch_coinbase(symbol, timeframe=timeframe, limit=limit)
     if source == "auto":
         return fetch_best(symbol, market, timeframe=timeframe, limit=limit)
-    return fetch_yf(symbol, market, timeframe=timeframe, limit=limit)
+    return fetch_yf(symbol, market, timeframe=timeframe, limit=limit, period=period)
 
 
 def fetch_best(symbol: str, market: str, timeframe: str = "1h", limit: int = 300) -> Series:
@@ -514,17 +526,19 @@ def fetch_many(
     timeframe: str,
     limit: int = 300,
     pause: float = 0.0,
+    period: Optional[str] = None,
 ) -> List[Series]:
     """
     اجلب عدة رموز، متجاهلًا الرموز التي تفشل (مع طباعتها كتحذير).
 
     Returns only the series that fetched successfully; failures are collected
     and reported by the caller via the returned list length vs. input.
+    period: يُمرَّر لتعميق تاريخ القياس (None = السلوك الحيّ).
     """
     out: List[Series] = []
     for sym in symbols:
         try:
-            s = fetch(sym, market, source, timeframe, limit=limit)
+            s = fetch(sym, market, source, timeframe, limit=limit, period=period)
             if len(s) >= 60:
                 out.append(s)
         except Exception as exc:  # noqa: BLE001

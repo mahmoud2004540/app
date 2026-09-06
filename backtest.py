@@ -2706,6 +2706,153 @@ def fundingmeasure(source: str, timeframe: str) -> int:
     return 0
 
 
+def edgemeasure(source: str, timeframe: str) -> int:
+    """
+    القياس الموحّد: هل funding / OI / on-chain يرفعوا التوقّع؟ — على تاريخ *معمّق*.
+
+    الحائط اللي واجهناه: الاستراتيجية مُنتقاة → صفقات قليلة في النافذة القصيرة، فأي
+    قياس ثانوي يرجع «عيّنة صغيرة». الحل هنا: نعمّق تاريخ الأسعار (max لـ1d و730d
+    لـ6h) عشان عدد الصفقات يكبر، وبعدين نطابق كل صفقة بثلاث إشارات ونقارن التوقّع.
+
+    الإشارات (كلها بلا تسريب مستقبلي — آخر قيمة قبل الدخول):
+      • funding (لكل عملة، OKX): المعدّل عند الدخول.
+      • OI (لكل عملة، OKX): تغيّر العقود المفتوحة % (مال جديد داخل؟).
+      • on-chain (شبكة BTC، blockchain.com): تغيّر نشاط الشبكة % (نظام سوق عام).
+
+    القرار بالأرقام: نفعّل إشارة حيًّا *فقط* لو رفعت التوقّع بهامش واضح وعيّنة كافية.
+    """
+    from deals_bot.analyzer import TF_HOURS
+    from deals_bot.funding import build_lookup as build_funding
+    from deals_bot.altdata import build_oi_lookup, build_onchain_lookup
+
+    frames = getattr(config, "TREND_TIMEFRAMES", ["6h", "1d"])
+    deep_period = {"1d": "max", "6h": "730d", "1h": "730d"}
+    symbols = resolve_symbols("crypto", "auto")
+    cap = 80
+    if len(symbols) > cap:
+        symbols = symbols[:cap]  # نحدّ العدد لضبط الزمن (الأوائل = الأكبر سيولة)
+    print(f"⏳ القياس الموحّد (تاريخ معمّق) على فريمات البوت {frames} — "
+          f"{len(symbols)} عملة...")
+
+    kw = dict(
+        rr=float(getattr(config, "TREND_RR", 2.0)),
+        min_score=float(getattr(config, "TREND_MIN_SCORE", 85)),
+        require_ema200=getattr(config, "TREND_REQUIRE_EMA200", True),
+        stop_buffer_atr=getattr(config, "TREND_STOP_BUFFER_ATR", 0.5),
+        rsi_max=getattr(config, "TREND_RSI_MAX", 68.0),
+        require_macd=getattr(config, "TREND_REQUIRE_MACD", True),
+        stoch_max=getattr(config, "TREND_STOCH_MAX", 70.0),
+        fib_min=getattr(config, "TREND_FIB_MIN", 0.5),
+        fib_max=getattr(config, "TREND_FIB_MAX", 0.786),
+        vol_surge_min=getattr(config, "TREND_VOL_SURGE_MIN", None),
+        target_at_resistance=getattr(config, "TREND_TARGET_AT_RESISTANCE", False),
+        trail_activate_r=getattr(config, "TREND_TRAIL_ACTIVATE_R", 0.0) or 0.0,
+        trail_atr=getattr(config, "TREND_TRAIL_ATR", 0.0) or 0.0,
+        min_dollar_vol=getattr(config, "MIN_DOLLAR_VOL", 0) or None,
+    )
+
+    # 1) اجمع الصفقات على تاريخ معمّق
+    trades_by_symbol: dict[str, list] = {}
+    for tf in frames:
+        per = deep_period.get(tf)
+        try:
+            series = fetch_many(symbols, "crypto", "auto", tf, limit=5000, period=per)
+        except Exception as exc:  # noqa: BLE001
+            print(f"  {tf}: تعذّر الجلب: {exc}")
+            continue
+        regime = None
+        try:
+            btc = fetch("BTC-USD", "crypto", "auto", tf, limit=5000, period=per)
+            regime = market_uptrend_map(btc, 50)
+        except Exception:  # noqa: BLE001
+            pass
+        tfh = TF_HOURS.get(tf, 1.0)
+        for s in series:
+            res = backtest_trend_pullback_series(s, regime=regime, tf_hours=tfh, **kw)
+            if res.trades:
+                trades_by_symbol.setdefault(s.symbol, []).extend(res.trades)
+
+    total = sum(len(v) for v in trades_by_symbol.values())
+    print(f"  إجمالي الصفقات (تاريخ معمّق): {total} عبر {len(trades_by_symbol)} عملة")
+    if total == 0:
+        print("⚠️ لا صفقات — لا قياس ممكن.")
+        return 0
+
+    # 2) on-chain مرّة واحدة (شبكة BTC — يُطبَّق على كل الصفقات)
+    print("⏳ جلب on-chain (نشاط شبكة BTC)...")
+    onchain = build_onchain_lookup("n-transactions", timespan="3years")
+    print(f"  on-chain نقاط: {len(onchain)}")
+
+    # 3) طابِق كل صفقة بالإشارات الثلاث (لكل عملة نجلب funding + OI مرّة)
+    print("⏳ جلب funding + OI ومطابقة كل صفقة...")
+    fund_rows, oi_rows, onc_rows = [], [], []
+    for sym, trs in trades_by_symbol.items():
+        f_look = build_funding(sym, max_pages=12)   # ~400 يوم للخلف — يكفي ويضبط الزمن
+        o_look = build_oi_lookup(sym)
+        for t in trs:
+            ets = getattr(t, "entry_ts", 0.0) or 0.0
+            r, won = t.result_r, t.won
+            fv = f_look.at(ets)
+            if fv is not None:
+                fund_rows.append((fv, r, won))
+            ov = o_look.change_at(ets, lookback=1)
+            if ov is not None:
+                oi_rows.append((ov, r, won))
+            cv = onchain.change_at(ets, lookback=7)
+            if cv is not None:
+                onc_rows.append((cv, r, won))
+
+    def _stats(rows):
+        n = len(rows)
+        if n == 0:
+            return 0, 0.0, 0.0
+        wins = sum(1 for _, _, w in rows if w)
+        tr = sum(r for _, r, _ in rows)
+        return n, wins / n * 100.0, tr / n
+
+    b_n, b_wr, b_exp = _stats([(0, r, w) for trs in trades_by_symbol.values()
+                               for (r, w) in [(t.result_r, t.won) for t in trs]])
+    print(f"\nالأساس: {b_n} صفقة | نجاح {b_wr:.1f}% | توقّع {b_exp:+.2f}R")
+
+    def _tercile_report(title, rows, unit=""):
+        n = len(rows)
+        print("\n" + "=" * 70)
+        print(f"{title}  (مطابَق: {n}/{total})")
+        print("-" * 70)
+        if n < 30:
+            print(f"⚠️ العيّنة {n} < 30 — لا قرار موثوق لهذه الإشارة.")
+            print("=" * 70)
+            return
+        vals = sorted(x[0] for x in rows)
+        q1 = vals[n // 3]
+        q2 = vals[2 * n // 3]
+        low = [x for x in rows if x[0] <= q1]
+        mid = [x for x in rows if q1 < x[0] <= q2]
+        high = [x for x in rows if x[0] > q2]
+        print(f"{'الفئة':>26} | {'صفقات':>6} | {'نجاح%':>6} | {'توقّع/R':>8}")
+        print("-" * 70)
+        for label, grp in ((f"منخفض (≤{q1:.4g}{unit})", low),
+                           ("متوسط", mid),
+                           (f"مرتفع (>{q2:.4g}{unit})", high)):
+            gn, gwr, gexp = _stats(grp)
+            flag = ""
+            if gn >= 15 and gexp > b_exp + 0.10:
+                flag = "  ← أفضل من الأساس"
+            elif gn >= 15 and gexp < b_exp - 0.10:
+                flag = "  ← أسوأ"
+            print(f"{label:>26} | {gn:>6} | {gwr:>6.1f} | {gexp:>+8.2f}{flag}")
+        print("=" * 70)
+
+    _tercile_report("① funding عند الدخول (مرتفع = ازدحام شراء)", fund_rows, "%")
+    _tercile_report("② تغيّر OI % (مرتفع = مال جديد داخل بقوّة)", oi_rows, "%")
+    _tercile_report("③ تغيّر نشاط شبكة BTC % آخر 7 أيام", onc_rows, "%")
+
+    print("\nℹ️ الحكم: نفعّل إشارة حيًّا فقط لو فئةٌ منها رفعت التوقّع بوضوح (≥+0.10R) "
+          "وعيّنتها كافية *وثبت ذلك على نافذة أطول*. أي إشارة عيّنتها <30 = غير حاسمة "
+          "هنا. لا نعقّد البوت بإشارة بلا ميزة مقاسة صامدة.")
+    return 0
+
+
 def datasourceprobe(source: str, timeframe: str) -> int:
     """
     فحص وصول + هل فيه تاريخ؟ لباقي مصادر البيانات (OI / تصفيات / دفتر أوامر / on-chain).
@@ -2803,7 +2950,8 @@ def main(argv=None) -> int:
                  "multitf", "profilter", "confluence", "smartmoney", "ictmeasure",
                  "ictconfirm", "levers", "warrior", "classical", "trailexample", "breakeven", "reversal", "fibonacci",
                  "tca", "thresholds", "rrcmp", "smallframes", "scaleout", "fasttrades", "entrybar",
-                 "momentumbet", "fundingprobe", "fundingmeasure", "datasourceprobe"],
+                 "momentumbet", "fundingprobe", "fundingmeasure", "datasourceprobe",
+                 "edgemeasure"],
         default="signals",
         help="signals=إشارات شراء/بيع؛ prepump=ما قبل الاندفاع؛ "
         "trend=ارتداد داخل اتجاه صاعد؛ compare=قارن prepump مقابل trend؛ "
@@ -2886,6 +3034,8 @@ def main(argv=None) -> int:
         return fundingmeasure(args.source, args.timeframe)
     if args.strategy == "datasourceprobe":
         return datasourceprobe(args.source, args.timeframe)
+    if args.strategy == "edgemeasure":
+        return edgemeasure(args.source, args.timeframe)
     if args.strategy == "breakout":
         return breakout_test(args.source, args.timeframe)
     return run(args.market, args.source, args.timeframe, args.strategy)
