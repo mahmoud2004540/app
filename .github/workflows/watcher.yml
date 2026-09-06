@@ -40,9 +40,10 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           MARKETS: "crypto"
           TIMEFRAME: "1h"
-          # 0 = يبعت ملخّص كل ساعة (صفقات اللحظة + مرشّحون للمراقبة) فتشوف نتيجة
-          # الفحص كل ساعة مضمونة — بدل تنبيه مفرّق سهل يفوت. (طلب المستخدم)
-          ALERT_ONLY: "0"
+          # 1 = الصفقات المؤهّلة فقط (درجة ≥ العتبة 85) — بلا مرشّحين بدرجات أقل.
+          # الجودة أولًا (طلب المستخدم: لا ننزل تحت 85). يفحص كل ساعة ويبعت أي صفقة
+          # A+ جديدة فور ظهورها؛ في الساعات الهادئة يبقى صامتًا (لا junk تحت 85).
+          ALERT_ONLY: "1"
         run: |
           git config user.name "trading-bot"
           git config user.email "bot@users.noreply.github.com"
