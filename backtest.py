@@ -2490,6 +2490,55 @@ def momentumbet(source: str, timeframe: str) -> int:
     return 0
 
 
+def fundingprobe(source: str, timeframe: str) -> int:
+    """
+    فحص وصول: أي مصادر تاريخ Funding يقدر السيرفر يوصلها؟ (خطوة أولى قبل القياس)
+
+    نجرّب عدة منصّات (تاريخ funding عام بلا مفتاح) ونطبع لكل واحدة: نجح/فشل + عيّنة.
+    لو أي مصدر ردّ ببيانات → نقدر نبني fetcher ونقيس هل الـfunding يفيد البوت.
+    لو الكل محجوب → الطريق مسدود بلا استضافة مختلفة (نقولها بصراحة).
+    """
+    import json as _json
+    import urllib.request as _rq
+
+    endpoints = [
+        ("OKX", "https://www.okx.com/api/v5/public/funding-rate-history"
+                "?instId=BTC-USDT-SWAP&limit=3"),
+        ("Bybit", "https://api.bybit.com/v5/market/funding/history"
+                  "?category=linear&symbol=BTCUSDT&limit=3"),
+        ("Binance", "https://fapi.binance.com/fapi/v1/fundingRate?symbol=BTCUSDT&limit=3"),
+        ("KuCoin", "https://api-futures.kucoin.com/api/v1/funding-rate/XBTUSDTM/current"),
+        ("Bitget", "https://api.bitget.com/api/v2/mix/market/history-fund-rate"
+                   "?symbol=BTCUSDT&productType=usdt-futures&pageSize=3"),
+        ("Gate", "https://api.gateio.ws/api/v4/futures/usdt/funding_rate"
+                 "?contract=BTC_USDT&limit=3"),
+    ]
+    print("⏳ فحص وصول مصادر Funding من السيرفر...\n")
+    print("=" * 64)
+    reachable = []
+    for name, url in endpoints:
+        try:
+            req = _rq.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            with _rq.urlopen(req, timeout=15) as resp:
+                raw = resp.read().decode("utf-8", "replace")
+            body = _json.loads(raw)
+            sample = str(body)[:120].replace("\n", " ")
+            print(f"✅ {name:<9} وصل (HTTP {resp.status}) | عيّنة: {sample}")
+            reachable.append(name)
+        except Exception as exc:  # noqa: BLE001
+            msg = str(exc)[:90].replace("\n", " ")
+            print(f"❌ {name:<9} فشل: {msg}")
+    print("=" * 64)
+    if reachable:
+        print(f"\n✅ مصادر وصلت: {', '.join(reachable)} — نقدر نبني fetcher تاريخ "
+              f"funding منها ونقيس هل يفيد البوت. الخطوة الجاية: أبني القياس على "
+              f"«{reachable[0]}».")
+    else:
+        print("\n❌ كل مصادر الـFunding محجوبة من هذا السيرفر — الطريق مسدود بلا "
+              "استضافة مختلفة (سيرفر يوصل هذه المنصّات). لا نقدر نقيس funding هنا.")
+    return 0
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description="باك-تِست لاستراتيجية بوت الصفقات.")
     p.add_argument("--market", "-m", choices=["crypto", "stocks", "forex", "all"], default="crypto")
@@ -2503,7 +2552,7 @@ def main(argv=None) -> int:
                  "multitf", "profilter", "confluence", "smartmoney", "ictmeasure",
                  "ictconfirm", "levers", "warrior", "classical", "trailexample", "breakeven", "reversal", "fibonacci",
                  "tca", "thresholds", "rrcmp", "smallframes", "scaleout", "fasttrades", "entrybar",
-                 "momentumbet"],
+                 "momentumbet", "fundingprobe"],
         default="signals",
         help="signals=إشارات شراء/بيع؛ prepump=ما قبل الاندفاع؛ "
         "trend=ارتداد داخل اتجاه صاعد؛ compare=قارن prepump مقابل trend؛ "
@@ -2580,6 +2629,8 @@ def main(argv=None) -> int:
         return entrybar(args.source, args.timeframe)
     if args.strategy == "momentumbet":
         return momentumbet(args.source, args.timeframe)
+    if args.strategy == "fundingprobe":
+        return fundingprobe(args.source, args.timeframe)
     if args.strategy == "breakout":
         return breakout_test(args.source, args.timeframe)
     return run(args.market, args.source, args.timeframe, args.strategy)
