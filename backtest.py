@@ -2420,6 +2420,76 @@ def entrybar(source: str, timeframe: str) -> int:
     return 0
 
 
+def momentumbet(source: str, timeframe: str) -> int:
+    """
+    قياس فكرة بوت Polymarket المجرّدة: «زخم-استمرارية» على BTC.
+
+    فكرته: لو BTC عمل حركة قوية في فترة قصيرة، راهن إنه *يكمّل* في نفس الاتجاه.
+    الجزء غير القابل للقياس (ميل دفتر الأوامر/الجمهور) نتركه بصدق — لا بيانات له.
+    الجوهر القابل للقياس: بعد شمعة حركتها ≥ عتبة، هل الشمعة التالية تكمّل نفس
+    الاتجاه؟ نقيس «نسبة الاستمرار» على عدة فريمات قصيرة، ونقارنها بـ50% (عملة
+    معدنية). رهان ثنائي بأودز ~1:1 يحتاج نسبة > ~51.5% ليغطّي الرسوم/الفرق ويربح.
+
+    ⚠️ عيّنة محدودة: المزوّد يعطي ~300 شمعة، فالفريم القصير يغطّي ساعات/يوم فقط.
+    """
+    frames = ["5m", "15m", "1h"]
+    # عتبات الحركة كنسبة من السعر (BTC~77K → $70-100 ≈ 0.09%-0.13%؛ نوسّع للمقارنة)
+    thresholds_pct = [0.10, 0.20, 0.30, 0.50]
+    fee = 0.03   # تكلفة ذهاب+عودة تقديرية لرهان Polymarket (رسوم + فرق سعري)
+
+    print("⏳ قياس «زخم-استمرارية» (فكرة بوت Polymarket) على BTC-USD...")
+    print("\n" + "=" * 70)
+    print(f"{'فريم':>5} | {'عتبة الحركة':>10} | {'إشارات':>7} | {'استمرار%':>9} | "
+          f"{'صافي/رهان':>10} | الحكم")
+    print("-" * 70)
+
+    any_edge = False
+    for tf in frames:
+        try:
+            s = fetch("BTC-USD", "crypto", "auto", tf, limit=1000)
+        except Exception as exc:  # noqa: BLE001
+            print(f"{tf:>5} | تعذّر الجلب: {exc}")
+            continue
+        closes = s.closes()
+        opens = [c.open for c in s.candles]
+        n = len(closes)
+        for thp in thresholds_pct:
+            wins = sig = 0
+            for i in range(n - 1):
+                if opens[i] <= 0:
+                    continue
+                move = (closes[i] - opens[i]) / opens[i] * 100.0   # حركة الشمعة %
+                if abs(move) < thp:
+                    continue                                        # مش حركة قوية
+                sig += 1
+                nxt = closes[i + 1] - opens[i + 1]                  # اتجاه الشمعة التالية
+                if (move > 0 and nxt > 0) or (move < 0 and nxt < 0):
+                    wins += 1                                        # كمّل نفس الاتجاه
+            if sig < 10:
+                print(f"{tf:>5} | {thp:>9.2f}% | {sig:>7} | {'—':>9} | {'—':>10} | ⚠️ عيّنة صغيرة")
+                continue
+            cont = wins / sig * 100.0
+            net = (2 * (wins / sig) - 1) - fee                     # توقّع الرهان الثنائي
+            ok = net > 0 and cont > 51.5
+            any_edge = any_edge or ok
+            verdict = "✅ أفضلية" if ok else "❌ لا أفضلية"
+            print(f"{tf:>5} | {thp:>9.2f}% | {sig:>7} | {cont:>8.1f}% | {net:>+9.2f} | {verdict}")
+        print("-" * 70)
+    print("=" * 70)
+    if any_edge:
+        print("\n🔬 ظهرت أفضلية ظاهرية في صفٍّ ما — لكن العيّنة قصيرة (ساعات/يوم) فلا "
+              "نثق بها بعد؛ تحتاج تأكيدًا على تاريخ أطول قبل أي تفعيل.")
+    else:
+        print("\n❌ لا أفضلية: استمرارية زخم BTC قصير المدى ≈ 50% (عملة معدنية) — وبعد "
+              "الرسوم تصير خاسرة. النتيجة متسقة مع قياسنا السابق (الفريمات الصغيرة بلا "
+              "أفضلية) ومع أن حركة 5 دقائق شبه عشوائية. لا نبني عليها.")
+    print(
+        "\nℹ️ قِسنا الجوهر القابل للقياس فقط (استمرارية الزخم). «ميل دفتر الأوامر» في "
+        "الأصل غير متاح لنا فلا يُقاس — ولا يوجد تاريخ لدفتر أوامر Polymarket نتحقّق منه."
+    )
+    return 0
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description="باك-تِست لاستراتيجية بوت الصفقات.")
     p.add_argument("--market", "-m", choices=["crypto", "stocks", "forex", "all"], default="crypto")
@@ -2432,7 +2502,8 @@ def main(argv=None) -> int:
                  "stopbuffer", "diag", "framesweep", "breakout", "tfsweep",
                  "multitf", "profilter", "confluence", "smartmoney", "ictmeasure",
                  "ictconfirm", "levers", "warrior", "classical", "trailexample", "breakeven", "reversal", "fibonacci",
-                 "tca", "thresholds", "rrcmp", "smallframes", "scaleout", "fasttrades", "entrybar"],
+                 "tca", "thresholds", "rrcmp", "smallframes", "scaleout", "fasttrades", "entrybar",
+                 "momentumbet"],
         default="signals",
         help="signals=إشارات شراء/بيع؛ prepump=ما قبل الاندفاع؛ "
         "trend=ارتداد داخل اتجاه صاعد؛ compare=قارن prepump مقابل trend؛ "
@@ -2507,6 +2578,8 @@ def main(argv=None) -> int:
         return fasttrades(args.source, args.timeframe)
     if args.strategy == "entrybar":
         return entrybar(args.source, args.timeframe)
+    if args.strategy == "momentumbet":
+        return momentumbet(args.source, args.timeframe)
     if args.strategy == "breakout":
         return breakout_test(args.source, args.timeframe)
     return run(args.market, args.source, args.timeframe, args.strategy)
