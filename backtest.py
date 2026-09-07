@@ -2707,6 +2707,111 @@ def fundingmeasure(source: str, timeframe: str) -> int:
     return 0
 
 
+def precisionmeasure(source: str, timeframe: str) -> int:
+    """
+    قياس رافعات «الدقة»: هل نقدر نرفع نسبة النجاح من غير ما نكسر التوقّع؟
+
+    نختبر رافعتين فوق الإعداد الحيّ الكامل على فريمات البوت (بلا تغيير أي شيء حيًّا):
+      (أ) فلتر السيولة MIN_DOLLAR_VOL — نستبعد العملات المغمورة (زي SKR) تدريجيًا.
+      (ب) عتبة الدرجة — نرفعها فوق 85 (أنقى لكن صفقات أقل).
+    لكل مستوى نطبع: صفقات + نجاح% + توقّع/R، عشان نشوف المقايضة بالأرقام ونقرّر.
+    """
+    from deals_bot.analyzer import TF_HOURS
+
+    frames = getattr(config, "TREND_TIMEFRAMES", ["6h", "1d"])
+    symbols = resolve_symbols("crypto", "auto")
+    print(f"⏳ قياس رافعات الدقة على فريمات البوت {frames} — {len(symbols)} عملة...")
+
+    def base_kw(min_score, min_dvol):
+        return dict(
+            rr=float(getattr(config, "TREND_RR", 2.0)),
+            min_score=float(min_score),
+            require_ema200=getattr(config, "TREND_REQUIRE_EMA200", True),
+            stop_buffer_atr=getattr(config, "TREND_STOP_BUFFER_ATR", 0.5),
+            rsi_max=getattr(config, "TREND_RSI_MAX", 68.0),
+            require_macd=getattr(config, "TREND_REQUIRE_MACD", True),
+            stoch_max=getattr(config, "TREND_STOCH_MAX", 70.0),
+            fib_min=getattr(config, "TREND_FIB_MIN", 0.5),
+            fib_max=getattr(config, "TREND_FIB_MAX", 0.786),
+            vol_surge_min=getattr(config, "TREND_VOL_SURGE_MIN", None),
+            target_at_resistance=getattr(config, "TREND_TARGET_AT_RESISTANCE", False),
+            trail_activate_r=getattr(config, "TREND_TRAIL_ACTIVATE_R", 0.0) or 0.0,
+            trail_atr=getattr(config, "TREND_TRAIL_ATR", 0.0) or 0.0,
+            min_dollar_vol=min_dvol,
+        )
+
+    # اجلب السلاسل + خريطة السوق مرّة واحدة
+    per_frame = []
+    for tf in frames:
+        try:
+            series = fetch_many(symbols, "crypto", "auto", tf, limit=1000)
+        except Exception as exc:  # noqa: BLE001
+            print(f"  {tf}: تعذّر الجلب: {exc}")
+            continue
+        regime = None
+        try:
+            btc = fetch("BTC-USD", "crypto", "auto", tf, limit=1000)
+            regime = market_uptrend_map(btc, 50)
+        except Exception:  # noqa: BLE001
+            pass
+        per_frame.append((tf, series, regime))
+
+    def run_config(min_score, min_dvol):
+        tt = tw = 0
+        tr = 0.0
+        kw = base_kw(min_score, min_dvol)
+        for tf, series, regime in per_frame:
+            tfh = TF_HOURS.get(tf, 1.0)
+            for s in series:
+                res = backtest_trend_pullback_series(s, regime=regime, tf_hours=tfh, **kw)
+                tt += res.n
+                tw += res.wins
+                tr += res.total_r
+        wr = (tw / tt * 100.0) if tt else 0.0
+        exp = (tr / tt) if tt else 0.0
+        return tt, wr, exp
+
+    cur_score = int(getattr(config, "TREND_MIN_SCORE", 85))
+    cur_dvol = int(getattr(config, "MIN_DOLLAR_VOL", 50000) or 0)
+
+    def _line(label, tt, wr, exp, is_cur):
+        ok = exp > 0 and tt >= 20
+        verdict = "✅" if ok else ("⚠️عيّنة" if tt < 20 else "❌")
+        mark = " ← الحالي" if is_cur else ""
+        print(f"{label:>16} | {tt:>6} | {wr:>6.1f} | {exp:>+8.2f} | {verdict}{mark}")
+
+    # (أ) فلتر السيولة — العتبة ثابتة عند الحالية
+    print("\n" + "=" * 62)
+    print("(أ) فلتر السيولة (يستبعد العملات المغمورة زي SKR) — العتبة 85")
+    print("-" * 62)
+    print(f"{'حد السيولة$':>16} | {'صفقات':>6} | {'نجاح%':>6} | {'توقّع/R':>8} | الحكم")
+    print("-" * 62)
+    dvol_levels = sorted({50_000, 1_000_000, 5_000_000, 20_000_000, 50_000_000, cur_dvol})
+    for dv in dvol_levels:
+        tt, wr, exp = run_config(cur_score, dv)
+        lbl = f"{dv:,}"
+        _line(lbl, tt, wr, exp, dv == cur_dvol)
+    print("=" * 62)
+
+    # (ب) العتبة — السيولة ثابتة عند الحالية
+    print("\n(ب) عتبة الدرجة (أعلى = أنقى، لكن صفقات أقل) — السيولة الحالية")
+    print("-" * 62)
+    print(f"{'العتبة':>16} | {'صفقات':>6} | {'نجاح%':>6} | {'توقّع/R':>8} | الحكم")
+    print("-" * 62)
+    for sc in [85, 87, 89, 91]:
+        tt, wr, exp = run_config(sc, cur_dvol)
+        _line(str(sc), tt, wr, exp, sc == cur_score)
+    print("=" * 62)
+
+    print(
+        "\nℹ️ القراءة: «نجاح%» أعلى = دقة أعلى، بس بُصّ على «توقّع/R» و«صفقات» معاه. "
+        "الأفضل رافعة ترفع النجاح وتحافظ على التوقّع موجب وعدد صفقات معقول. رفع "
+        "السيولة بيشيل العملات المغمورة (سبب ضجيج محتمل) غالبًا بلا خسارة فرص كتير؛ "
+        "رفع العتبة بيرفع الدقة لكن بيقلّل الصفقات. نفعّل فقط ما تُثبته الأرقام."
+    )
+    return 0
+
+
 def featuremeasure(source: str, timeframe: str) -> int:
     """
     اقرأ ميزات الإشارات الحيّة المُسجّلة (journal/signal_features.jsonl)، احسب نتيجة
@@ -3074,7 +3179,7 @@ def main(argv=None) -> int:
                  "ictconfirm", "levers", "warrior", "classical", "trailexample", "breakeven", "reversal", "fibonacci",
                  "tca", "thresholds", "rrcmp", "smallframes", "scaleout", "fasttrades", "entrybar",
                  "momentumbet", "fundingprobe", "fundingmeasure", "datasourceprobe",
-                 "edgemeasure", "featuremeasure"],
+                 "edgemeasure", "featuremeasure", "precisionmeasure"],
         default="signals",
         help="signals=إشارات شراء/بيع؛ prepump=ما قبل الاندفاع؛ "
         "trend=ارتداد داخل اتجاه صاعد؛ compare=قارن prepump مقابل trend؛ "
@@ -3161,6 +3266,8 @@ def main(argv=None) -> int:
         return edgemeasure(args.source, args.timeframe)
     if args.strategy == "featuremeasure":
         return featuremeasure(args.source, args.timeframe)
+    if args.strategy == "precisionmeasure":
+        return precisionmeasure(args.source, args.timeframe)
     if args.strategy == "breakout":
         return breakout_test(args.source, args.timeframe)
     return run(args.market, args.source, args.timeframe, args.strategy)
