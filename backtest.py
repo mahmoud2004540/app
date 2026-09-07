@@ -14,6 +14,7 @@ expectancy — so your expectations are grounded in numbers, not hype.
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 
 import config
@@ -2706,6 +2707,128 @@ def fundingmeasure(source: str, timeframe: str) -> int:
     return 0
 
 
+def featuremeasure(source: str, timeframe: str) -> int:
+    """
+    اقرأ ميزات الإشارات الحيّة المُسجّلة (journal/signal_features.jsonl)، احسب نتيجة
+    كل صفقة بإعادة تشغيل السعر من نقطة الدخول، وقِس هل funding/OI/on-chain يتنبّأ.
+
+    ده القارئ لطريق «التسجيل الحيّ»: كل صفقة يبعتها البوت بتتسجّل بميزاتها. مع الوقت
+    تتجمّع صفقات بنتائجها الحقيقية → هنا نقيس. لا قرار قبل ~30-50 صفقة محسومة.
+    """
+    import json as _json
+    from deals_bot.analyzer import TF_HOURS
+    from deals_bot.signal_log import FEATURES_PATH
+
+    if not os.path.exists(FEATURES_PATH):
+        print(f"📭 لا يوجد ملف ميزات بعد ({FEATURES_PATH}). البوت هيبدأ يسجّل مع أول "
+              "صفقة A+ يبعتها. راجعنا بعد ما تتجمّع صفقات.")
+        return 0
+
+    recs = []
+    with open(FEATURES_PATH, encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                recs.append(_json.loads(line))
+            except ValueError:
+                continue
+    print(f"📊 صفقات مُسجّلة حتى الآن: {len(recs)}")
+    if not recs:
+        print("لا سجلات صالحة بعد.")
+        return 0
+
+    # احسب النتيجة لكل صفقة بإعادة تشغيل السعر بعد وقت الدخول
+    resolved = []   # (rec, result_r, won)
+    unresolved = 0
+    for r in recs:
+        entry, stop, target = r.get("entry"), r.get("stop"), r.get("target")
+        ts0 = r.get("logged_ts")
+        tf = r.get("timeframe") or "6h"
+        if not all(isinstance(x, (int, float)) for x in (entry, stop, target, ts0)):
+            unresolved += 1
+            continue
+        risk = abs(entry - stop)
+        if risk <= 0:
+            unresolved += 1
+            continue
+        try:
+            s = fetch(r["symbol"], "crypto", "auto", tf, limit=1000)
+        except Exception:  # noqa: BLE001
+            unresolved += 1
+            continue
+        outcome = None
+        for c in s.candles:
+            if c.ts < ts0:
+                continue
+            if c.low <= stop:            # الوقف أولًا (الأسوأ) عند لمس الحدّين
+                outcome = (stop, False)
+                break
+            if c.high >= target:
+                outcome = (target, True)
+                break
+        if outcome is None:
+            unresolved += 1
+            continue
+        px, won = outcome
+        rr = (px - entry) / risk
+        resolved.append((r, rr, won))
+
+    n = len(resolved)
+    print(f"  محسومة (وصلت هدف/وقف): {n} | لسه مفتوحة/غير كافية: {unresolved}")
+    if n == 0:
+        print("⏳ مفيش صفقات محسومة بعد — استنّى الصفقات تتحرّك لهدفها/وقفها.")
+        return 0
+
+    wins = sum(1 for _, _, w in resolved if w)
+    tot_r = sum(rr for _, rr, _ in resolved)
+    print(f"  الأساس الحيّ: {n} صفقة | نجاح {wins/n*100:.1f}% | توقّع {tot_r/n:+.2f}R")
+
+    if n < 30:
+        print(f"\n⚠️ {n} < 30 صفقة محسومة — لسه بدري على أي حكم موثوق. القياس هيبقى "
+              "ذو معنى بعد ما تتجمّع ~30-50 صفقة. البوت بيكمّل تسجيل تلقائيًا.")
+        return 0
+
+    def _stats(rows):
+        m = len(rows)
+        if m == 0:
+            return 0, 0.0, 0.0
+        w = sum(1 for _, _, won in rows if won)
+        return m, w / m * 100.0, sum(rr for _, rr, _ in rows) / m
+
+    base_exp = tot_r / n
+
+    def _report(title, key):
+        rows = [(r, rr, w) for (r, rr, w) in resolved
+                if isinstance(r.get(key), (int, float))]
+        print("\n" + "=" * 66)
+        print(f"{title}  (بقيمة: {len(rows)}/{n})")
+        print("-" * 66)
+        if len(rows) < 20:
+            print(f"⚠️ عيّنة {len(rows)} < 20 — غير حاسمة لهذه الإشارة بعد.")
+            print("=" * 66)
+            return
+        vals = sorted(r.get(key) for (r, _, _) in rows)
+        q1 = vals[len(vals) // 2]
+        low = [(r, rr, w) for (r, rr, w) in rows if r.get(key) <= q1]
+        high = [(r, rr, w) for (r, rr, w) in rows if r.get(key) > q1]
+        print(f"{'الفئة':>18} | {'صفقات':>6} | {'نجاح%':>6} | {'توقّع/R':>8}")
+        print("-" * 66)
+        for label, grp in ((f"منخفض (≤{q1:.4g})", low), (f"مرتفع (>{q1:.4g})", high)):
+            gm, gwr, gexp = _stats(grp)
+            flag = "  ← أفضل" if gm >= 10 and gexp > base_exp + 0.10 else ""
+            print(f"{label:>18} | {gm:>6} | {gwr:>6.1f} | {gexp:>+8.2f}{flag}")
+        print("=" * 66)
+
+    _report("① funding عند الدخول", "funding")
+    _report("② تغيّر OI %", "oi_change_pct")
+    _report("③ تغيّر نشاط شبكة BTC %", "onchain_tx_change_7d_pct")
+    print("\nℹ️ نفعّل إشارة حيًّا فقط لو فئةٌ منها رفعت التوقّع بوضوح وعيّنتها كافية "
+          "وثبت ذلك مع مزيد من الصفقات. لسه بنجمّع — القرار لمّا العيّنة تكبر.")
+    return 0
+
+
 def edgemeasure(source: str, timeframe: str) -> int:
     """
     القياس الموحّد: هل funding / OI / on-chain يرفعوا التوقّع؟ — على تاريخ *معمّق*.
@@ -2951,7 +3074,7 @@ def main(argv=None) -> int:
                  "ictconfirm", "levers", "warrior", "classical", "trailexample", "breakeven", "reversal", "fibonacci",
                  "tca", "thresholds", "rrcmp", "smallframes", "scaleout", "fasttrades", "entrybar",
                  "momentumbet", "fundingprobe", "fundingmeasure", "datasourceprobe",
-                 "edgemeasure"],
+                 "edgemeasure", "featuremeasure"],
         default="signals",
         help="signals=إشارات شراء/بيع؛ prepump=ما قبل الاندفاع؛ "
         "trend=ارتداد داخل اتجاه صاعد؛ compare=قارن prepump مقابل trend؛ "
@@ -3036,6 +3159,8 @@ def main(argv=None) -> int:
         return datasourceprobe(args.source, args.timeframe)
     if args.strategy == "edgemeasure":
         return edgemeasure(args.source, args.timeframe)
+    if args.strategy == "featuremeasure":
+        return featuremeasure(args.source, args.timeframe)
     if args.strategy == "breakout":
         return breakout_test(args.source, args.timeframe)
     return run(args.market, args.source, args.timeframe, args.strategy)

@@ -211,6 +211,13 @@ def _alert_immediate_message(picks, timeframe: str, market_bullish,
             "entry": d.entry, "stop": d.stop_loss, "take_profit": d.take_profit,
             "score": d.confidence,
         }
+        # تسجيل صامت لميزات الإشارة (funding/OI/on-chain) — لقياس مستقبلي على داتا
+        # حيّة. best-effort: لا يغيّر قرار الإرسال ولا يوقفه لو فشل الجلب.
+        try:
+            from deals_bot.signal_log import log_signal_features
+            log_signal_features(d, timeframe, now)
+        except Exception:  # noqa: BLE001 - التسجيل إضافة، لا يُفشل الإرسال
+            pass
     _save_sent(sent)
 
     parts = []
