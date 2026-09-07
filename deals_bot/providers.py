@@ -431,8 +431,8 @@ def fetch_coinbase(symbol: str, timeframe: str = "1h", limit: int = 300) -> Seri
 
 
 # أطر زمنية غير مدعومة أصلًا من المزوّدين → تُبنى بدمج إطار أصغر.
-# 30m = دمج كل شمعتَي 15m؛ 4h = دمج كل 4 شمعات 1h (Coinbase لا يوفّرهما أصلًا).
-_RESAMPLE_FROM = {"30m": ("15m", 2), "4h": ("1h", 4)}
+# 30m = دمج كل شمعتَي 15m؛ 2h = دمج كل شمعتَي 1h؛ 4h = دمج كل 4 شمعات 1h.
+_RESAMPLE_FROM = {"30m": ("15m", 2), "2h": ("1h", 2), "4h": ("1h", 4)}
 
 
 def resample_candles(candles: List[Candle], factor: int) -> List[Candle]:

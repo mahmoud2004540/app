@@ -2707,6 +2707,97 @@ def fundingmeasure(source: str, timeframe: str) -> int:
     return 0
 
 
+def framescan(source: str, timeframe: str) -> int:
+    """
+    قياس الفريمات الأقصر (1h/2h/4h) مقابل الحالية (6h/1d) على الإعداد الحيّ الكامل.
+
+    الهدف: نشوف هل إضافة فريم أقصر تدّي صفقات أكتر *مع بقاء التوقّع موجبًا* — أو
+    تجيب ضجيجًا يضرّ. نقيس بالإعدادات الحيّة الحالية بالظبط (RR + استوب + كل الفلاتر
+    من config)، فالنتيجة تعكس البوت كما هو الآن.
+
+    ⚠️ تحذير عيّنة: تاريخ 1h/2h/4h من المزوّد قصير (~3 شهور)، فالفريم الأقصر يغطّي
+    نافذة أقصر — نقرأ النتيجة كاتجاه لا كحكم نهائي.
+    """
+    from deals_bot.analyzer import TF_HOURS
+    tf_hours = {"1h": 1.0, "2h": 2.0, "4h": 4.0, "6h": 6.0, "1d": 24.0}
+
+    frames = ["1h", "2h", "4h", "6h", "1d"]
+    cur = getattr(config, "TREND_TIMEFRAMES", ["6h", "1d"])
+    symbols = resolve_symbols("crypto", "auto")
+    print(f"⏳ قياس الفريمات {frames} على الإعداد الحيّ الكامل — {len(symbols)} عملة...")
+    print(f"   (الحالي: {cur} | RR={getattr(config,'TREND_RR',2.0)} | "
+          f"استوب={getattr(config,'TREND_STOP_BUFFER_ATR',0.5)}×ATR | "
+          f"عتبة={getattr(config,'TREND_MIN_SCORE',85)})")
+
+    kw = dict(
+        rr=float(getattr(config, "TREND_RR", 2.0)),
+        min_score=float(getattr(config, "TREND_MIN_SCORE", 85)),
+        require_ema200=getattr(config, "TREND_REQUIRE_EMA200", True),
+        stop_buffer_atr=getattr(config, "TREND_STOP_BUFFER_ATR", 0.5),
+        rsi_max=getattr(config, "TREND_RSI_MAX", 68.0),
+        require_macd=getattr(config, "TREND_REQUIRE_MACD", True),
+        stoch_max=getattr(config, "TREND_STOCH_MAX", 70.0),
+        fib_min=getattr(config, "TREND_FIB_MIN", 0.5),
+        fib_max=getattr(config, "TREND_FIB_MAX", 0.786),
+        vol_surge_min=getattr(config, "TREND_VOL_SURGE_MIN", None),
+        target_at_resistance=getattr(config, "TREND_TARGET_AT_RESISTANCE", False),
+        trail_activate_r=getattr(config, "TREND_TRAIL_ACTIVATE_R", 0.0) or 0.0,
+        trail_atr=getattr(config, "TREND_TRAIL_ATR", 0.0) or 0.0,
+        min_dollar_vol=getattr(config, "MIN_DOLLAR_VOL", 0) or None,
+    )
+
+    print("\n" + "=" * 66)
+    print(f"{'فريم':>6} | {'صفقات':>6} | {'نجاح%':>6} | {'توقّع/R':>8} | {'إجمالي':>8} | الحكم")
+    print("-" * 66)
+    rows = []
+    for tf in frames:
+        try:
+            series = fetch_many(symbols, "crypto", "auto", tf, limit=1000)
+        except Exception as exc:  # noqa: BLE001
+            print(f"{tf:>6} | تعذّر الجلب: {exc}")
+            continue
+        regime = None
+        try:
+            btc = fetch("BTC-USD", "crypto", "auto", tf, limit=1000)
+            regime = market_uptrend_map(btc, 50)
+        except Exception:  # noqa: BLE001
+            pass
+        tt = tw = 0
+        tr = 0.0
+        for s in series:
+            res = backtest_trend_pullback_series(
+                s, regime=regime, tf_hours=tf_hours.get(tf, 1.0), **kw)
+            tt += res.n
+            tw += res.wins
+            tr += res.total_r
+        wr = (tw / tt * 100.0) if tt else 0.0
+        exp = (tr / tt) if tt else 0.0
+        ok = exp > 0 and tt >= 20
+        verdict = "✅ رابح" if ok else ("⚠️ عيّنة صغيرة" if tt < 20 else "❌ خاسر")
+        mark = " ← مُفعّل" if tf in cur else ""
+        rows.append((tf, tt, wr, exp, tr, ok, tf in cur))
+        print(f"{tf:>6} | {tt:>6} | {wr:>6.1f} | {exp:>+8.2f} | {tr:>+8.1f} | {verdict}{mark}")
+    print("=" * 66)
+
+    # حكم: أي فريم غير مُفعّل حقّق توقّعًا موجبًا بعيّنة كافية = مرشّح للإضافة
+    candidates = [r for r in rows if not r[6] and r[5]]
+    if candidates:
+        best = max(candidates, key=lambda r: r[3])
+        print(f"\n📈 «{best[0]}» غير مُفعّل لكنه رابح ({best[3]:+.2f}R على {best[1]} صفقة) "
+              f"— مرشّح للإضافة لـTREND_TIMEFRAMES (لو صمد على نافذة أطول).")
+    else:
+        pos_small = [r for r in rows if not r[6] and r[3] > 0 and r[1] < 20]
+        if pos_small:
+            print(f"\n👉 فريمات أقصر توقّعها موجب لكن عيّنتها صغيرة — مبشّر، ننتظر "
+                  f"تأكيدًا قبل الإضافة.")
+        else:
+            print(f"\n👉 لا فريم أقصر يتفوّق بربح موثوق — الحالي {cur} يبقى الأفضل. "
+                  f"الفريم الأقصر أكثر ضجيجًا بلا ميزة مقاسة.")
+    print("\nℹ️ الفريم الأقصر = صفقات أكتر وأسرع لكن ضجيج أعلى وتاريخه المتاح أقصر. "
+          "نضيف فقط ما يثبت توقّعًا موجبًا بعيّنة معقولة — لا نطارد سرعة بلا ميزة.")
+    return 0
+
+
 def precisionmeasure(source: str, timeframe: str) -> int:
     """
     قياس رافعات «الدقة»: هل نقدر نرفع نسبة النجاح من غير ما نكسر التوقّع؟
@@ -3179,7 +3270,7 @@ def main(argv=None) -> int:
                  "ictconfirm", "levers", "warrior", "classical", "trailexample", "breakeven", "reversal", "fibonacci",
                  "tca", "thresholds", "rrcmp", "smallframes", "scaleout", "fasttrades", "entrybar",
                  "momentumbet", "fundingprobe", "fundingmeasure", "datasourceprobe",
-                 "edgemeasure", "featuremeasure", "precisionmeasure"],
+                 "edgemeasure", "featuremeasure", "precisionmeasure", "framescan"],
         default="signals",
         help="signals=إشارات شراء/بيع؛ prepump=ما قبل الاندفاع؛ "
         "trend=ارتداد داخل اتجاه صاعد؛ compare=قارن prepump مقابل trend؛ "
@@ -3268,6 +3359,8 @@ def main(argv=None) -> int:
         return featuremeasure(args.source, args.timeframe)
     if args.strategy == "precisionmeasure":
         return precisionmeasure(args.source, args.timeframe)
+    if args.strategy == "framescan":
+        return framescan(args.source, args.timeframe)
     if args.strategy == "breakout":
         return breakout_test(args.source, args.timeframe)
     return run(args.market, args.source, args.timeframe, args.strategy)
