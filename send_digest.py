@@ -73,6 +73,31 @@ def _mark_heartbeat(state_path: str = HEARTBEAT_STATE) -> None:
         print(f"⚠️ تعذّر حفظ حالة النبضة: {exc}")
 
 
+def _scan_report_enabled() -> bool:
+    """هل نبعت «تقرير فحص» بعد كل فحص (اطمئنان أن البوت حيّ)؟ env له الأولوية."""
+    env = os.environ.get("ALERT_SCAN_REPORT")
+    if env is not None and env.strip() != "":
+        return env.lower() in ("1", "true", "yes")
+    return bool(getattr(config, "ALERT_SCAN_REPORT", False))
+
+
+def _scan_report_message(market_bullish) -> str:
+    """رسالة «فحصت — مفيش صفقة الآن» تؤكّد أن المراقب اشتغل فعلًا هذه الدورة."""
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).strftime("%H:%M UTC")
+    if market_bullish is False:
+        state = "هابط 🔴 (لا نشتري ضد التيار)"
+    elif market_bullish:
+        state = "صاعد 🟢"
+    else:
+        state = "غير محدّد"
+    return (
+        f"🔕 فحصت العملات ({now}) — مفيش صفقة مؤهّلة (درجة ≥85) دلوقتي.\n"
+        f"السوق العام (BTC): {state}\n"
+        "✅ البوت شغّال وبيفحص كل 15 دقيقة — هبعتلك فورًا أول ما تظهر صفقة مؤكّدة 🚨."
+    )
+
+
 def _heartbeat_message(status: str) -> str:
     """نص النبضة اليومية القصيرة — تطمئنك أن البوت حيّ ولماذا ينتظر."""
     return (
@@ -253,6 +278,10 @@ def _alert_immediate_message(picks, timeframe: str, market_bullish,
     # لا جديد ولا متابعة → صامت (أو نبضة اليوم إن كانت مفعّلة)
     if suppress_heartbeat:
         return None
+    # تقرير الفحص (اطمئنان): لو مفعّل، نبعت رسالة كل فحص تقول «فحصت، مفيش صفقة الآن»
+    # حتى يتأكّد المستخدم أن البوت حيّ ويعمل — بدل الصمت.
+    if _scan_report_enabled():
+        return _scan_report_message(market_bullish)
     if _heartbeat_due():
         _mark_heartbeat()
         state = ("السوق صاعد 🟢 لكن لا إعداد جديد الآن"
