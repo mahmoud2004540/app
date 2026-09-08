@@ -507,12 +507,18 @@ def fetch_okx(symbol: str, timeframe: str = "1h", limit: int = 300) -> Series:
 
 
 def list_okx_usd_products() -> List[str]:
-    """أزواج OKX الفورية بالدولار (USDT) بصيغة '<BASE>-USD' للدمج مع Coinbase."""
+    """
+    عملات OKX الفورية *الكريبتو* بالدولار (USDT) بصيغة '<BASE>-USD' للدمج مع Coinbase.
+
+    نفلتر بـ instCategory == "1" (كريبتو) ونستبعد "3" (أسهم مرمّزة مثل XNVDA/XAAPL/XQQQ)
+    — أثبتنا الفرق بفحص خام (strategy=okxinst): الكريبتو "1"، الأسهم المرمّزة "3".
+    """
     body = _http_json(f"{_OKX}/public/instruments?instType=SPOT", timeout=30, retries=4)
     data = body.get("data") if isinstance(body, dict) else None
     out: List[str] = []
     for p in (data or []):
-        if p.get("quoteCcy") == "USDT" and p.get("state") == "live":
+        if (p.get("quoteCcy") == "USDT" and p.get("state") == "live"
+                and str(p.get("instCategory")) == "1"):   # كريبتو فقط (لا أسهم مرمّزة)
             base = p.get("baseCcy")
             if base:
                 out.append(f"{base.upper()}-USD")
