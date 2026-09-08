@@ -48,11 +48,17 @@ def resolve_symbols(market: str, source: str) -> List[str]:
             return config.BINANCE_WATCHLIST
         if getattr(config, "CRYPTO_UNIVERSE", "watchlist") == "all":
             try:
-                syms = list_coinbase_usd_products()
+                syms = set(list_coinbase_usd_products())
+                # ادمج عملات OKX (اتحاد) — عملات مش موجودة على Coinbase تُغطّى بـOKX.
+                try:
+                    from deals_bot.providers import list_okx_usd_products
+                    syms |= set(list_okx_usd_products())
+                except Exception as exc:  # noqa: BLE001 - OKX إضافة، لا تُفشل القائمة
+                    print(f"  ⚠️ تعذّر جلب عملات OKX ({exc}) — نكمل بـCoinbase وحده.")
                 cap = getattr(config, "MAX_CRYPTO_SYMBOLS", 400)
-                return syms[:cap]
+                return sorted(syms)[:cap]
             except Exception as exc:  # noqa: BLE001 - fall back to the short list
-                print(f"  ⚠️ تعذّر جلب كل عملات Coinbase ({exc}) — استخدام القائمة القصيرة.")
+                print(f"  ⚠️ تعذّر جلب قائمة العملات ({exc}) — استخدام القائمة القصيرة.")
                 return config.WATCHLISTS["crypto"]
         return config.WATCHLISTS["crypto"]
     if market == "forex":

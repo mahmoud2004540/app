@@ -430,6 +430,95 @@ def fetch_coinbase(symbol: str, timeframe: str = "1h", limit: int = 300) -> Seri
     return _parse_coinbase(raw, symbol, limit=limit)
 
 
+# --------------------------------------------------------------------------- #
+# OKX provider (crypto, no API key) — يوصل من السيرفر (Binance/Bybit محجوبان)
+# يعطي تاريخًا عميقًا بالترقيم + عملات إضافية غير موجودة على Coinbase.
+# --------------------------------------------------------------------------- #
+_OKX_BAR = {"1m": "1m", "5m": "5m", "15m": "15m", "1h": "1H",
+            "2h": "2H", "4h": "4H", "6h": "6H", "1d": "1D"}
+_OKX = "https://www.okx.com/api/v5"
+
+
+def _okx_inst(symbol: str) -> str:
+    """'BTC-USD' → 'BTC-USDT' (زوج OKX الفوري)."""
+    base = symbol.split("-")[0].strip().upper()
+    return f"{base}-USDT"
+
+
+def _parse_okx_rows(rows, symbol: str) -> List[Candle]:
+    """صفوف OKX [ts_ms, o, h, l, c, vol, ...] (الأحدث أولًا) → قائمة شموع."""
+    out: List[Candle] = []
+    for r in rows:
+        try:
+            out.append(Candle(
+                ts=float(r[0]) / 1000.0,
+                open=float(r[1]), high=float(r[2]),
+                low=float(r[3]), close=float(r[4]),
+                volume=float(r[5]),
+            ))
+        except (IndexError, TypeError, ValueError):
+            continue
+    return out
+
+
+def fetch_okx(symbol: str, timeframe: str = "1h", limit: int = 300) -> Series:
+    """
+    اجلب شموع الكريبتو من OKX (بدون مفتاح). يرقّم التاريخ للخلف لبلوغ `limit` شمعة.
+
+    limit ≤ 300 = طلب واحد (سريع، للمسار الحيّ). أكبر = ترقيم history-candles (للباك-تِست
+    العميق). يرمي RuntimeError لو العملة غير موجودة أو الجلب فشل (ليتعامل المُنادِي).
+    """
+    bar = _OKX_BAR.get(timeframe)
+    if not bar:
+        raise RuntimeError(f"إطار غير مدعوم في OKX: {timeframe}")
+    inst = _okx_inst(symbol)
+    collected: dict = {}
+    # 1) أحدث الشموع (حتى 300 في طلب واحد)
+    body = _http_json(f"{_OKX}/market/candles?instId={inst}&bar={bar}&limit=300",
+                      timeout=20, retries=3)
+    data = body.get("data") if isinstance(body, dict) else None
+    if not data:
+        raise RuntimeError(f"لا توجد بيانات لِـ {inst} من OKX.")
+    for r in data:
+        collected[int(r[0])] = r
+    # 2) ترقيم التاريخ للخلف لو محتاجين أكتر (للعيّنات العميقة)
+    oldest = min(collected)
+    pages = 0
+    while len(collected) < limit and pages < 80:
+        body = _http_json(
+            f"{_OKX}/market/history-candles?instId={inst}&bar={bar}&limit=100&after={oldest}",
+            timeout=20, retries=2)
+        data = body.get("data") if isinstance(body, dict) else None
+        if not data:
+            break
+        for r in data:
+            collected[int(r[0])] = r
+        new_oldest = min(collected)
+        if new_oldest >= oldest:
+            break                              # مفيش تقدّم → نوقف
+        oldest = new_oldest
+        pages += 1
+        time.sleep(0.08)
+    candles = sorted(_parse_okx_rows(list(collected.values()), symbol), key=lambda c: c.ts)
+    candles = candles[-limit:]
+    if not candles:
+        raise RuntimeError(f"لا توجد شموع صالحة لِـ {inst} من OKX.")
+    return Series(symbol=symbol, market="crypto", candles=candles)
+
+
+def list_okx_usd_products() -> List[str]:
+    """أزواج OKX الفورية بالدولار (USDT) بصيغة '<BASE>-USD' للدمج مع Coinbase."""
+    body = _http_json(f"{_OKX}/public/instruments?instType=SPOT", timeout=30, retries=4)
+    data = body.get("data") if isinstance(body, dict) else None
+    out: List[str] = []
+    for p in (data or []):
+        if p.get("quoteCcy") == "USDT" and p.get("state") == "live":
+            base = p.get("baseCcy")
+            if base:
+                out.append(f"{base.upper()}-USD")
+    return sorted(set(out))
+
+
 # أطر زمنية غير مدعومة أصلًا من المزوّدين → تُبنى بدمج إطار أصغر.
 # 30m = دمج كل شمعتَي 15m؛ 2h = دمج كل شمعتَي 1h؛ 4h = دمج كل 4 شمعات 1h.
 _RESAMPLE_FROM = {"30m": ("15m", 2), "2h": ("1h", 2), "4h": ("1h", 4)}
@@ -490,8 +579,16 @@ def fetch(symbol: str, market: str, source: str, timeframe: str, limit: int = 30
                      limit=limit * factor + factor, period=period)
         merged = resample_candles(base.candles, factor)[-limit:]
         return Series(symbol=base.symbol, market=base.market, candles=merged)
-    # تعميق التاريخ يتطلّب Yahoo (Coinbase محدود) — نتجاوز المصادر اللحظية.
+    # تعميق التاريخ (Coinbase محدود بـ300): للكريبتو نستخدم OKX (ترقيم عميق) ثم Yahoo؛
+    # لغير الكريبتو نستخدم Yahoo بالنافذة الأعمق.
     if period is not None and source in ("auto", "coinbase"):
+        if market == "crypto":
+            try:
+                s = fetch_okx(symbol, timeframe=timeframe, limit=max(limit, 300))
+                if len(s) >= 60:
+                    return s
+            except Exception:  # noqa: BLE001 - نرجع لـYahoo عند الفشل
+                pass
         return fetch_yf(symbol, market, timeframe=timeframe, limit=limit, period=period)
     if source == "binance":
         return fetch_binance(symbol, timeframe=timeframe, limit=limit)
@@ -510,8 +607,17 @@ def fetch_best(symbol: str, market: str, timeframe: str = "1h", limit: int = 300
     back to Yahoo Finance per-symbol if Coinbase doesn't list it or errors.
     """
     if market == "crypto":
+        # Coinbase أولًا (أسعار لحظية طازجة)، ثم OKX (يغطّي عملات مش على Coinbase)،
+        # ثم Yahoo احتياطيًا. OKX هنا بحدّ 300 شمعة (سريع للمسار الحيّ؛ العمق للباك-تِست
+        # يجيء من مسار period). فالدمج = اتحاد عملات Coinbase + OKX.
         try:
             s = fetch_coinbase(symbol, timeframe=timeframe, limit=limit)
+            if len(s) >= 60:
+                return s
+        except Exception:  # noqa: BLE001 - fall back gracefully
+            pass
+        try:
+            s = fetch_okx(symbol, timeframe=timeframe, limit=min(limit, 300))
             if len(s) >= 60:
                 return s
         except Exception:  # noqa: BLE001 - fall back gracefully
