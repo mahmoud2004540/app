@@ -48,15 +48,14 @@ def resolve_symbols(market: str, source: str) -> List[str]:
             return config.BINANCE_WATCHLIST
         if getattr(config, "CRYPTO_UNIVERSE", "watchlist") == "all":
             try:
-                syms = set(list_coinbase_usd_products())
-                # ادمج عملات OKX (اتحاد) — عملات مش موجودة على Coinbase تُغطّى بـOKX.
-                try:
-                    from deals_bot.providers import list_okx_usd_products
-                    syms |= set(list_okx_usd_products())
-                except Exception as exc:  # noqa: BLE001 - OKX إضافة، لا تُفشل القائمة
-                    print(f"  ⚠️ تعذّر جلب عملات OKX ({exc}) — نكمل بـCoinbase وحده.")
+                # كون الفحص = عملات Coinbase الحقيقية فقط (كريبتو نظيف وسريع). جرّبنا
+                # دمج قائمة OKX الكاملة فجابت ~230 «سهمًا مرمّزًا» (XNVDA/XTSLA/XSPY…)
+                # مش كريبتو، بلا بيانات، وبطّأت الفحص لـ8 دقائق — فرفضناها بالدليل.
+                # OKX يظلّ مصدرًا للتاريخ العميق + احتياطيًا للأسعار (في providers)،
+                # لكن لا نضخّ قائمته الكاملة في كون الفحص الحيّ.
+                syms = list_coinbase_usd_products()
                 cap = getattr(config, "MAX_CRYPTO_SYMBOLS", 400)
-                return sorted(syms)[:cap]
+                return syms[:cap]
             except Exception as exc:  # noqa: BLE001 - fall back to the short list
                 print(f"  ⚠️ تعذّر جلب قائمة العملات ({exc}) — استخدام القائمة القصيرة.")
                 return config.WATCHLISTS["crypto"]
