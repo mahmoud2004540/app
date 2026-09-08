@@ -3256,6 +3256,69 @@ def datasourceprobe(source: str, timeframe: str) -> int:
     return 0
 
 
+def okxprobe(source: str, timeframe: str) -> int:
+    """
+    فحص: هل شموع OKX توصل من السيرفر؟ وكام تاريخ تدّي؟ (بديل عن Binance/Bybit المحجوبين)
+
+    نختبر endpoint الشموع + شموع التاريخ، ونرقّم للخلف عدة صفحات لتقدير عمق التاريخ
+    المتاح. لو وصل بعمق كافٍ → نقدر نبنيه كمصدر أسعار (عملات أكتر + عيّنات أكبر).
+    """
+    import json as _json
+    import time as _time
+    import urllib.request as _rq
+    from datetime import datetime, timezone
+
+    def _get(url):
+        req = _rq.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with _rq.urlopen(req, timeout=15) as resp:
+            return _json.loads(resp.read().decode("utf-8", "replace"))
+
+    base = "https://www.okx.com/api/v5/market"
+    print("⏳ فحص شموع OKX من السيرفر...\n" + "=" * 64)
+
+    # 1) الشموع الحالية
+    for bar in ("6H", "1D"):
+        try:
+            b = _get(f"{base}/candles?instId=BTC-USDT&bar={bar}&limit=100")
+            n = len(b.get("data") or [])
+            print(f"✅ candles {bar:>3}: وصل | {n} شمعة (أحدث)")
+        except Exception as exc:  # noqa: BLE001
+            print(f"❌ candles {bar:>3}: فشل — {str(exc)[:70]}")
+
+    # 2) شموع التاريخ + ترقيم للخلف لتقدير العمق (6H)
+    print("-" * 64)
+    bar = "6H"
+    oldest_ms = None
+    total = 0
+    after = ""
+    try:
+        for page in range(20):   # 20 صفحة × 100 × 6h ≈ 500 يوم كحدّ للاختبار
+            url = f"{base}/history-candles?instId=BTC-USDT&bar={bar}&limit=100"
+            if after:
+                url += f"&after={after}"
+            b = _get(url)
+            rows = b.get("data") or []
+            if not rows:
+                break
+            total += len(rows)
+            oldest_ms = int(rows[-1][0])   # آخر صف = الأقدم (OKX يرجّع الأحدث أولًا)
+            after = rows[-1][0]
+            _time.sleep(0.1)
+        if oldest_ms:
+            d = datetime.fromtimestamp(oldest_ms / 1000, tz=timezone.utc).strftime("%Y-%m-%d")
+            days = total * 6 / 24.0
+            print(f"✅ history-candles {bar}: {total} شمعة عبر الترقيم | "
+                  f"أقدم تاريخ ≈ {d} (~{days:.0f} يوم)")
+        else:
+            print(f"❌ history-candles {bar}: مفيش بيانات")
+    except Exception as exc:  # noqa: BLE001
+        print(f"❌ history-candles {bar}: فشل — {str(exc)[:70]}")
+    print("=" * 64)
+    print("\nℹ️ لو العمق ≥ سنتين → OKX مصدر أسعار ممتاز: عملات أكتر + عيّنات باك-تِست "
+          "أكبر بكتير (يحلّ مشكلة العيّنة الصغيرة). لو ضحل → نكتفي بـCoinbase.")
+    return 0
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description="باك-تِست لاستراتيجية بوت الصفقات.")
     p.add_argument("--market", "-m", choices=["crypto", "stocks", "forex", "all"], default="crypto")
@@ -3270,7 +3333,8 @@ def main(argv=None) -> int:
                  "ictconfirm", "levers", "warrior", "classical", "trailexample", "breakeven", "reversal", "fibonacci",
                  "tca", "thresholds", "rrcmp", "smallframes", "scaleout", "fasttrades", "entrybar",
                  "momentumbet", "fundingprobe", "fundingmeasure", "datasourceprobe",
-                 "edgemeasure", "featuremeasure", "precisionmeasure", "framescan"],
+                 "edgemeasure", "featuremeasure", "precisionmeasure", "framescan",
+                 "okxprobe"],
         default="signals",
         help="signals=إشارات شراء/بيع؛ prepump=ما قبل الاندفاع؛ "
         "trend=ارتداد داخل اتجاه صاعد؛ compare=قارن prepump مقابل trend؛ "
@@ -3361,6 +3425,8 @@ def main(argv=None) -> int:
         return precisionmeasure(args.source, args.timeframe)
     if args.strategy == "framescan":
         return framescan(args.source, args.timeframe)
+    if args.strategy == "okxprobe":
+        return okxprobe(args.source, args.timeframe)
     if args.strategy == "breakout":
         return breakout_test(args.source, args.timeframe)
     return run(args.market, args.source, args.timeframe, args.strategy)
