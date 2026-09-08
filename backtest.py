@@ -3256,6 +3256,45 @@ def datasourceprobe(source: str, timeframe: str) -> int:
     return 0
 
 
+def okxinst(source: str, timeframe: str) -> int:
+    """
+    افحص خام instruments من OKX لإيجاد الحقل اللي يميّز الأسهم المرمّزة عن الكريبتو.
+
+    نطبع أمثلة كاملة (BTC مقابل عملة تبدأ بـX مقابل سهم مرمّز محتمل) + إحصاء، عشان
+    نبني فلترًا موثوقًا (بدل تخمين «يبدأ بـX»).
+    """
+    import json as _json
+    import urllib.request as _rq
+
+    req = _rq.Request("https://www.okx.com/api/v5/public/instruments?instType=SPOT",
+                      headers={"User-Agent": "Mozilla/5.0"})
+    with _rq.urlopen(req, timeout=20) as resp:
+        body = _json.loads(resp.read().decode("utf-8", "replace"))
+    data = body.get("data") or []
+    usdt = [p for p in data if p.get("quoteCcy") == "USDT" and p.get("state") == "live"]
+    print(f"إجمالي SPOT: {len(data)} | أزواج USDT حيّة: {len(usdt)}")
+
+    # اجمع كل الحقول الموجودة
+    keys = sorted({k for p in usdt for k in p.keys()})
+    print(f"الحقول المتاحة: {keys}\n")
+
+    def show(pred, label, n=3):
+        picks = [p for p in usdt if pred(p)][:n]
+        for p in picks:
+            print(f"[{label}] {p.get('instId')}: {_json.dumps(p, ensure_ascii=False)}")
+        print()
+
+    show(lambda p: p.get("baseCcy") == "BTC", "كريبتو BTC")
+    show(lambda p: p.get("baseCcy") in ("XRP", "XLM", "XAUT", "XMR"), "كريبتو يبدأ بـX")
+    show(lambda p: p.get("baseCcy", "") in ("NVDA", "XNVDA", "TSLA", "XTSLA", "AAPL",
+         "XAAPL", "SPY", "XSPY", "QQQ", "XQQQ"), "سهم مرمّز محتمل")
+    # اطبع أي baseCcy فيه علامة قد تدل على سهم
+    weird = sorted({p.get("baseCcy") for p in usdt
+                    if str(p.get("baseCcy", "")).startswith("X") and len(str(p.get("baseCcy"))) >= 5})
+    print(f"عيّنة baseCcy تبدأ بـX وطولها ≥5 ({len(weird)}): {weird[:40]}")
+    return 0
+
+
 def okxprobe(source: str, timeframe: str) -> int:
     """
     فحص: هل شموع OKX توصل من السيرفر؟ وكام تاريخ تدّي؟ (بديل عن Binance/Bybit المحجوبين)
@@ -3334,7 +3373,7 @@ def main(argv=None) -> int:
                  "tca", "thresholds", "rrcmp", "smallframes", "scaleout", "fasttrades", "entrybar",
                  "momentumbet", "fundingprobe", "fundingmeasure", "datasourceprobe",
                  "edgemeasure", "featuremeasure", "precisionmeasure", "framescan",
-                 "okxprobe"],
+                 "okxprobe", "okxinst"],
         default="signals",
         help="signals=إشارات شراء/بيع؛ prepump=ما قبل الاندفاع؛ "
         "trend=ارتداد داخل اتجاه صاعد؛ compare=قارن prepump مقابل trend؛ "
@@ -3427,6 +3466,8 @@ def main(argv=None) -> int:
         return framescan(args.source, args.timeframe)
     if args.strategy == "okxprobe":
         return okxprobe(args.source, args.timeframe)
+    if args.strategy == "okxinst":
+        return okxinst(args.source, args.timeframe)
     if args.strategy == "breakout":
         return breakout_test(args.source, args.timeframe)
     return run(args.market, args.source, args.timeframe, args.strategy)
