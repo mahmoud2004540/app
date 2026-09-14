@@ -1,1 +1,1 @@
-{"1d:CTSI-USD": {"sent_ts": 1789307528.3570209, "status": "pending", "symbol": "CTSI-USD", "market": "crypto", "timeframe": "1d", "entry": 0.02665, "stop": 0.02205696, "take_profit": 0.03446667, "score": 87.2}}
+{"1d:USD1-USD": {"sent_ts": 1789394944.2159393, "status": "pending", "symbol": "USD1-USD", "market": "crypto", "timeframe": "1d", "entry": 0.9997, "stop": 0.99368987, "take_profit": 1.00871519, "score": 86.0}}
