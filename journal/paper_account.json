@@ -1,25 +1,9 @@
 {
-  "equity": 992.0580431250945,
+  "equity": 987.1007159390479,
   "starting_equity": 1000.0,
   "day": 20713,
   "day_start_equity": 992.0580431250945,
-  "positions": [
-    {
-      "symbol": "IMU-USD",
-      "market": "crypto",
-      "direction": "BUY",
-      "entry": 0.0026283135,
-      "stop": 0.0019499746697628519,
-      "target": 0.003981050660474297,
-      "qty": 7276.67364267,
-      "opened_ts": 1787616000.0,
-      "fees_paid": 0.019125379570123738,
-      "ai_score": 94.0,
-      "atr0": 0.0,
-      "risk0": 0.0,
-      "peak": 0.0
-    }
-  ],
+  "positions": [],
   "closed": [
     {
       "symbol": "FARTCOIN-USD",
@@ -124,6 +108,19 @@
       "reason": "stop",
       "opened_ts": 1788220800.0,
       "closed_ts": 1788890400.0
+    },
+    {
+      "symbol": "IMU-USD",
+      "direction": "BUY",
+      "entry": 0.0026283135,
+      "exit": 0.0019489996824279706,
+      "qty": 7276.67364267,
+      "pnl": -4.9573,
+      "fees_paid": 0.0333,
+      "result_r": -1.004,
+      "reason": "stop",
+      "opened_ts": 1787616000.0,
+      "closed_ts": 1789668000.0
     }
   ]
 }
