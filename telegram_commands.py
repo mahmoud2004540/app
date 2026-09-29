@@ -5,17 +5,29 @@ import json, os, sys, urllib.parse, urllib.request
 import config
 from deals_bot.settings_store import apply_overrides, save
 OFFSET_PATH = os.path.join("journal", "tg_offset.json")
+KEYBOARD = json.dumps({
+    "keyboard": [["فحص الآن", "الحالة"], ["تشديد", "عادي"]],
+    "resize_keyboard": True,
+    "persistent": True,
+}, ensure_ascii=False)
 HELP = (
-    "اكتب الأمر كرسالة جديدة (متضغطش جوه القائمة القديمة):\n"
-    "/status\n/strict\n/normal\n/scan_on\n/scan_off\n/help"
-)
+    "اضغط الأزرار تحت، أو اكتب:\n"
+    "/سcan أو فحص الآن\n/status\n/strict\n/normal"
+).replace("/سcan", "/scan")
 
 def _api(token, method, params=None):
     url = f"https://api.telegram.org/bot{token}/{method}"
     data = urllib.parse.urlencode(params).encode("utf-8") if params else None
     req = urllib.request.Request(url, data=data)
-    with urllib.request.urlopen(req, timeout=30) as resp:
+    with urllib.request.urlopen(req, timeout=60) as resp:
         return json.loads(resp.read().decode("utf-8"))
+
+def send_text(token, chat_id, text):
+    return _api(token, "sendMessage", {
+        "chat_id": chat_id,
+        "text": text,
+        "reply_markup": KEYBOARD,
+    })
 
 def _offset():
     try:
@@ -38,6 +50,31 @@ def _status():
     lines.append("التداول الحقيقي: مقفول")
     return "\n".join(lines)
 
+def _quick_scan() -> str:
+    apply_overrides(config)
+    old_uni = getattr(config, "CRYPTO_UNIVERSE", "watchlist")
+    config.CRYPTO_UNIVERSE = "watchlist"
+    try:
+        from deals_bot.formatter import format_picks
+        from deals_bot.strategy import top_picks
+        tf = (getattr(config, "TREND_TIMEFRAMES", None) or ["6h"])[0]
+        picks, cands, bull = top_picks(["crypto"], timeframe=tf, top=3)
+        state = "صاعد" if bull else ("هابط" if bull is False else "غير محدد")
+        if picks:
+            return f"🚨 فحص سريع ({tf}) — السوق {state}\n\n" + format_picks(picks)
+        n = len(cands or [])
+        return (
+            f"🔕 مفيش صفقة دلوقتي.\n"
+            f"الفحص اتعمل على القائمة المختصرة ({tf}).\n"
+            f"السوق: {state}\n"
+            f"مرشحين تحت العتبة: {n}\n"
+            "البوت شغال وهيبعت لما تظهر صفقة مؤهلة."
+        )
+    except Exception as exc:
+        return f"⚠️ الفحص فشل: {exc}"
+    finally:
+        config.CRYPTO_UNIVERSE = old_uni
+
 def _norm(text):
     t = (text or "").strip().lower()
     t = t.split("@", 1)[0]
@@ -45,6 +82,7 @@ def _norm(text):
         "حالة": "/status", "status": "/status",
         "تشديد": "/strict", "strict": "/strict",
         "عادي": "/normal", "normal": "/normal",
+        "فحص الآن": "/scan", "فحص": "/scan", "scan": "/scan",
         "تقرير": "/scan_on",
         "صمت": "/scan_off",
         "مساعدة": "/help", "help": "/help", "start": "/start",
@@ -59,6 +97,8 @@ def _handle(text):
         return HELP + "\n\n" + _status()
     if cmd == "/status":
         return _status()
+    if cmd == "/scan":
+        return _quick_scan()
     if cmd == "/strict":
         save({"ALERT_REQUIRE_CONFIRM": True, "TREND_REQUIRE_MOMENTUM": True, "TREND_ANTI_REVERSAL": True, "ALERT_ONLY": True})
         apply_overrides(config)
@@ -85,21 +125,17 @@ def process_inbox():
         return 0
     apply_overrides(config)
     try:
-        _api(token, "setMyCommands", {
-            "commands": json.dumps([
-                {"command": "start", "description": "القائمة"},
-                {"command": "status", "description": "حالة البوت"},
-                {"command": "strict", "description": "تشديد منع الانعكاس"},
-                {"command": "normal", "description": "الوضع العادي"},
-                {"command": "scan_on", "description": "تقرير كل فحص"},
-                {"command": "scan_off", "description": "صمت إلا صفقة"},
-                {"command": "help", "description": "مساعدة"},
-            ], ensure_ascii=False)
-        })
+        _api(token, "setMyCommands", {"commands": json.dumps([
+            {"command": "scan", "description": "فحص الصفقات الآن"},
+            {"command": "status", "description": "حالة البوت"},
+            {"command": "strict", "description": "تشديد"},
+            {"command": "normal", "description": "عادي"},
+            {"command": "start", "description": "القائمة"},
+        ], ensure_ascii=False)})
     except Exception as exc:
         print("setMyCommands", exc)
     if os.environ.get("ANNOUNCE") == "1":
-        _api(token, "sendMessage", {"chat_id": chat_id, "text": "البوت شغال. اكتب /status كرسالة جديدة.\n" + HELP})
+        send_text(token, chat_id, "الأزرار ظهرت تحت. اضغط فحص الآن.\n" + HELP)
     off = _offset()
     upd = _api(token, "getUpdates", {"timeout": "0", "limit": "50", "offset": str(off)})
     if not upd.get("ok"):
@@ -118,7 +154,7 @@ def process_inbox():
         reply = _handle(text)
         if not reply:
             continue
-        _api(token, "sendMessage", {"chat_id": chat_id, "text": reply})
+        send_text(token, chat_id, reply)
         n += 1
         print("cmd", text[:40])
     if max_id != off:
