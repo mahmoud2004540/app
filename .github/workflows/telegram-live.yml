@@ -6,6 +6,8 @@ on:
 concurrency:
   group: telegram-live
   cancel-in-progress: true
+permissions:
+  contents: write
 jobs:
   live:
     runs-on: ubuntu-latest

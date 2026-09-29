@@ -1,51 +1,46 @@
-"""مخزن إعدادات لوحة التحكم — يتجاوز قيم config بدون تعديل الملف الأصلي."""
-
+"""مخزن إعدادات لوحة التحكم — يتجاوز قيم config ويرفع على main."""
 from __future__ import annotations
-
-import json
-import os
+import json, os, subprocess
 from typing import Any
-
 PATH = os.path.join("journal", "control_settings.json")
-
 SCHEMA = {
-    "TREND_MIN_SCORE": {"group": "دخول", "label": "أدنى درجة دخول", "type": "float", "min": 50, "max": 95, "step": 1},
-    "TREND_RR": {"group": "دخول", "label": "العائد/المخاطرة", "type": "float", "min": 1.0, "max": 3.5, "step": 0.1},
-    "INVESTMENT_RR": {"group": "دخول", "label": "هدف استثماري أبعد (0=إخفاء)", "type": "float", "min": 0, "max": 4, "step": 0.1},
-    "TREND_RSI_MAX": {"group": "فلاتر", "label": "سقف RSI", "type": "float", "min": 50, "max": 80, "step": 1},
-    "TREND_STOCH_MAX": {"group": "فلاتر", "label": "سقف Stochastic", "type": "float", "min": 50, "max": 90, "step": 1},
-    "TREND_FIB_MIN": {"group": "فلاتر", "label": "فيبوناتشي من", "type": "float", "min": 0.2, "max": 0.8, "step": 0.01},
-    "TREND_FIB_MAX": {"group": "فلاتر", "label": "فيبوناتشي إلى", "type": "float", "min": 0.4, "max": 0.9, "step": 0.01},
-    "TREND_VOL_SURGE_MIN": {"group": "فلاتر", "label": "أقل اندفاع حجم (×)", "type": "float", "min": 1.0, "max": 3.0, "step": 0.1},
-    "TREND_STOP_BUFFER_ATR": {"group": "مخاطر", "label": "هامش الوقف (×ATR)", "type": "float", "min": 0, "max": 2.5, "step": 0.1},
-    "TREND_TRAIL_ACTIVATE_R": {"group": "مخاطر", "label": "تفعيل التتبع بعد (R)", "type": "float", "min": 0, "max": 2, "step": 0.1},
-    "TREND_TRAIL_ATR": {"group": "مخاطر", "label": "مسافة التتبع (×ATR)", "type": "float", "min": 1, "max": 4, "step": 0.1},
-    "RISK_PER_TRADE_PRO": {"group": "مخاطر", "label": "مخاطرة الصفقة (كسر عشري)", "type": "float", "min": 0.001, "max": 0.02, "step": 0.001},
-    "MAX_DAILY_LOSS_PCT": {"group": "مخاطر", "label": "أقصى خسارة يومية", "type": "float", "min": 0.005, "max": 0.05, "step": 0.001},
-    "MAX_CONSECUTIVE_LOSSES": {"group": "مخاطر", "label": "إيقاف بعد خسائر متتالية", "type": "int", "min": 1, "max": 8, "step": 1},
-    "MIN_RISK_REWARD": {"group": "مخاطر", "label": "أقل RR لمحرّك المخاطر", "type": "float", "min": 1.0, "max": 3.0, "step": 0.1},
-    "MAX_OPEN_POSITIONS": {"group": "مخاطر", "label": "أقصى صفقات مفتوحة", "type": "int", "min": 1, "max": 10, "step": 1},
-    "ACCOUNT_BALANCE": {"group": "حساب", "label": "رأس المال الورقي", "type": "float", "min": 50, "max": 100000, "step": 10},
-    "ICT_MIN_SCORE": {"group": "ICT", "label": "أدنى درجة ICT", "type": "float", "min": 60, "max": 95, "step": 1},
-    "CONFIRM_VOLUME_MULT": {"group": "تأكيد", "label": "مضاعف حجم التأكيد", "type": "float", "min": 1.0, "max": 2.5, "step": 0.1},
-    "SETUP_RESEND_HOURS": {"group": "تنبيه", "label": "ساعات منع إعادة الإرسال", "type": "float", "min": 1, "max": 72, "step": 1},
-    "STREAK_WARN_THRESHOLD": {"group": "تنبيه", "label": "عتبة تنبيه سلسلة الخسارة", "type": "int", "min": 2, "max": 8, "step": 1},
-    "TREND_REQUIRE_EMA200": {"group": "بوابات", "label": "يشترط EMA200", "type": "bool"},
-    "TREND_REQUIRE_MACD": {"group": "بوابات", "label": "يشترط MACD صاعد", "type": "bool"},
-    "TREND_REQUIRE_MOMENTUM": {"group": "بوابات", "label": "يشترط زخم مع الصفقة", "type": "bool"},
-    "TREND_ANTI_REVERSAL": {"group": "بوابات", "label": "رفض شمعة الانعكاس", "type": "bool"},
-    "TREND_MARKET_REGIME": {"group": "بوابات", "label": "لا شراء وسوق BTC هابط", "type": "bool"},
-    "ALERT_REQUIRE_CONFIRM": {"group": "بوابات", "label": "أرسل بعد تأكيد الإطار الأدنى فقط", "type": "bool"},
-    "ALERT_CONFIRM_FOLLOWUP": {"group": "بوابات", "label": "رسالة متابعة عند اكتمال التأكيد", "type": "bool"},
-    "ALERT_ONLY": {"group": "بوابات", "label": "وضع الدخول فقط (صامت بدون صفقة)", "type": "bool"},
-    "ALERT_SCAN_REPORT": {"group": "بوابات", "label": "تقرير بعد كل فحص", "type": "bool"},
-    "HEARTBEAT_DAILY": {"group": "بوابات", "label": "نبضة يومية", "type": "bool"},
-    "CORR_FILTER_ENABLED": {"group": "بوابات", "label": "فلتر الارتباط", "type": "bool"},
-    "STREAK_WARN_ENABLED": {"group": "بوابات", "label": "تنبيه سلسلة الخسارة", "type": "bool"},
+    "TREND_MIN_SCORE": {"type": "float", "min": 50, "max": 95},
+    "TREND_RR": {"type": "float", "min": 1.0, "max": 3.5},
+    "INVESTMENT_RR": {"type": "float", "min": 0, "max": 4},
+    "TREND_RSI_MAX": {"type": "float", "min": 50, "max": 80},
+    "TREND_STOCH_MAX": {"type": "float", "min": 50, "max": 90},
+    "TREND_FIB_MIN": {"type": "float", "min": 0.2, "max": 0.8},
+    "TREND_FIB_MAX": {"type": "float", "min": 0.4, "max": 0.9},
+    "TREND_VOL_SURGE_MIN": {"type": "float", "min": 1.0, "max": 3.0},
+    "TREND_STOP_BUFFER_ATR": {"type": "float", "min": 0, "max": 2.5},
+    "TREND_TRAIL_ACTIVATE_R": {"type": "float", "min": 0, "max": 2},
+    "TREND_TRAIL_ATR": {"type": "float", "min": 1, "max": 4},
+    "RISK_PER_TRADE_PRO": {"type": "float", "min": 0.001, "max": 0.02},
+    "MAX_DAILY_LOSS_PCT": {"type": "float", "min": 0.005, "max": 0.05},
+    "MAX_CONSECUTIVE_LOSSES": {"type": "int", "min": 1, "max": 8},
+    "MIN_RISK_REWARD": {"type": "float", "min": 1.0, "max": 3.0},
+    "MAX_OPEN_POSITIONS": {"type": "int", "min": 1, "max": 10},
+    "ACCOUNT_BALANCE": {"type": "float", "min": 50, "max": 100000},
+    "ICT_MIN_SCORE": {"type": "float", "min": 60, "max": 95},
+    "CONFIRM_VOLUME_MULT": {"type": "float", "min": 1.0, "max": 2.5},
+    "SETUP_RESEND_HOURS": {"type": "float", "min": 1, "max": 72},
+    "STREAK_WARN_THRESHOLD": {"type": "int", "min": 2, "max": 8},
+    "MAX_CRYPTO_SYMBOLS": {"type": "int", "min": 50, "max": 2000},
+    "TREND_REQUIRE_EMA200": {"type": "bool"},
+    "TREND_REQUIRE_MACD": {"type": "bool"},
+    "TREND_REQUIRE_MOMENTUM": {"type": "bool"},
+    "TREND_ANTI_REVERSAL": {"type": "bool"},
+    "TREND_MARKET_REGIME": {"type": "bool"},
+    "ALERT_REQUIRE_CONFIRM": {"type": "bool"},
+    "ALERT_CONFIRM_FOLLOWUP": {"type": "bool"},
+    "ALERT_ONLY": {"type": "bool"},
+    "ALERT_SCAN_REPORT": {"type": "bool"},
+    "HEARTBEAT_DAILY": {"type": "bool"},
+    "CORR_FILTER_ENABLED": {"type": "bool"},
+    "STREAK_WARN_ENABLED": {"type": "bool"},
 }
-
 LOCKED = ("LIVE_TRADING_ENABLED",)
-
+ALWAYS = {"CRYPTO_UNIVERSE": "all", "MAX_CRYPTO_SYMBOLS": 1000, "LIVE_TRADING_ENABLED": False}
 
 def load() -> dict:
     try:
@@ -55,6 +50,23 @@ def load() -> dict:
     except Exception:
         return {}
 
+def persist_to_main() -> None:
+    if os.environ.get("GITHUB_ACTIONS") != "true":
+        return
+    try:
+        subprocess.run(["git", "config", "user.name", "trading-bot"], check=False)
+        subprocess.run(["git", "config", "user.email", "bot@users.noreply.github.com"], check=False)
+        subprocess.run(["git", "add", PATH], check=False)
+        diff = subprocess.run(["git", "diff", "--cached", "--quiet", PATH])
+        if diff.returncode == 0:
+            return
+        subprocess.run(["git", "commit", "-m", "chore(settings): persist controls [skip ci]"], check=False)
+        branch = os.environ.get("GITHUB_REF_NAME") or "main"
+        subprocess.run(["git", "pull", "--rebase", "origin", branch], check=False)
+        subprocess.run(["git", "push", "origin", f"HEAD:{branch}"], check=False)
+        print("settings pushed to", branch)
+    except Exception as exc:
+        print("persist failed", exc)
 
 def save(updates: dict) -> dict:
     current = load()
@@ -77,16 +89,18 @@ def save(updates: dict) -> dict:
         except (TypeError, ValueError):
             continue
     current.update(cleaned)
-    current["LIVE_TRADING_ENABLED"] = False
-    os.makedirs(os.path.dirname(PATH), exist_ok=True)
+    current.update(ALWAYS)
+    os.makedirs(os.path.dirname(PATH) or ".", exist_ok=True)
     with open(PATH, "w", encoding="utf-8") as fh:
         json.dump(current, fh, ensure_ascii=False, indent=2)
+    persist_to_main()
     return current
-
 
 def apply_overrides(module: Any) -> None:
     data = load()
+    data.update(ALWAYS)
     for key, val in data.items():
-        if key in SCHEMA:
+        if key in SCHEMA or key in ALWAYS:
             setattr(module, key, val)
     setattr(module, "LIVE_TRADING_ENABLED", False)
+    setattr(module, "CRYPTO_UNIVERSE", "all")
