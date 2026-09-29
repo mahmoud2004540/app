@@ -10,7 +10,7 @@ def main() -> int:
     if not token or not chat_id:
         return 2
     try:
-        tc.send_text(token, chat_id, "زر الفحص بقى على كل العملات. هياخد دقايق بعد الضغط.")
+        tc.send_text(token, chat_id, "ظهر زر بداية اندفاع. بيفحص كل العملات وفيه تنبيه تلقائي. مش ضمان بمب.")
     except Exception as exc:
         print("announce", exc)
     off = tc._offset()
@@ -31,9 +31,9 @@ def main() -> int:
             if chat != chat_id:
                 continue
             cmd = tc._norm(text)
-            if cmd in ("/scan", "/fast"):
+            if cmd in ("/scan", "/fast", "/pump"):
                 try:
-                    tc.send_text(token, chat_id, "⏳ بفحص كل العملات الآن. استنى كم دقيقة — هتجيك نتيجة حتى لو مفيش صفقة.")
+                    tc.send_text(token, chat_id, "⏳ بفحص كل العملات... هياخد دقايق.")
                 except Exception:
                     pass
             reply = tc._handle(text)
