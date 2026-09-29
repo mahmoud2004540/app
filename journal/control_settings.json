@@ -2,6 +2,8 @@
   "ALERT_REQUIRE_CONFIRM": true,
   "TREND_REQUIRE_MOMENTUM": true,
   "TREND_ANTI_REVERSAL": true,
-  "LIVE_TRADING_ENABLED": false,
-  "ALERT_ONLY": true
+  "ALERT_ONLY": true,
+  "ALERT_SCAN_REPORT": true,
+  "HEARTBEAT_DAILY": true,
+  "LIVE_TRADING_ENABLED": false
 }
