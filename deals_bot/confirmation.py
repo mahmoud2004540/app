@@ -73,9 +73,6 @@ def broke_minor_structure(series: Series, direction: str, lookback: int = 10) ->
 def confirm(series: Series, direction: str, vol_mult: float = 1.3) -> Confirmation:
     """
     تأكيد الدخول: انغلاف + توسّع حجم + كسر بنية صغرى في اتجاه الصفقة.
-
-    Requires the pattern + volume + structure break to all agree. Momentum is
-    implied by the engulfing close + structure break.
     """
     reasons: List[str] = []
     if direction == "BUY":
@@ -105,3 +102,18 @@ def confirm(series: Series, direction: str, vol_mult: float = 1.3) -> Confirmati
             missing.append("كسر بنية")
         reasons.append("⏳ لم يكتمل التأكيد — ناقص: " + "، ".join(missing))
     return Confirmation(confirmed=ok, reasons=reasons)
+
+
+def last_bar_holds(series: Series, direction: str = "BUY") -> bool:
+    """آخر شمعة مغلقة لا تنعكس ضد الصفقة.
+
+    BUY: جسم صاعد وإغلاق أعلى من إغلاق السابقة.
+    SELL: جسم هابط وإغلاق أدنى من إغلاق السابقة.
+    """
+    candles = series.candles
+    if len(candles) < 2:
+        return False
+    prev, cur = candles[-2], candles[-1]
+    if direction == "BUY":
+        return cur.close > cur.open and cur.close >= prev.close
+    return cur.close < cur.open and cur.close <= prev.close
