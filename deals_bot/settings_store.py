@@ -5,6 +5,7 @@ from typing import Any
 PATH = os.path.join("journal", "control_settings.json")
 SCHEMA = {
     "TREND_MIN_SCORE": {"type": "float", "min": 50, "max": 95},
+    "PREPUMP_MIN_SCORE": {"type": "float", "min": 60, "max": 95},
     "TREND_RR": {"type": "float", "min": 1.0, "max": 3.5},
     "INVESTMENT_RR": {"type": "float", "min": 0, "max": 4},
     "TREND_RSI_MAX": {"type": "float", "min": 50, "max": 80},
@@ -38,9 +39,14 @@ SCHEMA = {
     "HEARTBEAT_DAILY": {"type": "bool"},
     "CORR_FILTER_ENABLED": {"type": "bool"},
     "STREAK_WARN_ENABLED": {"type": "bool"},
+    "PREPUMP_ALERT_APPEND": {"type": "bool"},
 }
 LOCKED = ("LIVE_TRADING_ENABLED",)
-ALWAYS = {"CRYPTO_UNIVERSE": "all", "MAX_CRYPTO_SYMBOLS": 1000, "LIVE_TRADING_ENABLED": False}
+ALWAYS = {
+    "CRYPTO_UNIVERSE": "all",
+    "MAX_CRYPTO_SYMBOLS": 1000,
+    "LIVE_TRADING_ENABLED": False,
+}
 
 def load() -> dict:
     try:
