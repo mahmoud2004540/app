@@ -1,13 +1,5 @@
 #!/usr/bin/env python3
-"""
-تشخيص تيليجرام: يكشف *أين* تذهب الرسائل فعلًا ويبعت رسالة اختبار حيّة.
-
-المشكلة: اللوج يقول «تم الإرسال بنجاح» (تيليجرام يرد ok:true) لكن المستخدم لا
-يستلم. السبب شبه المؤكّد: TELEGRAM_CHAT_ID يشير إلى شات غير الذي يفتحه المستخدم،
-أو التوكن لبوت آخر. لا نقدر رؤية السرّ من الكود، لكن هذا السكربت (يملك السرّ في
-بيئة التشغيل) يطبع هوية البوت والشات (بلا كشف التوكن) ويبعت رسالة اختبار موسومة
-بالوقت — فيؤكّد المستخدم فورًا: هل وصلت؟ وإلى أي بوت/شات.
-"""
+"""تشخيص تيليجرام: هوية البوت/الشات + رسالة اختبار + آخر من كاتب البوت."""
 from __future__ import annotations
 
 import json
@@ -33,10 +25,9 @@ def main() -> int:
         print("❌ TELEGRAM_TOKEN / TELEGRAM_CHAT_ID غير مضبوطين.", file=sys.stderr)
         return 2
 
-    # هوية غير حسّاسة تساعد التشخيص (بلا كشف التوكن كاملًا)
-    print(f"🔑 التوكن ينتهي بـ: ...{token[-6:]}   |   chat_id المضبوط: {chat_id}")
+    print(f"🔑 التوكن ينتهي بـ: ...{token[-6:]}")
+    print(f"📍 CHAT_ID المضبوط طوله={len(str(chat_id))} ويبدأ بـ {str(chat_id)[:2]}...")
 
-    # (1) مَن البوت؟ — اسم المستخدم الذي يجب أن يفتحه المستخدم
     try:
         me = _api(token, "getMe")
         if me.get("ok"):
@@ -44,37 +35,68 @@ def main() -> int:
             print(f"🤖 البوت: @{u.get('username')}  (الاسم: {u.get('first_name')}, id: {u.get('id')})")
         else:
             print(f"🤖 getMe فشل: {me}")
-    except Exception as exc:  # noqa: BLE001
+            return 1
+    except Exception as exc:
         print(f"🤖 getMe خطأ: {exc}")
+        return 1
 
-    # (2) إلى أي شات تذهب الرسائل فعلًا؟ — نوعه واسمه
     try:
         ch = _api(token, "getChat", {"chat_id": chat_id})
         if ch.get("ok"):
             c = ch["result"]
             ident = c.get("username") or c.get("title") or c.get("first_name") or "—"
-            print(f"💬 الشات الهدف: نوع={c.get('type')}  الاسم/المعرّف={ident}  id={c.get('id')}")
+            uname = f"@{c['username']}" if c.get("username") else "(مفيش username)"
+            print(f"💬 الشات المضبوط: نوع={c.get('type')}  الاسم={ident}  username={uname}  id={c.get('id')}")
         else:
-            print(f"💬 getChat فشل: {ch}  ← chat_id غالبًا خطأ أو البوت ليس عضوًا فيه.")
-    except Exception as exc:  # noqa: BLE001
+            print(f"💬 getChat فشل: {ch}")
+    except Exception as exc:
         print(f"💬 getChat خطأ: {exc}")
 
-    # (3) رسالة اختبار حيّة موسومة بالوقت — يؤكّد المستخدم استلامها فورًا
-    stamp = time.strftime("%H:%M:%S UTC")
+    try:
+        upd = _api(token, "getUpdates", {"timeout": "0", "limit": "20"})
+        if upd.get("ok"):
+            seen = []
+            for item in upd.get("result") or []:
+                msg = item.get("message") or item.get("edited_message") or {}
+                fr = msg.get("from") or {}
+                chat = msg.get("chat") or {}
+                key = (chat.get("id"), fr.get("id"))
+                if key in seen:
+                    continue
+                seen.append(key)
+                print(
+                    "📨 حدّ كاتب البوت: "
+                    f"from={fr.get('first_name')} @{fr.get('username')} "
+                    f"chat_id={chat.get('id')} type={chat.get('type')} "
+                    f"text={(msg.get('text') or '')[:40]}"
+                )
+            if not seen:
+                print("📨 مفيش getUpdates حديث — البوت محدثش محد كاتبه قريب. افتح @Bighotwelcome_bot وابعت /start.")
+        else:
+            print(f"📨 getUpdates فشل: {upd}")
+    except Exception as exc:
+        print(f"📨 getUpdates خطأ: {exc}")
+
+    stamp = time.strftime("%Y-%m-%d %H:%M:%S UTC")
     text = (
-        f"🔧 اختبار مباشر من البوت — {stamp}\n"
-        f"لو وصلتك الرسالة دي، يبقى الإرسال شغّال وواصل للشات الصح.\n"
-        f"ردّ بكلمة «وصلت» لو شفتها. ✅"
+        f"🚨 رسالة تأكيد من البوت — {stamp}\n"
+        f"البوت: @Bighotwelcome_bot\n"
+        f"لو قريت الرسالة دي ابعت /start هنا واكتب: وصلت"
     )
     try:
         r = _api(token, "sendMessage", {"chat_id": chat_id, "text": text})
         if r.get("ok"):
             mid = r["result"].get("message_id")
-            print(f"✅ رسالة الاختبار أُرسلت (message_id={mid}). تيليجرام أكّد الاستلام (ok:true).")
+            dest = r["result"].get("chat") or {}
+            print(
+                f"✅ اتبعت message_id={mid} إلى type={dest.get('type')} "
+                f"name={dest.get('first_name') or dest.get('title')} "
+                f"username=@{dest.get('username')}"
+            )
         else:
-            print(f"❌ sendMessage رد ok:false: {r}")
+            print(f"❌ sendMessage ok:false: {r}")
             return 1
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         print(f"❌ sendMessage خطأ: {exc}")
         return 1
     return 0
