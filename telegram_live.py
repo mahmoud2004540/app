@@ -10,7 +10,7 @@ def main() -> int:
     if not token or not chat_id:
         return 2
     try:
-        tc.send_text(token, chat_id, "ظهر زر صفقات سريعة. اضغطه وهتجيك نتيجة حتى لو مفيش صفقة.")
+        tc.send_text(token, chat_id, "زر الفحص بقى على كل العملات. هياخد دقايق بعد الضغط.")
     except Exception as exc:
         print("announce", exc)
     off = tc._offset()
@@ -33,7 +33,7 @@ def main() -> int:
             cmd = tc._norm(text)
             if cmd in ("/scan", "/fast"):
                 try:
-                    tc.send_text(token, chat_id, "⏳ بفحص الآن... استنى ثواني.")
+                    tc.send_text(token, chat_id, "⏳ بفحص كل العملات الآن. استنى كم دقيقة — هتجيك نتيجة حتى لو مفيش صفقة.")
                 except Exception:
                     pass
             reply = tc._handle(text)

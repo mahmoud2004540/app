@@ -14,8 +14,9 @@ KEYBOARD = json.dumps({
     "persistent": True,
 }, ensure_ascii=False)
 HELP = (
-    "فحص الآن = 6س / يومي\n"
-    "صفقات سريعة = 15د + نص ساعة + ساعة"
+    "فحص الآن = كل العملات على 6س/يومي\n"
+    "صفقات سريعة = كل العملات على 15د/نص ساعة/ساعة\n"
+    "الفحص الكامل بياخد دقايق."
 )
 
 def _api(token, method, params=None):
@@ -59,6 +60,7 @@ def _status():
     lines = ["📊 حالة البوت"]
     for k in ["TREND_MIN_SCORE", "TREND_RR", "ALERT_REQUIRE_CONFIRM", "TREND_ANTI_REVERSAL"]:
         lines.append(f"{k} = {getattr(config, k, '—')}")
+    lines.append("الفحص عند الزر: كل العملات")
     lines.append("التداول الحقيقي: مقفول")
     return "\n".join(lines)
 
@@ -70,6 +72,7 @@ def _fmt_none(picks, cands, bull, title, tfs, rr):
     n = len(cands or [])
     return (
         f"🔕 مفيش صفقة دلوقتي.\n{title}\n"
+        f"اتفحصت كل العملات المتاحة.\n"
         f"الفريم: {', '.join(tfs)} | هدف 1:{rr:g} | السوق {state}\n"
         f"مرشحين تحت العتبة: {n}"
     )
@@ -77,9 +80,9 @@ def _fmt_none(picks, cands, bull, title, tfs, rr):
 def _run_scan(tfs, rr, title):
     apply_overrides(config)
     _enable_30m()
-    old_uni = getattr(config, "CRYPTO_UNIVERSE", "watchlist")
+    old_uni = getattr(config, "CRYPTO_UNIVERSE", "all")
     old_rr = getattr(config, "TREND_RR", 1.5)
-    config.CRYPTO_UNIVERSE = "watchlist"
+    config.CRYPTO_UNIVERSE = "all"
     config.TREND_RR = rr
     try:
         from deals_bot.strategy import top_picks, top_picks_multi
@@ -95,10 +98,10 @@ def _run_scan(tfs, rr, title):
         config.TREND_RR = old_rr
 
 def _quick_scan():
-    return _run_scan(list(getattr(config, "TREND_TIMEFRAMES", None) or ["6h", "1d"]), float(getattr(config, "TREND_RR", 1.5)), "🔍 فحص عادي")
+    return _run_scan(list(getattr(config, "TREND_TIMEFRAMES", None) or ["6h", "1d"]), float(getattr(config, "TREND_RR", 1.5)), "🔍 فحص كامل — كل العملات")
 
 def _fast_scan():
-    return _run_scan(["15m", "30m", "1h"], 1.0, "⚡ صفقات سريعة — 15د / نص ساعة / ساعة")
+    return _run_scan(["15m", "30m", "1h"], 1.0, "⚡ صفقات سريعة — كل العملات | 15د / نص ساعة / ساعة")
 
 def _norm(text):
     t = (text or "").strip().lower().split("@", 1)[0]
