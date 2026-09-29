@@ -1,19 +1,13 @@
 #!/usr/bin/env python3
-"""أوامر تيليجرام من الموبايل — بدون كمبيوتر. التداول الحقيقي مقفول."""
+"""أوامر تيليجرام من الموبايل."""
 from __future__ import annotations
 import json, os, sys, urllib.parse, urllib.request
 import config
 from deals_bot.settings_store import apply_overrides, save
 OFFSET_PATH = os.path.join("journal", "tg_offset.json")
 HELP = (
-    "🎛️ تحكم البوت من هنا (موبايل).\n"
-    "/status الحالة\n"
-    "/strict تشديد: تأكيد + زخم + منع انعكاس\n"
-    "/normal الوضع العادي\n"
-    "/scan_on تقرير كل فحص\n"
-    "/scan_off صمت إلا الصفقة\n"
-    "/help\n\n"
-    "التداول الحقيقي مقفول. مفيش ضمان ربح."
+    "اكتب الأمر كرسالة جديدة (متضغطش جوه القائمة القديمة):\n"
+    "/status\n/strict\n/normal\n/scan_on\n/scan_off\n/help"
 )
 
 def _api(token, method, params=None):
@@ -44,8 +38,23 @@ def _status():
     lines.append("التداول الحقيقي: مقفول")
     return "\n".join(lines)
 
+def _norm(text):
+    t = (text or "").strip().lower()
+    t = t.split("@", 1)[0]
+    aliases = {
+        "حالة": "/status", "status": "/status",
+        "تشديد": "/strict", "strict": "/strict",
+        "عادي": "/normal", "normal": "/normal",
+        "تقرير": "/scan_on",
+        "صمت": "/scan_off",
+        "مساعدة": "/help", "help": "/help", "start": "/start",
+    }
+    if t in aliases:
+        return aliases[t]
+    return t.split()[0] if t else ""
+
 def _handle(text):
-    cmd = (text or "").strip().split()[0].lower().split("@", 1)[0]
+    cmd = _norm(text)
     if cmd in ("/start", "/help"):
         return HELP + "\n\n" + _status()
     if cmd == "/status":
@@ -75,6 +84,22 @@ def process_inbox():
         print("تخطي الأوامر")
         return 0
     apply_overrides(config)
+    try:
+        _api(token, "setMyCommands", {
+            "commands": json.dumps([
+                {"command": "start", "description": "القائمة"},
+                {"command": "status", "description": "حالة البوت"},
+                {"command": "strict", "description": "تشديد منع الانعكاس"},
+                {"command": "normal", "description": "الوضع العادي"},
+                {"command": "scan_on", "description": "تقرير كل فحص"},
+                {"command": "scan_off", "description": "صمت إلا صفقة"},
+                {"command": "help", "description": "مساعدة"},
+            ], ensure_ascii=False)
+        })
+    except Exception as exc:
+        print("setMyCommands", exc)
+    if os.environ.get("ANNOUNCE") == "1":
+        _api(token, "sendMessage", {"chat_id": chat_id, "text": "البوت شغال. اكتب /status كرسالة جديدة.\n" + HELP})
     off = _offset()
     upd = _api(token, "getUpdates", {"timeout": "0", "limit": "50", "offset": str(off)})
     if not upd.get("ok"):
