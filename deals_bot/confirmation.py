@@ -1,15 +1,4 @@
-"""
-تأكيد الدخول من إطار أدنى (15 دقيقة) — الترقية الاحترافية (Master Build).
-
-Entry confirmation on the lower timeframe. After the 1H trend + pullback set up,
-we require the 15M chart to actually confirm the turn before entering:
-
-  LONG  : bullish engulfing + volume expansion + break of minor structure (up)
-  SHORT : bearish engulfing + volume expansion + break of minor structure (down)
-
-Only acts on CLOSED candles (the last candle in the series is treated as closed),
-so there is no look-ahead. Pure/offline-testable — takes a Series, no network.
-"""
+"""تأكيد الدخول من إطار أدنى + فلتر آخر شمعة."""
 
 from __future__ import annotations
 
@@ -27,7 +16,6 @@ class Confirmation:
 
 
 def bullish_engulfing(series: Series) -> bool:
-    """آخر شمعة صاعدة يبتلع جسمها جسم الشمعة الهابطة السابقة."""
     c = series.candles
     if len(c) < 2:
         return False
@@ -39,7 +27,6 @@ def bullish_engulfing(series: Series) -> bool:
 
 
 def bearish_engulfing(series: Series) -> bool:
-    """آخر شمعة هابطة يبتلع جسمها جسم الشمعة الصاعدة السابقة."""
     c = series.candles
     if len(c) < 2:
         return False
@@ -51,15 +38,11 @@ def bearish_engulfing(series: Series) -> bool:
 
 
 def volume_expansion(series: Series, mult: float = 1.3, period: int = 20) -> bool:
-    """حجم شمعة التأكيد أعلى من متوسّط الحجم بمضاعف mult."""
     vs = ind.volume_surge(series.volumes(), period)
     return vs is not None and vs >= mult
 
 
 def broke_minor_structure(series: Series, direction: str, lookback: int = 10) -> bool:
-    """
-    كسر بنية صغرى: للـLONG إغلاق فوق أعلى قمة أخيرة؛ للـSHORT إغلاق تحت أدنى قاع.
-    """
     c = series.candles
     if len(c) < lookback + 1:
         return False
@@ -71,12 +54,6 @@ def broke_minor_structure(series: Series, direction: str, lookback: int = 10) ->
 
 
 def confirm(series: Series, direction: str, vol_mult: float = 1.3) -> Confirmation:
-    """
-    تأكيد الدخول: انغلاف + توسّع حجم + كسر بنية صغرى في اتجاه الصفقة.
-
-    Requires the pattern + volume + structure break to all agree. Momentum is
-    implied by the engulfing close + structure break.
-    """
     reasons: List[str] = []
     if direction == "BUY":
         eng = bullish_engulfing(series)
@@ -86,14 +63,12 @@ def confirm(series: Series, direction: str, vol_mult: float = 1.3) -> Confirmati
         eng_txt = "انغلاف هابط (Bearish Engulfing)"
     vol = volume_expansion(series, vol_mult)
     struct = broke_minor_structure(series, direction)
-
     if eng:
         reasons.append(f"✅ {eng_txt}")
     if vol:
         reasons.append("✅ توسّع في الحجم")
     if struct:
         reasons.append("✅ كسر بنية صغرى في اتجاه الصفقة")
-
     ok = eng and vol and struct
     if not ok:
         missing = []
@@ -105,3 +80,13 @@ def confirm(series: Series, direction: str, vol_mult: float = 1.3) -> Confirmati
             missing.append("كسر بنية")
         reasons.append("⏳ لم يكتمل التأكيد — ناقص: " + "، ".join(missing))
     return Confirmation(confirmed=ok, reasons=reasons)
+
+
+def last_bar_holds(series: Series, direction: str = "BUY") -> bool:
+    candles = series.candles
+    if len(candles) < 2:
+        return False
+    prev, cur = candles[-2], candles[-1]
+    if direction == "BUY":
+        return cur.close > cur.open and cur.close >= prev.close
+    return cur.close < cur.open and cur.close <= prev.close
