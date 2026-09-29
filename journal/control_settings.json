@@ -5,5 +5,9 @@
   "ALERT_ONLY": true,
   "ALERT_SCAN_REPORT": true,
   "HEARTBEAT_DAILY": true,
+  "TREND_TOP": 1,
+  "TREND_MULTI_TOP": 1,
+  "TREND_MIN_SCORE": 85,
+  "TREND_RR": 1.5,
   "LIVE_TRADING_ENABLED": false
 }
