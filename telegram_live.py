@@ -8,10 +8,9 @@ def main() -> int:
     token = os.environ.get("TELEGRAM_TOKEN")
     chat_id = str(os.environ.get("TELEGRAM_CHAT_ID") or "")
     if not token or not chat_id:
-        print("مفيش توكن/شات")
         return 2
     try:
-        tc.send_text(token, chat_id, "الأزرار تحت. اضغط فحص الآن وهتجيك نتيجة دايمًا حتى لو مفيش صفقة.")
+        tc.send_text(token, chat_id, "ظهر زر صفقات سريعة. اضغطه وهتجيك نتيجة حتى لو مفيش صفقة.")
     except Exception as exc:
         print("announce", exc)
     off = tc._offset()
@@ -20,13 +19,9 @@ def main() -> int:
         try:
             upd = tc._api(token, "getUpdates", {"timeout": "25", "limit": "50", "offset": str(off)})
         except Exception as exc:
-            print("poll", exc)
-            time.sleep(2)
-            continue
+            print("poll", exc); time.sleep(2); continue
         if not upd.get("ok"):
-            print(upd)
-            time.sleep(2)
-            continue
+            time.sleep(2); continue
         for item in upd.get("result") or []:
             uid = int(item.get("update_id") or 0)
             off = max(off, uid + 1)
@@ -35,7 +30,8 @@ def main() -> int:
             text = msg.get("text") or ""
             if chat != chat_id:
                 continue
-            if tc._norm(text) == "/scan":
+            cmd = tc._norm(text)
+            if cmd in ("/scan", "/fast"):
                 try:
                     tc.send_text(token, chat_id, "⏳ بفحص الآن... استنى ثواني.")
                 except Exception:
