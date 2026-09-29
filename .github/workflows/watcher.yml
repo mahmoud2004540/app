@@ -13,16 +13,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 350
     steps:
-      - name: تنزيل الكود
-        uses: actions/checkout@v4
-      - name: تجهيز بايثون
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
           cache: pip
-      - name: تثبيت المتطلبات
-        run: pip install -r requirements.txt
-      - name: حلقة مراقبة كل 15 دقيقة (~5.5 ساعة)
+      - run: pip install -r requirements.txt
+      - name: حلقة فحص
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
@@ -37,16 +34,13 @@ jobs:
           iter=0
           while [ "$(date +%s)" -lt "$END" ]; do
             iter=$((iter+1))
-            echo "──── دورة $iter — $(date -u '+%Y-%m-%d %H:%M:%S UTC') ────"
-            python telegram_commands.py || echo "⚠️ الأوامر فشلت"
-            python send_digest.py || echo "⚠️ دورة فشلت — نكمل"
+            echo "دورة $iter"
+            python send_digest.py || echo "fail"
             if [ -n "$(git status --porcelain journal/)" ]; then
               git add journal/
-              git commit -m "chore(journal): watcher dedup state [skip ci]" || true
-              for attempt in 1 2 3; do
-                if git push origin "HEAD:${GITHUB_REF_NAME}"; then break; fi
-                git pull --rebase origin "${GITHUB_REF_NAME}" || true
-              done || true
+              git commit -m "chore(journal): watcher [skip ci]" || true
+              git pull --rebase origin "${GITHUB_REF_NAME}" || true
+              git push origin "HEAD:${GITHUB_REF_NAME}" || true
             fi
             [ "$(( END - $(date +%s) ))" -lt 900 ] && break
             sleep 900
