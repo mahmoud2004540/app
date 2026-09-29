@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-"""أوامر تيليجرام من الموبايل."""
 from __future__ import annotations
 import json, os, sys, urllib.parse, urllib.request
 import config
@@ -7,16 +6,17 @@ from deals_bot.settings_store import apply_overrides, save
 OFFSET_PATH = os.path.join("journal", "tg_offset.json")
 KEYBOARD = json.dumps({
     "keyboard": [
-        ["فحص الآن", "صفقات سريعة"],
-        ["الحالة", "تشديد", "عادي"],
+        ["فحص الآن", "بداية اندفاع"],
+        ["صفقات سريعة", "الحالة"],
+        ["تشديد", "عادي"],
     ],
     "resize_keyboard": True,
     "persistent": True,
 }, ensure_ascii=False)
 HELP = (
-    "فحص الآن = كل العملات على 6س/يومي\n"
-    "صفقات سريعة = كل العملات على 15د/نص ساعة/ساعة\n"
-    "الفحص الكامل بياخد دقايق."
+    "فحص الآن = دقة اتجاه\n"
+    "بداية اندفاع = بحث عن كسر مبكر (مخاطرة عالية)\n"
+    "صفقات سريعة = فريم قصير"
 )
 
 def _api(token, method, params=None):
@@ -58,9 +58,8 @@ def _enable_30m():
 def _status():
     apply_overrides(config)
     lines = ["📊 حالة البوت"]
-    for k in ["TREND_MIN_SCORE", "TREND_RR", "ALERT_REQUIRE_CONFIRM", "TREND_ANTI_REVERSAL"]:
+    for k in ["TREND_MIN_SCORE", "ALERT_REQUIRE_CONFIRM", "TREND_ANTI_REVERSAL", "PREPUMP_ALERT_APPEND"]:
         lines.append(f"{k} = {getattr(config, k, '—')}")
-    lines.append("الفحص عند الزر: كل العملات")
     lines.append("التداول الحقيقي: مقفول")
     return "\n".join(lines)
 
@@ -72,9 +71,7 @@ def _fmt_none(picks, cands, bull, title, tfs, rr):
     n = len(cands or [])
     return (
         f"🔕 مفيش صفقة دلوقتي.\n{title}\n"
-        f"اتفحصت كل العملات المتاحة.\n"
-        f"الفريم: {', '.join(tfs)} | هدف 1:{rr:g} | السوق {state}\n"
-        f"مرشحين تحت العتبة: {n}"
+        f"الفريم: {', '.join(tfs)} | السوق {state}\nمرشحين تحت العتبة: {n}"
     )
 
 def _run_scan(tfs, rr, title):
@@ -97,11 +94,34 @@ def _run_scan(tfs, rr, title):
         config.CRYPTO_UNIVERSE = old_uni
         config.TREND_RR = old_rr
 
+def _pump_scan():
+    apply_overrides(config)
+    config.CRYPTO_UNIVERSE = "all"
+    save({"PREPUMP_ALERT_APPEND": True})
+    try:
+        from deals_bot.strategy import scan_universe
+        from deals_bot.formatter import format_digest
+        _signals, accums, earlies = scan_universe(["crypto"], timeframe="6h", top=3)
+        parts = [
+            "🚀 بداية اندفاع — كل العملات — 6س",
+            "تحذير: القياس السابق نجاح هذا المسار ~27%. مش ضمان بمب.",
+            "",
+        ]
+        if earlies:
+            parts.append(format_digest(earlies, title="كسر مبكر"))
+        if accums:
+            parts.append(format_digest(accums, title="تجميع/انضغاط"))
+        if not earlies and not accums:
+            parts.append("🔕 مفيش بداية اندفاع واضحة دلوقتي.")
+        return "\n".join(parts)
+    except Exception as exc:
+        return f"⚠️ فحص الاندفاع فشل: {exc}"
+
 def _quick_scan():
-    return _run_scan(list(getattr(config, "TREND_TIMEFRAMES", None) or ["6h", "1d"]), float(getattr(config, "TREND_RR", 1.5)), "🔍 فحص كامل — كل العملات")
+    return _run_scan(list(getattr(config, "TREND_TIMEFRAMES", None) or ["6h", "1d"]), float(getattr(config, "TREND_RR", 1.5)), "🔍 فحص دقة")
 
 def _fast_scan():
-    return _run_scan(["15m", "30m", "1h"], 1.0, "⚡ صفقات سريعة — كل العملات | 15د / نص ساعة / ساعة")
+    return _run_scan(["15m", "30m", "1h"], 1.0, "⚡ صفقات سريعة")
 
 def _norm(text):
     t = (text or "").strip().lower().split("@", 1)[0]
@@ -111,7 +131,8 @@ def _norm(text):
         "عادي": "/normal", "normal": "/normal",
         "فحص الآن": "/scan", "فحص": "/scan", "scan": "/scan",
         "صفقات سريعة": "/fast", "سريع": "/fast", "fast": "/fast",
-        "start": "/start", "help": "/help", "مساعدة": "/help",
+        "بداية اندفاع": "/pump", "بمب": "/pump", "pump": "/pump",
+        "start": "/start", "help": "/help",
     }
     return aliases.get(t, t.split()[0] if t else "")
 
@@ -125,6 +146,8 @@ def _handle(text):
         return _quick_scan()
     if cmd == "/fast":
         return _fast_scan()
+    if cmd == "/pump":
+        return _pump_scan()
     if cmd == "/strict":
         save({"ALERT_REQUIRE_CONFIRM": True, "TREND_REQUIRE_MOMENTUM": True, "TREND_ANTI_REVERSAL": True, "ALERT_ONLY": True})
         apply_overrides(config)
