@@ -1,8 +1,6 @@
 name: أوامر تيليجرام
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "*/2 * * * *"
 permissions:
   contents: write
 jobs:
@@ -17,14 +15,5 @@ jobs:
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          ANNOUNCE: ${{ github.event_name == 'workflow_dispatch' && '1' || '0' }}
-        run: |
-          python telegram_commands.py
-          git config user.name trading-bot
-          git config user.email bot@users.noreply.github.com
-          if [ -n "$(git status --porcelain journal/)" ]; then
-            git add journal/
-            git commit -m "chore(journal): telegram commands [skip ci]" || true
-            git pull --rebase origin "${GITHUB_REF_NAME}" || true
-            git push origin "HEAD:${GITHUB_REF_NAME}" || true
-          fi
+          ANNOUNCE: "1"
+        run: python telegram_commands.py
