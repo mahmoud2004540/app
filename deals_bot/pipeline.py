@@ -1,4 +1,6 @@
-"""خط قرار التداول (Trade Decision Pipeline) — الترقية الاحترافية (Master Build)."""
+"""
+خط قرار التداول (Trade Decision Pipeline) — الترقية الاحترافية (Master Build).
+"""
 from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import List, Optional
@@ -12,6 +14,7 @@ NO_TRADE = "NO_TRADE"
 WAIT = "WAIT"
 APPROVED = "APPROVED"
 REJECTED = "REJECTED"
+
 @dataclass
 class Decision:
     status: str
@@ -89,13 +92,13 @@ def _risk_engine() -> RiskEngine:
         fee_rate=getattr(config, "FEE_RATE", 0.001),
         slippage_rate=getattr(config, "SLIPPAGE_RATE", 0.0005),
         max_portfolio_heat=getattr(config, "MAX_PORTFOLIO_HEAT", 0.02),
-        max_correlation=getattr(config, "MAX_CORRELATION", 0.85,
-    )))
+        max_correlation=getattr(config, "MAX_CORRELATION", 0.85),
+    ))
 
-def evaluate(base: Series, equity: float, daily: DailyState, confirm_series: Optional[Series] = None, engine: Optional[RiskEngine] = None, market_bullish: Optional[bool] = None) -> Decision:
+def evaluate(base, equity, daily, confirm_series=None, engine=None, market_bullish=None):
     eng = engine or _risk_engine()
     symbol = base.symbol
-    reasons: List[str] = []
+    reasons = []
     gate = eng.can_open_new_trade(daily)
     reasons.append(gate.reason)
     if not gate.approved:
