@@ -15,8 +15,8 @@ KEYBOARD = json.dumps({
 }, ensure_ascii=False)
 HELP = (
     "فحص الآن = دقة اتجاه\n"
-    "بداية اندفاع = بحث عن كسر مبكر (مخاطرة عالية)\n"
-    "صفقات سريعة = فريم قصير"
+    "بداية اندفاع = تجميع من القاع / أول الكسر\n"
+    "مش بعد ما السعر يطلع 30%"
 )
 
 def _api(token, method, params=None):
@@ -58,27 +58,38 @@ def _enable_30m():
 def _status():
     apply_overrides(config)
     lines = ["📊 حالة البوت"]
-    for k in ["TREND_MIN_SCORE", "ALERT_REQUIRE_CONFIRM", "TREND_ANTI_REVERSAL", "PREPUMP_ALERT_APPEND"]:
+    for k in ["TREND_MIN_SCORE", "ALERT_REQUIRE_CONFIRM", "PREPUMP_ALERT_APPEND"]:
         lines.append(f"{k} = {getattr(config, k, '—')}")
     lines.append("التداول الحقيقي: مقفول")
     return "\n".join(lines)
+
+def _still_at_start(deal) -> bool:
+    """رفض العملة لو السعر اتمد بعيد عن منطقة الدخول."""
+    price = float(getattr(deal, "price", 0) or 0)
+    entry = float(getattr(deal, "entry", 0) or 0)
+    stop = float(getattr(deal, "stop_loss", 0) or 0)
+    if price <= 0 or entry <= 0:
+        return False
+    if price > entry * 1.06:
+        return False
+    if stop > 0:
+        risk = abs(entry - stop)
+        if risk > 0 and (price - entry) / risk > 0.35:
+            return False
+    return True
 
 def _fmt_none(picks, cands, bull, title, tfs, rr):
     state = "صاعد" if bull else ("هابط" if bull is False else "غير محدد")
     if picks:
         from deals_bot.formatter import format_picks
-        return f"{title}\nالسوق {state} | {', '.join(tfs)} | هدف 1:{rr:g}\n\n" + format_picks(picks)
+        return f"{title}\nالسوق {state} | {', '.join(tfs)}\n\n" + format_picks(picks)
     n = len(cands or [])
-    return (
-        f"🔕 مفيش صفقة دلوقتي.\n{title}\n"
-        f"الفريم: {', '.join(tfs)} | السوق {state}\nمرشحين تحت العتبة: {n}"
-    )
+    return f"🔕 مفيش صفقة دلوقتي.\n{title}\nالسوق {state}\nمرشحين: {n}"
 
 def _run_scan(tfs, rr, title):
     apply_overrides(config)
     _enable_30m()
     old_uni = getattr(config, "CRYPTO_UNIVERSE", "all")
-    old_rr = getattr(config, "TREND_RR", 1.5)
     config.CRYPTO_UNIVERSE = "all"
     config.TREND_RR = rr
     try:
@@ -92,7 +103,6 @@ def _run_scan(tfs, rr, title):
         return f"⚠️ الفحص فشل: {exc}"
     finally:
         config.CRYPTO_UNIVERSE = old_uni
-        config.TREND_RR = old_rr
 
 def _pump_scan():
     apply_overrides(config)
@@ -101,18 +111,21 @@ def _pump_scan():
     try:
         from deals_bot.strategy import scan_universe
         from deals_bot.formatter import format_digest
-        _signals, accums, earlies = scan_universe(["crypto"], timeframe="6h", top=3)
+        _signals, accums, earlies = scan_universe(["crypto"], timeframe="6h", top=8)
+        accums = [d for d in (accums or []) if _still_at_start(d)][:3]
+        earlies = [d for d in (earlies or []) if _still_at_start(d)][:2]
         parts = [
-            "🚀 بداية اندفاع — كل العملات — 6س",
-            "تحذير: القياس السابق نجاح هذا المسار ~27%. مش ضمان بمب.",
+            "🚀 من البداية — تجميع/أول الكسر فقط",
+            "مش بعد الصعود. لو السعر بعد عن القاع بأكتر من 6% بتتشال.",
+            "نجاح المسار قريب ~27%. مش ضمان بمب.",
             "",
         ]
-        if earlies:
-            parts.append(format_digest(earlies, title="كسر مبكر"))
         if accums:
-            parts.append(format_digest(accums, title="تجميع/انضغاط"))
-        if not earlies and not accums:
-            parts.append("🔕 مفيش بداية اندفاع واضحة دلوقتي.")
+            parts.append(format_digest(accums, title="تجميع عند القاع (سعر البداية)"))
+        if earlies:
+            parts.append(format_digest(earlies, title="أول الكسر ولسه قريب من القاع"))
+        if not accums and not earlies:
+            parts.append("🔕 مفيش تجميع عند البداية دلوقتي. الشغلات اللي زي NMR بعد +30% متترفض.")
         return "\n".join(parts)
     except Exception as exc:
         return f"⚠️ فحص الاندفاع فشل: {exc}"
