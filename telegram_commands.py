@@ -7,16 +7,17 @@ OFFSET_PATH = os.path.join("journal", "tg_offset.json")
 KEYBOARD = json.dumps({
     "keyboard": [
         ["فحص الآن", "بداية اندفاع"],
-        ["صفقات سريعة", "الحالة"],
-        ["تشديد", "عادي"],
+        ["مرشح بعيد", "صفقات سريعة"],
+        ["الحالة", "تشديد", "عادي"],
     ],
     "resize_keyboard": True,
     "persistent": True,
 }, ensure_ascii=False)
 HELP = (
     "فحص الآن = دقة اتجاه\n"
-    "بداية اندفاع = تجميع من القاع / أول الكسر\n"
-    "مش بعد ما السعر يطلع 30%"
+    "بداية اندفاع = تجميع من القاع\n"
+    "مرشح بعيد = عملات لسه عند القاع فقط\n"
+    "مش توقع 100x. أغلبها بتموت."
 )
 
 def _api(token, method, params=None):
@@ -64,7 +65,6 @@ def _status():
     return "\n".join(lines)
 
 def _still_at_start(deal) -> bool:
-    """رفض العملة لو السعر اتمد بعيد عن منطقة الدخول."""
     price = float(getattr(deal, "price", 0) or 0)
     entry = float(getattr(deal, "entry", 0) or 0)
     stop = float(getattr(deal, "stop_loss", 0) or 0)
@@ -121,14 +121,48 @@ def _pump_scan():
             "",
         ]
         if accums:
-            parts.append(format_digest(accums, title="تجميع عند القاع (سعر البداية)"))
+            parts.append(format_digest(accums, title="تجميع عند القاع"))
         if earlies:
-            parts.append(format_digest(earlies, title="أول الكسر ولسه قريب من القاع"))
+            parts.append(format_digest(earlies, title="أول الكسر"))
         if not accums and not earlies:
-            parts.append("🔕 مفيش تجميع عند البداية دلوقتي. الشغلات اللي زي NMR بعد +30% متترفض.")
+            parts.append("🔕 مفيش تجميع عند البداية دلوقتي.")
         return "\n".join(parts)
     except Exception as exc:
         return f"⚠️ فحص الاندفاع فشل: {exc}"
+
+def _moon_scan():
+    """مرشح مضاربة بعيدة عند القاع. مش توقع 100x."""
+    apply_overrides(config)
+    config.CRYPTO_UNIVERSE = "all"
+    try:
+        from deals_bot.strategy import scan_universe
+        from deals_bot.formatter import format_digest
+        found = []
+        for tf in ("1d", "6h"):
+            _signals, accums, earlies = scan_universe(["crypto"], timeframe=tf, top=8)
+            for d in list(accums or []) + list(earlies or []):
+                if _still_at_start(d):
+                    d.timeframe = tf
+                    found.append(d)
+        uniq = {}
+        for d in found:
+            prev = uniq.get(d.symbol)
+            if prev is None or float(getattr(d, "confidence", 0) or 0) > float(getattr(prev, "confidence", 0) or 0):
+                uniq[d.symbol] = d
+        picks = sorted(uniq.values(), key=lambda d: float(getattr(d, "confidence", 0) or 0), reverse=True)[:3]
+        parts = [
+            "🚀 مرشح بعيد — كل العملات",
+            "ده مش زر 100x. مفيش فحص يعرف العملة اللي هتضاعف 100 مرة.",
+            "اللي هيظهر لسه عند القاع. أغلب المرشحين دول ما يحصلوا انفجار. خسارة الوقف متوقعة.",
+            "",
+        ]
+        if picks:
+            parts.append(format_digest(picks, title="مرشحين عند القاع فقط"))
+        else:
+            parts.append("🔕 مفيش مرشح قريب من القاع دلوقتي. العملات اللي طلعت خلاص متترفض.")
+        return "\n".join(parts)
+    except Exception as exc:
+        return f"⚠️ فحص المرشح البعيد فشل: {exc}"
 
 def _quick_scan():
     return _run_scan(list(getattr(config, "TREND_TIMEFRAMES", None) or ["6h", "1d"]), float(getattr(config, "TREND_RR", 1.5)), "🔍 فحص دقة")
@@ -145,6 +179,7 @@ def _norm(text):
         "فحص الآن": "/scan", "فحص": "/scan", "scan": "/scan",
         "صفقات سريعة": "/fast", "سريع": "/fast", "fast": "/fast",
         "بداية اندفاع": "/pump", "بمب": "/pump", "pump": "/pump",
+        "مرشح بعيد": "/moon", "100x": "/moon", "moon": "/moon",
         "start": "/start", "help": "/help",
     }
     return aliases.get(t, t.split()[0] if t else "")
@@ -161,6 +196,8 @@ def _handle(text):
         return _fast_scan()
     if cmd == "/pump":
         return _pump_scan()
+    if cmd == "/moon":
+        return _moon_scan()
     if cmd == "/strict":
         save({"ALERT_REQUIRE_CONFIRM": True, "TREND_REQUIRE_MOMENTUM": True, "TREND_ANTI_REVERSAL": True, "ALERT_ONLY": True})
         apply_overrides(config)
