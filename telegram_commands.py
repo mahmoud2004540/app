@@ -15,9 +15,8 @@ KEYBOARD = json.dumps({
 }, ensure_ascii=False)
 HELP = (
     "فحص الآن = دقة اتجاه\n"
-    "بداية اندفاع = تجميع من القاع\n"
-    "مرشح بعيد = عملات لسه عند القاع فقط\n"
-    "مش توقع 100x. أغلبها بتموت."
+    "صفقات سريعة = أول حركة على 15د/نص ساعة/ساعة\n"
+    "صعود فائق مش مضمون. اللي طلع خلاص بيتشال."
 )
 
 def _api(token, method, params=None):
@@ -104,62 +103,51 @@ def _run_scan(tfs, rr, title):
     finally:
         config.CRYPTO_UNIVERSE = old_uni
 
+def _early_picks(timeframes, limit=3):
+    from deals_bot.strategy import scan_universe
+    found = []
+    for tf in timeframes:
+        _signals, accums, earlies = scan_universe(["crypto"], timeframe=tf, top=6)
+        for d in list(earlies or []) + list(accums or []):
+            if _still_at_start(d):
+                d.timeframe = tf
+                found.append(d)
+    uniq = {}
+    for d in found:
+        prev = uniq.get(d.symbol)
+        if prev is None or float(getattr(d, "confidence", 0) or 0) > float(getattr(prev, "confidence", 0) or 0):
+            uniq[d.symbol] = d
+    return sorted(uniq.values(), key=lambda d: float(getattr(d, "confidence", 0) or 0), reverse=True)[:limit]
+
 def _pump_scan():
     apply_overrides(config)
     config.CRYPTO_UNIVERSE = "all"
     save({"PREPUMP_ALERT_APPEND": True})
     try:
-        from deals_bot.strategy import scan_universe
         from deals_bot.formatter import format_digest
-        _signals, accums, earlies = scan_universe(["crypto"], timeframe="6h", top=8)
-        accums = [d for d in (accums or []) if _still_at_start(d)][:3]
-        earlies = [d for d in (earlies or []) if _still_at_start(d)][:2]
+        picks = _early_picks(["6h"], 3)
         parts = [
-            "🚀 من البداية — تجميع/أول الكسر فقط",
-            "مش بعد الصعود. لو السعر بعد عن القاع بأكتر من 6% بتتشال.",
-            "نجاح المسار قريب ~27%. مش ضمان بمب.",
+            "🚀 من البداية — 6 ساعات",
+            "مش بعد الصعود. نجاح المسار قريب ~27%.",
             "",
         ]
-        if accums:
-            parts.append(format_digest(accums, title="تجميع عند القاع"))
-        if earlies:
-            parts.append(format_digest(earlies, title="أول الكسر"))
-        if not accums and not earlies:
-            parts.append("🔕 مفيش تجميع عند البداية دلوقتي.")
+        parts.append(format_digest(picks, title="تجميع/أول كسر") if picks else "🔕 مفيش تجميع عند البداية دلوقتي.")
         return "\n".join(parts)
     except Exception as exc:
         return f"⚠️ فحص الاندفاع فشل: {exc}"
 
 def _moon_scan():
-    """مرشح مضاربة بعيدة عند القاع. مش توقع 100x."""
     apply_overrides(config)
     config.CRYPTO_UNIVERSE = "all"
     try:
-        from deals_bot.strategy import scan_universe
         from deals_bot.formatter import format_digest
-        found = []
-        for tf in ("1d", "6h"):
-            _signals, accums, earlies = scan_universe(["crypto"], timeframe=tf, top=8)
-            for d in list(accums or []) + list(earlies or []):
-                if _still_at_start(d):
-                    d.timeframe = tf
-                    found.append(d)
-        uniq = {}
-        for d in found:
-            prev = uniq.get(d.symbol)
-            if prev is None or float(getattr(d, "confidence", 0) or 0) > float(getattr(prev, "confidence", 0) or 0):
-                uniq[d.symbol] = d
-        picks = sorted(uniq.values(), key=lambda d: float(getattr(d, "confidence", 0) or 0), reverse=True)[:3]
+        picks = _early_picks(["1d", "6h"], 3)
         parts = [
-            "🚀 مرشح بعيد — كل العملات",
-            "ده مش زر 100x. مفيش فحص يعرف العملة اللي هتضاعف 100 مرة.",
-            "اللي هيظهر لسه عند القاع. أغلب المرشحين دول ما يحصلوا انفجار. خسارة الوقف متوقعة.",
+            "🚀 مرشح بعيد — مش توقع 100x",
+            "أغلب المرشحين بتموت. اللي طلع خلاص متترفض.",
             "",
         ]
-        if picks:
-            parts.append(format_digest(picks, title="مرشحين عند القاع فقط"))
-        else:
-            parts.append("🔕 مفيش مرشح قريب من القاع دلوقتي. العملات اللي طلعت خلاص متترفض.")
+        parts.append(format_digest(picks, title="عند القاع فقط") if picks else "🔕 مفيش مرشح قريب من القاع دلوقتي.")
         return "\n".join(parts)
     except Exception as exc:
         return f"⚠️ فحص المرشح البعيد فشل: {exc}"
@@ -168,7 +156,21 @@ def _quick_scan():
     return _run_scan(list(getattr(config, "TREND_TIMEFRAMES", None) or ["6h", "1d"]), float(getattr(config, "TREND_RR", 1.5)), "🔍 فحص دقة")
 
 def _fast_scan():
-    return _run_scan(["15m", "30m", "1h"], 1.0, "⚡ صفقات سريعة")
+    apply_overrides(config)
+    _enable_30m()
+    config.CRYPTO_UNIVERSE = "all"
+    try:
+        from deals_bot.formatter import format_digest
+        picks = _early_picks(["15m", "30m", "1h"], 3)
+        parts = [
+            "⚡ صفقات سريعة — أول الحركة | 15د / نص ساعة / ساعة",
+            "صعود فائق مش مضمون. اللي بعد عن الدخول بأكتر من 6% بيتشال.",
+            "",
+        ]
+        parts.append(format_digest(picks, title="أول كسر سريع") if picks else "🔕 مفيش حركة سريعة لسه في أولها دلوقتي.")
+        return "\n".join(parts)
+    except Exception as exc:
+        return f"⚠️ الفحص السريع فشل: {exc}"
 
 def _norm(text):
     t = (text or "").strip().lower().split("@", 1)[0]
