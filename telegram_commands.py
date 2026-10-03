@@ -14,9 +14,9 @@ KEYBOARD = json.dumps({
     "persistent": True,
 }, ensure_ascii=False)
 HELP = (
-    "فحص الآن = دقة اتجاه\n"
-    "صفقات سريعة = أول حركة على 15د/نص ساعة/ساعة\n"
-    "صعود فائق مش مضمون. اللي طلع خلاص بيتشال."
+    "الصفقة مش بتتبعت غير لو: درجة 80+ وهدف 1:2 ومش مطاردة.\n"
+    "لو الشروط ناقصة: NO TRADE.\n"
+    "النسبة مش مضمونة 90%."
 )
 
 def _api(token, method, params=None):
@@ -58,46 +58,94 @@ def _enable_30m():
 def _status():
     apply_overrides(config)
     lines = ["📊 حالة البوت"]
-    for k in ["TREND_MIN_SCORE", "ALERT_REQUIRE_CONFIRM", "PREPUMP_ALERT_APPEND"]:
+    for k in ["TREND_MIN_SCORE", "TREND_RR", "ALERT_REQUIRE_CONFIRM", "TREND_ANTI_REVERSAL"]:
         lines.append(f"{k} = {getattr(config, k, '—')}")
+    lines.append("بوابة الإرسال: 80+ / هدف 1:2 / من غير مطاردة")
     lines.append("التداول الحقيقي: مقفول")
     return "\n".join(lines)
 
+def _num(deal, *names):
+    for name in names:
+        val = getattr(deal, name, None)
+        if val is None and isinstance(deal, dict):
+            val = deal.get(name)
+        try:
+            if val not in (None, ""):
+                return float(val)
+        except (TypeError, ValueError):
+            continue
+    return 0.0
+
+def _score(deal):
+    return _num(deal, "confidence", "score")
+
+def _reward_risk(deal):
+    entry = _num(deal, "entry")
+    stop = _num(deal, "stop_loss", "stop")
+    tp = _num(deal, "target", "tp2", "tp")
+    if tp <= 0:
+        targets = getattr(deal, "targets", None) or getattr(deal, "take_profits", None) or []
+        if targets:
+            last = targets[-1]
+            tp = _num(last, "price") if not isinstance(last, (int, float)) else float(last)
+    risk = abs(entry - stop)
+    if entry <= 0 or risk <= 0 or tp <= 0:
+        return 0.0
+    return abs(tp - entry) / risk
+
 def _still_at_start(deal) -> bool:
-    price = float(getattr(deal, "price", 0) or 0)
-    entry = float(getattr(deal, "entry", 0) or 0)
-    stop = float(getattr(deal, "stop_loss", 0) or 0)
-    if price <= 0 or entry <= 0:
+    price = _num(deal, "price")
+    entry = _num(deal, "entry")
+    stop = _num(deal, "stop_loss", "stop")
+    if price <= 0 or entry <= 0 or stop <= 0:
         return False
-    if price > entry * 1.06:
+    if price > entry * 1.04:
         return False
-    if stop > 0:
-        risk = abs(entry - stop)
-        if risk > 0 and (price - entry) / risk > 0.35:
-            return False
+    risk = abs(entry - stop)
+    if risk > 0 and (price - entry) / risk > 0.25:
+        return False
     return True
 
+def _passes(deal) -> bool:
+    if _score(deal) < 80:
+        return False
+    if not _still_at_start(deal):
+        return False
+    rr = _reward_risk(deal)
+    if rr and rr < 2:
+        return False
+    return True
+
+def _keep(deals, limit=3):
+    out = [d for d in (deals or []) if _passes(d)]
+    out.sort(key=_score, reverse=True)
+    return out[:limit]
+
 def _fmt_none(picks, cands, bull, title, tfs, rr):
+    picks = _keep(picks)
     state = "صاعد" if bull else ("هابط" if bull is False else "غير محدد")
     if picks:
         from deals_bot.formatter import format_picks
-        return f"{title}\nالسوق {state} | {', '.join(tfs)}\n\n" + format_picks(picks)
-    n = len(cands or [])
-    return f"🔕 مفيش صفقة دلوقتي.\n{title}\nالسوق {state}\nمرشحين: {n}"
+        return f"{title}\nالسوق {state} | {', '.join(tfs)} | هدف 1:{rr:g}\n\n" + format_picks(picks)
+    return (
+        f"NO TRADE — مفيش صفقة تستحق المخاطرة.\n{title}\n"
+        f"الشرط: درجة 80+ وهدف 1:2 والسعر لسه عند الدخول.\n"
+        f"السوق {state} | مرشحين اترفضوا: {len(cands or [])}"
+    )
 
 def _run_scan(tfs, rr, title):
     apply_overrides(config)
     _enable_30m()
     old_uni = getattr(config, "CRYPTO_UNIVERSE", "all")
     config.CRYPTO_UNIVERSE = "all"
-    config.TREND_RR = rr
+    config.TREND_RR = max(rr, 2.0)
     try:
         from deals_bot.strategy import top_picks, top_picks_multi
         if len(tfs) == 1:
-            picks, cands, bull = top_picks(["crypto"], timeframe=tfs[0], top=3, rr=rr)
+            picks, cands, bull = top_picks(["crypto"], timeframe=tfs[0], top=5, rr=config.TREND_RR)
         else:
-            picks, cands, bull = top_picks_multi(["crypto"], timeframes=tfs, top=3, rr=rr)
-        return _fmt_none(picks, cands, bull, title, tfs, rr)
+            picks, cands, bull = top_picks_multi(["crypto"], timeframes=tfs, top=5, rr=config.TREND_RR)
+        return _fmt_none(picks, cands, bull, title, tfs, config.TREND_RR)
     except Exception as exc:
         return f"⚠️ الفحص فشل: {exc}"
     finally:
@@ -107,32 +155,26 @@ def _early_picks(timeframes, limit=3):
     from deals_bot.strategy import scan_universe
     found = []
     for tf in timeframes:
-        _signals, accums, earlies = scan_universe(["crypto"], timeframe=tf, top=6)
+        _signals, accums, earlies = scan_universe(["crypto"], timeframe=tf, top=8)
         for d in list(earlies or []) + list(accums or []):
-            if _still_at_start(d):
-                d.timeframe = tf
-                found.append(d)
+            d.timeframe = tf
+            found.append(d)
     uniq = {}
-    for d in found:
+    for d in _keep(found, 20):
         prev = uniq.get(d.symbol)
-        if prev is None or float(getattr(d, "confidence", 0) or 0) > float(getattr(prev, "confidence", 0) or 0):
+        if prev is None or _score(d) > _score(prev):
             uniq[d.symbol] = d
-    return sorted(uniq.values(), key=lambda d: float(getattr(d, "confidence", 0) or 0), reverse=True)[:limit]
+    return sorted(uniq.values(), key=_score, reverse=True)[:limit]
 
 def _pump_scan():
     apply_overrides(config)
     config.CRYPTO_UNIVERSE = "all"
-    save({"PREPUMP_ALERT_APPEND": True})
     try:
         from deals_bot.formatter import format_digest
-        picks = _early_picks(["6h"], 3)
-        parts = [
-            "🚀 من البداية — 6 ساعات",
-            "مش بعد الصعود. نجاح المسار قريب ~27%.",
-            "",
-        ]
-        parts.append(format_digest(picks, title="تجميع/أول كسر") if picks else "🔕 مفيش تجميع عند البداية دلوقتي.")
-        return "\n".join(parts)
+        picks = _early_picks(["6h"], 2)
+        if not picks:
+            return "NO TRADE — مفيش بداية اندفاع بدرجة 80 وهدف 1:2 ولسه عند الدخول."
+        return "🚀 بداية اندفاع بعد البوابة\nمش ضمان نسبة. القياس القديم ~27%.\n\n" + format_digest(picks, title="عد البوابة")
     except Exception as exc:
         return f"⚠️ فحص الاندفاع فشل: {exc}"
 
@@ -141,19 +183,15 @@ def _moon_scan():
     config.CRYPTO_UNIVERSE = "all"
     try:
         from deals_bot.formatter import format_digest
-        picks = _early_picks(["1d", "6h"], 3)
-        parts = [
-            "🚀 مرشح بعيد — مش توقع 100x",
-            "أغلب المرشحين بتموت. اللي طلع خلاص متترفض.",
-            "",
-        ]
-        parts.append(format_digest(picks, title="عند القاع فقط") if picks else "🔕 مفيش مرشح قريب من القاع دلوقتي.")
-        return "\n".join(parts)
+        picks = _early_picks(["1d", "6h"], 2)
+        if not picks:
+            return "NO TRADE — مفيش مرشح بعيد عد البوابة. مش توقع 100x."
+        return "🚀 مرشح بعيد بعد البوابة\nمش توقع 100x ومش نسبة 90%.\n\n" + format_digest(picks, title="عند الدخول فقط")
     except Exception as exc:
         return f"⚠️ فحص المرشح البعيد فشل: {exc}"
 
 def _quick_scan():
-    return _run_scan(list(getattr(config, "TREND_TIMEFRAMES", None) or ["6h", "1d"]), float(getattr(config, "TREND_RR", 1.5)), "🔍 فحص دقة")
+    return _run_scan(list(getattr(config, "TREND_TIMEFRAMES", None) or ["6h", "1d"]), 2.0, "🔍 فحص دقة")
 
 def _fast_scan():
     apply_overrides(config)
@@ -161,14 +199,10 @@ def _fast_scan():
     config.CRYPTO_UNIVERSE = "all"
     try:
         from deals_bot.formatter import format_digest
-        picks = _early_picks(["15m", "30m", "1h"], 3)
-        parts = [
-            "⚡ صفقات سريعة — أول الحركة | 15د / نص ساعة / ساعة",
-            "صعود فائق مش مضمون. اللي بعد عن الدخول بأكتر من 6% بيتشال.",
-            "",
-        ]
-        parts.append(format_digest(picks, title="أول كسر سريع") if picks else "🔕 مفيش حركة سريعة لسه في أولها دلوقتي.")
-        return "\n".join(parts)
+        picks = _early_picks(["15m", "30m", "1h"], 2)
+        if not picks:
+            return "NO TRADE — مفيش صفقة سريعة بدرجة 80 وهدف 1:2 ولسه عند الدخول."
+        return "⚡ صفقات سريعة بعد البوابة\n15د / نص ساعة / ساعة. مش ضمان صعود فائق.\n\n" + format_digest(picks, title="أول الحركة فقط")
     except Exception as exc:
         return f"⚠️ الفحص السريع فشل: {exc}"
 
@@ -201,13 +235,13 @@ def _handle(text):
     if cmd == "/moon":
         return _moon_scan()
     if cmd == "/strict":
+        save({"ALERT_REQUIRE_CONFIRM": True, "TREND_REQUIRE_MOMENTUM": True, "TREND_ANTI_REVERSAL": True, "ALERT_ONLY": True, "TREND_RR": 2.0, "TREND_MIN_SCORE": 85})
+        apply_overrides(config)
+        return "✅ البوابة متشددة.\n" + _status()
+    if cmd == "/normal":
         save({"ALERT_REQUIRE_CONFIRM": True, "TREND_REQUIRE_MOMENTUM": True, "TREND_ANTI_REVERSAL": True, "ALERT_ONLY": True})
         apply_overrides(config)
-        return "✅ تم التشديد.\n" + _status()
-    if cmd == "/normal":
-        save({"ALERT_REQUIRE_CONFIRM": False, "TREND_REQUIRE_MOMENTUM": False, "TREND_ANTI_REVERSAL": False, "ALERT_ONLY": True})
-        apply_overrides(config)
-        return "✅ الوضع العادي.\n" + _status()
+        return "✅ التأكيد فضل شغال. البوابة متشالتش.\n" + _status()
     if cmd.startswith("/"):
         return "أمر مش معروف.\n" + HELP
     return None
