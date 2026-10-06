@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-import json, os, sys, urllib.parse, urllib.request
+import json, os, re, sys, urllib.parse, urllib.request
 import config
 from deals_bot.settings_store import apply_overrides, save
 OFFSET_PATH = os.path.join("journal", "tg_offset.json")
@@ -14,9 +14,10 @@ KEYBOARD = json.dumps({
     "persistent": True,
 }, ensure_ascii=False)
 HELP = (
-    "الصفقة مش بتتبعت غير لو: درجة 80+ وهدف 1:2 ومش مطاردة.\n"
-    "لو الشروط ناقصة: NO TRADE.\n"
-    "النسبة مش مضمونة 90%."
+    "ابعت اسم العملة (مثال: BTC أو NMR) لتحليلها.\n"
+    "فحص الآن = دقة | صفقات سريعة = فريم قصير\n"
+    "الصفقة مش بتتبعت غير لو درجة 80+ وهدف 1:2.\n"
+    "مفيش عملة هتبقى زي البيتكوين بضمان."
 )
 
 def _api(token, method, params=None):
@@ -61,6 +62,7 @@ def _status():
     for k in ["TREND_MIN_SCORE", "TREND_RR", "ALERT_REQUIRE_CONFIRM", "TREND_ANTI_REVERSAL"]:
         lines.append(f"{k} = {getattr(config, k, '—')}")
     lines.append("بوابة الإرسال: 80+ / هدف 1:2 / من غير مطاردة")
+    lines.append("ابعت اسم عملة لتحليلها")
     lines.append("التداول الحقيقي: مقفول")
     return "\n".join(lines)
 
@@ -82,7 +84,7 @@ def _score(deal):
 def _reward_risk(deal):
     entry = _num(deal, "entry")
     stop = _num(deal, "stop_loss", "stop")
-    tp = _num(deal, "target", "tp2", "tp")
+    tp = _num(deal, "take_profit", "target", "tp2", "tp")
     if tp <= 0:
         targets = getattr(deal, "targets", None) or getattr(deal, "take_profits", None) or []
         if targets:
@@ -206,6 +208,187 @@ def _fast_scan():
     except Exception as exc:
         return f"⚠️ الفحص السريع فشل: {exc}"
 
+def _http_json(url: str):
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"})
+    with urllib.request.urlopen(req, timeout=25) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+def _clean_query(text: str) -> str:
+    t = (text or "").strip()
+    t = re.sub(r"^(?:تحليل|العملة|عملة|coin|analyze|check)\s*[:\-]?\s*", "", t, flags=re.I)
+    t = t.strip().upper()
+    t = re.sub(r"[^A-Z0-9\- ]", "", t)
+    return t.strip()[:40]
+
+def _resolve_coin(query: str):
+    q = _clean_query(query)
+    if not q or len(q) < 2:
+        return None
+    try:
+        data = _http_json(f"https://api.coingecko.com/api/v3/search?query={urllib.parse.quote(q)}")
+    except Exception:
+        return None
+    coins = data.get("coins") or []
+    if not coins:
+        return None
+    q_up = q.upper().replace(" ", "")
+    exact = [c for c in coins if str(c.get("symbol", "")).upper() == q_up]
+    pick = exact[0] if exact else coins[0]
+    return {"id": pick.get("id"), "symbol": str(pick.get("symbol", "")).upper(), "name": pick.get("name") or ""}
+
+def _market_snapshot(coin_id: str):
+    data = _http_json(
+        f"https://api.coingecko.com/api/v3/coins/{coin_id}"
+        f"?localization=false&tickers=false&community_data=false&developer_data=false"
+    )
+    md = data.get("market_data") or {}
+    def usd(key):
+        v = md.get(key) or {}
+        return float(v.get("usd") or 0) if isinstance(v, dict) else float(v or 0)
+    def pct(key):
+        v = md.get(key)
+        try:
+            return float(v) if v is not None else None
+        except (TypeError, ValueError):
+            return None
+    return {
+        "name": data.get("name") or coin_id,
+        "symbol": str(data.get("symbol") or "").upper(),
+        "price": usd("current_price"),
+        "ath": usd("ath"),
+        "ath_chg": pct("ath_change_percentage"),
+        "atl": usd("atl"),
+        "rank": data.get("market_cap_rank"),
+        "mcap": usd("market_cap"),
+        "chg_24h": pct("price_change_percentage_24h"),
+        "chg_7d": pct("price_change_percentage_7d"),
+        "chg_30d": pct("price_change_percentage_30d"),
+        "chg_1y": pct("price_change_percentage_1y"),
+    }
+
+def _pair_symbol(sym: str) -> str:
+    s = (sym or "").upper().replace("USDT", "").replace("USD", "").replace("-", "")
+    return f"{s}-USD"
+
+def _tf_check(pair: str, timeframe: str, mode: str):
+    try:
+        from deals_bot.providers import fetch_best
+        from deals_bot.analyzer import detect_trend_pullback, detect_early_pump, detect_accumulation
+        series = fetch_best(pair, "crypto", timeframe, limit=220)
+        if not series or len(series) < 40:
+            return None
+        if mode == "fast":
+            ep = detect_early_pump(series)
+            if ep and float(ep.get("score") or 0) >= 70:
+                return {"ok": True, "kind": "أول كسر", "score": float(ep.get("score") or 0), "entry": ep.get("price"), "stop": ep.get("stop"), "tp": ep.get("target")}
+            acc = detect_accumulation(series)
+            if acc and float(acc.get("score") or 0) >= 70:
+                return {"ok": True, "kind": "تجميع", "score": float(acc.get("score") or 0), "entry": acc.get("price"), "stop": acc.get("stop"), "tp": acc.get("target")}
+            return {"ok": False, "kind": "لا", "score": 0}
+        tp = detect_trend_pullback(series, rr=2.0, direction="long")
+        if tp and float(tp.get("score") or tp.get("confidence") or 0) >= 80:
+            return {"ok": True, "kind": "اتجاه/ارتداد", "score": float(tp.get("score") or tp.get("confidence") or 0), "entry": tp.get("entry") or tp.get("price"), "stop": tp.get("stop_loss") or tp.get("stop"), "tp": tp.get("take_profit") or tp.get("target")}
+        return {"ok": False, "kind": "لا", "score": float((tp or {}).get("score") or (tp or {}).get("confidence") or 0)}
+    except Exception as exc:
+        return {"ok": False, "kind": "خطأ", "score": 0, "err": str(exc)[:80]}
+
+def _fmt_money(x):
+    try:
+        x = float(x)
+    except (TypeError, ValueError):
+        return "—"
+    if x >= 1000:
+        return f"${x:,.2f}"
+    if x >= 1:
+        return f"${x:.4f}"
+    return f"${x:.8f}".rstrip("0").rstrip(".")
+
+def _fmt_pct(x):
+    if x is None:
+        return "—"
+    try:
+        return f"{float(x):+.1f}%"
+    except (TypeError, ValueError):
+        return "—"
+
+def _coin_report(query: str) -> str:
+    apply_overrides(config)
+    _enable_30m()
+    resolved = _resolve_coin(query)
+    if not resolved or not resolved.get("id"):
+        return f"معرفتش العملة: {query}\nابعت الرمز بوضوح (مثال: BTC أو ETH أو NMR)."
+    try:
+        snap = _market_snapshot(resolved["id"])
+    except Exception as e:
+        return f"فشلت جيب بيانات السوق لـ {resolved.get('symbol')}: {e}"
+    pair = _pair_symbol(snap["symbol"] or resolved["symbol"])
+    price = snap["price"]
+    ath = snap["ath"]
+    drop = None
+    if price and ath and ath > 0:
+        drop = (price / ath - 1.0) * 100.0
+    need_x = (ath / price) if price and ath and price > 0 else None
+
+    fast = _tf_check(pair, "1h", "fast") or _tf_check(pair, "15m", "fast")
+    swing = _tf_check(pair, "6h", "swing") or _tf_check(pair, "1d", "swing")
+
+    lines = [
+        f"🔍 تحليل {snap['name']} ({snap['symbol']})",
+        f"السعر: {_fmt_money(price)}",
+        f"القمة التاريخية ATH: {_fmt_money(ath)} ({_fmt_pct(drop if drop is not None else snap.get('ath_chg'))})",
+        f"أقل سعر ATL: {_fmt_money(snap.get('atl'))}",
+        f"الترتيب: #{snap.get('rank') or '—'} | السوق: {_fmt_money(snap.get('mcap'))}",
+        f"24س {_fmt_pct(snap.get('chg_24h'))} | 7أ {_fmt_pct(snap.get('chg_7d'))} | 30أ {_fmt_pct(snap.get('chg_30d'))} | سنة {_fmt_pct(snap.get('chg_1y'))}",
+        "",
+    ]
+
+    # Fast
+    if fast and fast.get("ok"):
+        lines.append(f"⚡ صفقة سريعة: ممكنة ({fast.get('kind')}) درجة {fast.get('score', 0):.0f}")
+        if fast.get("entry"):
+            lines.append(f"   دخول {_fmt_money(fast['entry'])} | وقف {_fmt_money(fast.get('stop'))} | هدف {_fmt_money(fast.get('tp'))}")
+    else:
+        lines.append("⚡ صفقة سريعة: NO TRADE — مفيش إعداد قوي على 15د/1س")
+
+    # Swing / entry
+    if swing and swing.get("ok"):
+        lines.append(f"📈 دخول متوسط (6س/1يوم): ممكن ({swing.get('kind')}) درجة {swing.get('score', 0):.0f}")
+        if swing.get("entry"):
+            lines.append(f"   دخول {_fmt_money(swing['entry'])} | وقف {_fmt_money(swing.get('stop'))} | هدف {_fmt_money(swing.get('tp'))}")
+    else:
+        sc = (swing or {}).get("score") or 0
+        lines.append(f"📈 دخول متوسط: NO TRADE — الشروط مش مكتملة (درجة {sc:.0f})")
+
+    # Long term
+    lines.append("")
+    lines.append("🌍 استثمار طويل جدًا:")
+    rank = snap.get("rank") or 9999
+    if need_x and need_x > 1:
+        lines.append(f"   للرجوع للقمة التاريخية محتاج صعود حوالي ×{need_x:.1f} من السعر الحالي.")
+    elif need_x and need_x <= 1.05:
+        lines.append("   قريبة من القمة التاريخية — مش منطقة شراء رخيصة.")
+    if rank <= 10:
+        lines.append("   ضمن الكبار: سيولة أقوى، لكن الصعود مش مضمون.")
+    elif rank <= 50:
+        lines.append("   متوسطة/كبيرة: استثمار طويل ممكن بحجم صغير فقط، مع مخاطرة عالية.")
+    elif rank <= 200:
+        lines.append("   صغيرة/متوسطة: الاستثمار الطويل مضاربة. معظم العملات في هذا النطاق ما بترجع للقمة.")
+    else:
+        lines.append("   صغيرة جدًا: احتمال انهيار أو ركود طويل مرتفع. مش مناسبة كاستثمار آمن.")
+
+    lines.append("")
+    lines.append("💎 زي البيتكوين؟")
+    if snap["symbol"] == "BTC":
+        lines.append("   دي البيتكوين نفسها.")
+    else:
+        lines.append("   لا. البيتكوين له سيولة وشبكة واعتماد مختلف. معظم العملات ما بتوصلش لنفس المسار.")
+        if need_x and need_x >= 10:
+            lines.append(f"   الرجوع للقمة فقط يحتاج ~×{need_x:.0f} — احتمال ضعيف تاريخيًا.")
+
+    lines.append("")
+    lines.append("⚠️ مش نصيحة مالية. التداول الحقيقي مقفول. مفيش ضمان ربح.")
+    return "\n".join(lines)
+
 def _norm(text):
     t = (text or "").strip().lower().split("@", 1)[0]
     aliases = {
@@ -218,10 +401,15 @@ def _norm(text):
         "مرشح بعيد": "/moon", "100x": "/moon", "moon": "/moon",
         "start": "/start", "help": "/help",
     }
-    return aliases.get(t, t.split()[0] if t else "")
+    if t in aliases:
+        return aliases[t]
+    if t.startswith("/"):
+        return t.split()[0]
+    return t
 
 def _handle(text):
-    cmd = _norm(text)
+    raw = (text or "").strip()
+    cmd = _norm(raw)
     if cmd in ("/start", "/help"):
         return HELP + "\n\n" + _status()
     if cmd == "/status":
@@ -242,6 +430,11 @@ def _handle(text):
         save({"ALERT_REQUIRE_CONFIRM": True, "TREND_REQUIRE_MOMENTUM": True, "TREND_ANTI_REVERSAL": True, "ALERT_ONLY": True})
         apply_overrides(config)
         return "✅ التأكيد فضل شغال. البوابة متشالتش.\n" + _status()
+    # free-text coin name
+    cleaned = _clean_query(raw)
+    if cleaned and len(cleaned) >= 2 and not cleaned.startswith("/"):
+        if re.fullmatch(r"[A-Z0-9][A-Z0-9\- ]{1,20}", cleaned):
+            return _coin_report(cleaned)
     if cmd.startswith("/"):
         return "أمر مش معروف.\n" + HELP
     return None

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-import os, sys, time
+import os, sys, time, re
 import telegram_commands as tc
 WINDOW = int(os.environ.get("LIVE_WINDOW_SEC", str(5 * 3600 + 1800)))
 
@@ -10,7 +10,11 @@ def main() -> int:
     if not token or not chat_id:
         return 2
     try:
-        tc.send_text(token, chat_id, "ظهر زر مرشح بعيد. بيفحص كل العملات عند القاع فقط. مش توقع 100x.")
+        tc.send_text(
+            token,
+            chat_id,
+            "ابعت اسم عملة (مثال BTC أو NMR) هحللها: سريع / دخول / استثمار طويل + القمة التاريخية. مش ضمان زي البيتكوين.",
+        )
     except Exception as exc:
         print("announce", exc)
     off = tc._offset()
@@ -19,9 +23,12 @@ def main() -> int:
         try:
             upd = tc._api(token, "getUpdates", {"timeout": "25", "limit": "50", "offset": str(off)})
         except Exception as exc:
-            print("poll", exc); time.sleep(2); continue
+            print("poll", exc)
+            time.sleep(2)
+            continue
         if not upd.get("ok"):
-            time.sleep(2); continue
+            time.sleep(2)
+            continue
         for item in upd.get("result") or []:
             uid = int(item.get("update_id") or 0)
             off = max(off, uid + 1)
@@ -31,9 +38,11 @@ def main() -> int:
             if chat != chat_id:
                 continue
             cmd = tc._norm(text)
-            if cmd in ("/scan", "/fast", "/pump", "/moon"):
+            cleaned = tc._clean_query(text)
+            is_coin = bool(cleaned and re.fullmatch(r"[A-Z0-9][A-Z0-9\- ]{1,20}", cleaned) and not cmd.startswith("/"))
+            if cmd in ("/scan", "/fast", "/pump", "/moon") or is_coin:
                 try:
-                    tc.send_text(token, chat_id, "⏳ بفحص كل العملات... هياخد دقايق.")
+                    tc.send_text(token, chat_id, "⏳ بحلل... لحظة.")
                 except Exception:
                     pass
             reply = tc._handle(text)
