@@ -13,7 +13,7 @@ def main() -> int:
         tc.send_text(
             token,
             chat_id,
-            "ابعت اسم عملة (مثال BTC أو NMR) هحللها: سريع / دخول / استثمار طويل + القمة التاريخية. مش ضمان زي البيتكوين.",
+            "ورقي شغال بمخاطرة عالية (ورق فقط). اضغط زر ورقي للتفاصيل. التداول الحقيقي مقفول.",
         )
     except Exception as exc:
         print("announce", exc)
@@ -40,7 +40,7 @@ def main() -> int:
             cmd = tc._norm(text)
             cleaned = tc._clean_query(text)
             is_coin = bool(cleaned and re.fullmatch(r"[A-Z0-9][A-Z0-9\- ]{1,20}", cleaned) and not cmd.startswith("/"))
-            if cmd in ("/scan", "/fast", "/pump", "/moon") or is_coin:
+            if cmd in ("/scan", "/fast", "/pump", "/moon", "/paper") or is_coin:
                 try:
                     tc.send_text(token, chat_id, "⏳ بحلل... لحظة.")
                 except Exception:
