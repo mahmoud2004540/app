@@ -133,7 +133,7 @@ label.row { cursor:text; }
     <div class="kpi kpi--neutral">
   <div class="kpi__label">صفقات مفتوحة</div>
   <div class="kpi__value">0</div>
-  <div class="kpi__sub">الحدّ الأقصى 5</div>
+  <div class="kpi__sub">الحدّ الأقصى 10</div>
 </div>
     <div class="kpi kpi--bad">
   <div class="kpi__label">صافي الربح/الخسارة</div>
@@ -168,9 +168,9 @@ label.row { cursor:text; }
     <div class="card">
       <h2>محرّك المخاطر</h2>
       <div class="rows">
-        <div class="row"><span class="k">مخاطرة لكل صفقة</span><span class="v">0.5%</span></div>
-        <div class="row"><span class="k">أقصى خسارة يومية</span><span class="v">1.5%</span></div>
-        <div class="row"><span class="k">إيقاف بعد خسائر متتالية</span><span class="v">3</span></div>
+        <div class="row"><span class="k">مخاطرة لكل صفقة</span><span class="v">2.0%</span></div>
+        <div class="row"><span class="k">أقصى خسارة يومية</span><span class="v">5.0%</span></div>
+        <div class="row"><span class="k">إيقاف بعد خسائر متتالية</span><span class="v">8</span></div>
         <div class="row"><span class="k">أقل عائد/مخاطرة</span><span class="v">1:2</span></div>
       </div>
     </div>
@@ -184,7 +184,7 @@ label.row { cursor:text; }
         <label class="row"><span class="k">رأس المال</span>
           <input id="inCapital" class="inp" type="number" min="0" step="1" value="1000" inputmode="decimal"></label>
         <label class="row"><span class="k">المخاطرة لكل صفقة (%)</span>
-          <input id="inRisk" class="inp" type="number" min="0" step="0.1" value="0.5" inputmode="decimal"></label>
+          <input id="inRisk" class="inp" type="number" min="0" step="0.1" value="2.0" inputmode="decimal"></label>
       </div>
       <div class="rows">
         <div class="row"><span class="k">قيمة المخاطرة لكل صفقة</span><span class="v" id="outRiskAmt">—</span></div>
@@ -215,6 +215,6 @@ label.row { cursor:text; }
     التداول الحقيقي مُعطَّل بالتصميم؛ كل الأرقام من التنفيذ الورقي والباك-تِست.
   </footer>
 </div>
-<script>(function(){var KEY='botClientData_v1';var cap=document.getElementById('inCapital'),rk=document.getElementById('inRisk');var oR=document.getElementById('outRiskAmt'),oD=document.getElementById('outDailyAmt'),note=document.getElementById('savedNote');var DL=1.5000;function f(n){return (isFinite(n)?n:0).toLocaleString('en-US',{maximumFractionDigits:2});}function calc(){var c=parseFloat(cap.value)||0,r=parseFloat(rk.value)||0;oR.textContent=f(c*r/100);oD.textContent=f(c*DL/100);}function save(){try{localStorage.setItem(KEY,JSON.stringify({cap:cap.value,risk:rk.value}));if(note){note.textContent='\u2705 \u0645\u062d\u0641\u0648\u0638 \u062a\u0644\u0642\u0627\u0626\u064a\u064b\u0627';}}catch(e){if(note){note.textContent='\u26a0\ufe0f \u0627\u0644\u0645\u062a\u0635\u0641\u0651\u062d \u064a\u0645\u0646\u0639 \u0627\u0644\u062d\u0641\u0638';}}}function load(){try{var s=localStorage.getItem(KEY);if(s){var d=JSON.parse(s);if(d.cap!=null&&d.cap!=='')cap.value=d.cap;if(d.risk!=null&&d.risk!=='')rk.value=d.risk;}}catch(e){}}load();calc();[cap,rk].forEach(function(el){el.addEventListener('input',function(){calc();save();});});})();</script>
+<script>(function(){var KEY='botClientData_v1';var cap=document.getElementById('inCapital'),rk=document.getElementById('inRisk');var oR=document.getElementById('outRiskAmt'),oD=document.getElementById('outDailyAmt'),note=document.getElementById('savedNote');var DL=5.0000;function f(n){return (isFinite(n)?n:0).toLocaleString('en-US',{maximumFractionDigits:2});}function calc(){var c=parseFloat(cap.value)||0,r=parseFloat(rk.value)||0;oR.textContent=f(c*r/100);oD.textContent=f(c*DL/100);}function save(){try{localStorage.setItem(KEY,JSON.stringify({cap:cap.value,risk:rk.value}));if(note){note.textContent='\u2705 \u0645\u062d\u0641\u0648\u0638 \u062a\u0644\u0642\u0627\u0626\u064a\u064b\u0627';}}catch(e){if(note){note.textContent='\u26a0\ufe0f \u0627\u0644\u0645\u062a\u0635\u0641\u0651\u062d \u064a\u0645\u0646\u0639 \u0627\u0644\u062d\u0641\u0638';}}}function load(){try{var s=localStorage.getItem(KEY);if(s){var d=JSON.parse(s);if(d.cap!=null&&d.cap!=='')cap.value=d.cap;if(d.risk!=null&&d.risk!=='')rk.value=d.risk;}}catch(e){}}load();calc();[cap,rk].forEach(function(el){el.addEventListener('input',function(){calc();save();});});})();</script>
 </body>
 </html>
