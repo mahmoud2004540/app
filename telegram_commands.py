@@ -15,8 +15,8 @@ KEYBOARD = json.dumps({
     "persistent": True,
 }, ensure_ascii=False)
 HELP = (
-    "ابعت اسم العملة (BTC / NMR) للتحليل.\n"
-    "ورقي = تفاصيل الحساب الورقي (\u0645ش فلوس حقيقية).\n"
+    "ابعت اسم العملة (BTC / NMR) لتحليل عميق: قمة + مشروع + مستقبل.\n"
+    "ورقي = تفاصيل الحساب الورقي.\n"
     "عند NO TRADE هيظهر أسماء المرشحين وسبب الرفض.\n"
     "التداول الحقيقي مقفول."
 )
@@ -62,7 +62,7 @@ def _status():
     lines = ["📊 حالة البوت"]
     for k in ["TREND_MIN_SCORE", "TREND_RR", "RISK_PER_TRADE_PRO", "MAX_OPEN_POSITIONS"]:
         lines.append(f"{k} = {getattr(config, k, '—')}")
-    lines.append("ورقي: شغال | مخاطرة عالية على الورق")
+    lines.append("ورقي: شغال")
     lines.append("التداول الحقيقي: مقفول")
     return "\n".join(lines)
 
@@ -78,7 +78,7 @@ def _fnum(d, *names):
             continue
     return 0.0
 
-def _reject_reasons(d, min_score: float, min_rr: float, market_bullish) -> list:
+def _reject_reasons(d, min_score, min_rr, market_bullish):
     reasons = []
     conf = _fnum(d, "confidence", "score")
     if conf < min_score:
@@ -91,32 +91,25 @@ def _reject_reasons(d, min_score: float, min_rr: float, market_bullish) -> list:
         reasons.append("RSI مرتفع")
     if getattr(d, "_confluence_ok", True) is False:
         reasons.append("تأكيدات ناقصة")
-    entry = _fnum(d, "entry")
-    stop = _fnum(d, "stop_loss", "stop")
-    tp = _fnum(d, "take_profit", "target", "tp")
-    price = _fnum(d, "price")
+    entry, stop, tp, price = _fnum(d, "entry"), _fnum(d, "stop_loss", "stop"), _fnum(d, "take_profit", "target", "tp"), _fnum(d, "price")
     if entry > 0 and stop > 0 and tp > 0:
         risk = abs(entry - stop)
         if risk > 0:
             rr = abs(tp - entry) / risk
             if rr < min_rr:
                 reasons.append(f"هدف 1:{rr:.1f}<1:{min_rr:g}")
-    if entry > 0 and price > 0 and price > entry * 1.04:
-        reasons.append("مطاردة (السعر بعيد عن الدخول)")
+    if entry > 0 and price > entry * 1.04:
+        reasons.append("مطاردة")
     if not reasons:
-        reasons.append("مش ضمن أفضل الترتيب / تنويع")
+        reasons.append("مش ضمن أفضل الترتيب")
     return reasons
 
-def _format_rejects(cands, picks=None, market_bullish=None, limit=8) -> str:
+def _format_rejects(cands, picks=None, market_bullish=None, limit=8):
     pick_syms = {getattr(p, "symbol", None) for p in (picks or [])}
     min_score = float(getattr(config, "TREND_MIN_SCORE", 85) or 85)
     min_rr = float(getattr(config, "TREND_RR", 2.0) or 2.0)
     rows = []
-    ordered = sorted(
-        cands or [],
-        key=lambda x: _fnum(x, "confidence", "score"),
-        reverse=True,
-    )
+    ordered = sorted(cands or [], key=lambda x: _fnum(x, "confidence", "score"), reverse=True)
     for d in ordered:
         sym = getattr(d, "symbol", None)
         if not sym or sym in pick_syms:
@@ -128,66 +121,40 @@ def _format_rejects(cands, picks=None, market_bullish=None, limit=8) -> str:
         if len(rows) >= limit:
             break
     if not rows:
-        return "مفيش مرشحين قريبين اتسجلوا في هذا الفحص."
-    header = f"أقرب مرشحين (عرض {len(rows)} من {len(ordered)}) وليه اترفضوا:"
-    return header + "\n" + "\n".join(rows)
+        return "مفيش مرشحين قريبين اتسجلوا."
+    return f"أقرب مرشحين ({len(rows)}/{len(ordered)}) وليه اترفضوا:\n" + "\n".join(rows)
 
-def _paper_report() -> str:
+def _paper_report():
     apply_overrides(config)
     path = os.path.join("journal", "paper_account.json")
     try:
         with open(path, encoding="utf-8") as fh:
             data = json.load(fh)
     except Exception:
-        return (
-            "📄 الحساب الورقي لسه فاضي أو الملف مش موجود.\n"
-            "البوت الورقي هيشتغل على الجدول. التداول الحقيقي مقفول."
-        )
+        return "📄 الحساب الورقي لسه فاضي. التداول الحقيقي مقفول."
     equity = float(data.get("equity") or 0)
     start = float(data.get("starting_equity") or equity or 1)
     ret = (equity / start - 1.0) * 100.0 if start else 0.0
     positions = data.get("positions") or []
     closed = data.get("closed") or []
     wins = sum(1 for c in closed if float(c.get("pnl") or 0) > 0)
-    losses = sum(1 for c in closed if float(c.get("pnl") or 0) < 0)
     n = len(closed)
     wr = (wins / n * 100.0) if n else 0.0
-    gross_w = sum(float(c.get("pnl") or 0) for c in closed if float(c.get("pnl") or 0) > 0)
-    gross_l = -sum(float(c.get("pnl") or 0) for c in closed if float(c.get("pnl") or 0) < 0)
-    pf = (gross_w / gross_l) if gross_l > 0 else (float("inf") if gross_w > 0 else 0.0)
-    risk = float(getattr(config, "RISK_PER_TRADE_PRO", 0.02) or 0.02)
-    max_open = getattr(config, "MAX_OPEN_POSITIONS", 10)
     lines = [
         "📄 الحساب الورقي (مش فلوس حقيقية)",
-        f"الرصيد: ${equity:.2f} | البداية: ${start:.2f} | العائد: {ret:+.2f}%",
-        f"مفتوحة: {len(positions)} | مغلقة: {n} | فوز: {wins} | خسارة: {losses}",
-        f"نسبة النجاح: {wr:.1f}% | عامل ربح: {pf if pf != float('inf') else '∞'}",
-        f"مخاطرة الصفقة: {risk*100:.1f}% | أقصى مفتوح: {max_open}",
+        f"الرصيد: ${equity:.2f} | العائد: {ret:+.2f}%",
+        f"مفتوحة: {len(positions)} | مغلقة: {n} | نجاح: {wr:.1f}%",
         "التداول الحقيقي: مقفول",
-        "",
     ]
     if positions:
-        lines.append("📌 صفقات مفتوحة:")
-        for p in positions[:10]:
-            lines.append(
-                f"  {p.get('symbol')} {p.get('direction')} "
-                f"دخول {p.get('entry')} وقف {p.get('stop')} هدف {p.get('target')} "
-                f"كم {p.get('qty')}"
-            )
-    else:
-        lines.append("📌 مفيش صفقات مفتوحة دلوقتي.")
+        lines.append("📌 مفتوحة:")
+        for p in positions[:8]:
+            lines.append(f"  {p.get('symbol')} {p.get('direction')} دخول {p.get('entry')}")
     if closed:
-        lines.append("")
-        lines.append("🧼 آخر 5 صفقات مغلقة:")
+        lines.append("🧼 آخر مغلقة:")
         for c in closed[-5:][::-1]:
             pnl = float(c.get("pnl") or 0)
-            mark = "+" if pnl >= 0 else ""
-            lines.append(
-                f"  {c.get('symbol')} {c.get('direction')} "
-                f"{c.get('reason')} PnL {mark}{pnl:.2f} R={c.get('result_r')}"
-            )
-    lines.append("")
-    lines.append("⚠️ ورقي فقط. المخاطرة عالية عمدًا على الورق.")
+            lines.append(f"  {c.get('symbol')} PnL {pnl:+.2f} ({c.get('reason')})")
     return "\n".join(lines)
 
 def _quick_scan():
@@ -202,11 +169,7 @@ def _quick_scan():
         if picks:
             return "🔍 فحص دقة\n\n" + format_picks(picks) + "\n\n" + rejects
         state = "صاعد" if bull else ("هابط" if bull is False else "غير محدد")
-        return (
-            f"NO TRADE — مفيش صفقة عدت البوابة.\n"
-            f"السوق: {state} | إجمالي مرشحين: {len(cands or [])}\n\n"
-            + rejects
-        )
+        return f"NO TRADE — مفيش صفقة عدت البوابة.\nالسوق: {state} | مرشحين: {len(cands or [])}\n\n" + rejects
     except Exception as exc:
         return f"⚠️ {exc}"
 
@@ -222,8 +185,8 @@ def _fast_scan():
         if picks:
             return "⚡ صفقات سريعة\n\n" + format_digest(picks, title="سريع")
         if all_c:
-            return "NO TRADE — مفيش صفقة سريعة قوية.\n\n" + _format_rejects(all_c, picks=[], limit=8)
-        return "NO TRADE — مفيش مرشحين سريعين اتسجلوا."
+            return "NO TRADE — مفيش صفقة سريعة.\n\n" + _format_rejects(all_c, [], limit=8)
+        return "NO TRADE — مفيش مرشحين سريعين."
     except Exception as exc:
         return f"⚠️ {exc}"
 
@@ -239,22 +202,21 @@ def _pump_scan():
         if picks:
             return "🚀 بداية اندفاع\n\n" + format_digest(picks, title="اندفاع")
         if all_c:
-            return "NO TRADE — مفيش بداية اندفاع قوية.\n\n" + _format_rejects(all_c, picks=[], limit=8)
-        return "NO TRADE — مفيش مرشحين اندفاع اتسجلوا."
+            return "NO TRADE — مفيش اندفاع.\n\n" + _format_rejects(all_c, [], limit=8)
+        return "NO TRADE — مفيش مرشحين اندفاع."
     except Exception as exc:
         return f"⚠️ {exc}"
 
 def _moon_scan():
     return _pump_scan()
 
-def _clean_query(text: str) -> str:
+def _clean_query(text):
     t = (text or "").strip()
     t = re.sub(r"^(?:تحليل|العملة|عملة|coin|analyze|check)\s*[:\-]?\s*", "", t, flags=re.I)
-    t = t.strip().upper()
-    t = re.sub(r"[^A-Z0-9\- ]", "", t)
+    t = re.sub(r"[^A-Z0-9\- ]", "", t.strip().upper())
     return t.strip()[:40]
 
-def _coin_report(query: str) -> str:
+def _coin_report(query):
     apply_overrides(config)
     q = _clean_query(query)
     try:
@@ -275,28 +237,152 @@ def _coin_report(query: str) -> str:
         )
         with urllib.request.urlopen(req2, timeout=25) as resp2:
             full = json.loads(resp2.read().decode("utf-8"))
-        md = full.get("market_data") or {}
-        price = float((md.get("current_price") or {}).get("usd") or 0)
-        ath = float((md.get("ath") or {}).get("usd") or 0)
-        rank = full.get("market_cap_rank")
-        name = full.get("name")
-        sym = str(full.get("symbol") or "").upper()
-        need = (ath / price) if price and ath else None
-        lines = [
-            f"🔍 {name} ({sym})",
-            f"السعر: ${price}",
-            f"ATH: ${ath} | الترتيب: #{rank or '—'}",
-        ]
-        if need and need > 1:
-            lines.append(f"للقمة محتاج ~×{need:.1f}")
-        desc = ((full.get("description") or {}).get("en") or "")[:200]
-        if desc:
-            lines.append(f"وصف: {desc}...")
-        lines.append("زي البيتكوين؟ لا (إلا BTC).")
-        lines.append("⚠️ مش نصيحة مالية. التداول الحقيقي مقفول.")
-        return "\n".join(lines)
     except Exception as e:
-        return f"فشل التحليل: {e}"
+        return f"فشل جلب البيانات: {e}"
+
+    md = full.get("market_data") or {}
+    cd = full.get("community_data") or {}
+    dd = full.get("developer_data") or {}
+    links = full.get("links") or {}
+
+    def usd(key):
+        v = md.get(key) or {}
+        return float(v.get("usd") or 0) if isinstance(v, dict) else float(v or 0)
+
+    def pct(key):
+        v = md.get(key)
+        try:
+            return float(v) if v is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    name = full.get("name") or cid
+    sym = str(full.get("symbol") or "").upper()
+    price, ath, atl = usd("current_price"), usd("ath"), usd("atl")
+    rank = full.get("market_cap_rank") or 9999
+    mcap = usd("market_cap")
+    chg_24, chg_7, chg_30, chg_1y = pct("price_change_percentage_24h"), pct("price_change_percentage_7d"), pct("price_change_percentage_30d"), pct("price_change_percentage_1y")
+    ath_chg = pct("ath_change_percentage")
+    need = (ath / price) if price and ath and price > 0 else None
+    desc = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", ((full.get("description") or {}).get("en") or "").strip())).strip()
+    if len(desc) > 300:
+        desc = desc[:297].rsplit(" ", 1)[0] + "..."
+    cats = [c for c in (full.get("categories") or []) if c][:5]
+    homepage = next((h for h in (links.get("homepage") or []) if h), "")
+    twitter = links.get("twitter_screen_name") or ""
+    github = next((g for g in ((links.get("repos_url") or {}).get("github") or []) if g), "")
+    stars, commits, forks = dd.get("stars"), dd.get("commit_count_4_weeks"), dd.get("forks")
+    sentiment = full.get("sentiment_votes_up_percentage")
+    tw_f, reddit, watch = cd.get("twitter_followers"), cd.get("reddit_subscribers"), full.get("watchlist_portfolio_users")
+
+    lines = [
+        f"🔍 تحليل عميق: {name} ({sym})",
+        f"السعر: ${price}",
+        f"ATH: ${ath} | من القمة: {ath_chg if ath_chg is not None else '—'}%",
+        f"ATL: ${atl} | الترتيب: #{rank if rank < 9999 else '—'} | السوق: ${mcap:,.0f}" if mcap else f"ATL: ${atl} | الترتيب: #{rank if rank < 9999 else '—'}",
+        f"24س {chg_24}% | 7أ {chg_7}% | 30أ {chg_30}% | سنة {chg_1y}%",
+        "",
+        "📈 الرجوع للقمة التاريخية؟",
+    ]
+    if need and need <= 1.05:
+        lines.append("   قريبة من/عند القمة — مش منطقة رجوع من قاع.")
+    elif need:
+        lines.append(f"   محتاج صعود ~×{need:.1f} من السعر الحالي.")
+
+    yes, no = [], []
+    if rank <= 30:
+        yes.append("ضمن الكبار: سيولة أعلى")
+    if isinstance(commits, (int, float)) and commits and commits >= 10:
+        yes.append(f"تطوير نشط ({int(commits)} commits / 4 أسابيع)")
+    if homepage:
+        yes.append("موقع رسمي")
+    if github:
+        yes.append("مستودع كود معلن")
+    if chg_1y is not None and chg_1y > 0:
+        yes.append(f"أداء سنة موجب ({chg_1y:+.0f}%)")
+    if sentiment is not None and float(sentiment) >= 60:
+        yes.append(f"تصويت إيجابي {float(sentiment):.0f}%")
+    if need and need < 3:
+        yes.append("البعد عن القمة محدود (<×3)")
+    if need and need >= 10:
+        no.append(f"بعيدة جدًا (×{need:.0f}) — نادر معظم العملات")
+    if rank > 100:
+        no.append("ترتيب متأخر: منافسة عالية")
+    if rank > 200:
+        no.append("صغيرة جدًا: سيولة ضعيفة")
+    if isinstance(commits, (int, float)) and commits == 0 and github:
+        no.append("تطوير راكد (0 commits)")
+    if not github and not homepage:
+        no.append("مفيش حضور واضح (موقع/كود)")
+    if chg_1y is not None and chg_1y < -50:
+        no.append(f"أداء سنة ضعيف ({chg_1y:+.0f}%)")
+    if not yes:
+        yes.append("مفيش إشارات قوية من البيانات")
+    if not no:
+        no.append("مفيش عائق حاسم — برضه مش ضمان")
+    lines.append("   ليه ممكن:")
+    for x in yes[:5]:
+        lines.append(f"     ✓ {x}")
+    lines.append("   ليه صعب / لأ:")
+    for x in no[:5]:
+        lines.append(f"     ✗ {x}")
+    score = 0
+    if rank <= 20: score += 2
+    elif rank <= 50: score += 1
+    if isinstance(commits, (int, float)) and commits and commits >= 5: score += 1
+    if need and need < 5: score += 1
+    if need and need >= 20: score -= 2
+    if rank > 200: score -= 2
+    if isinstance(commits, (int, float)) and commits == 0 and github: score -= 1
+    if score >= 3:
+        lines.append("   الحكم: احتمال متوسط للرجوع الجزئي/الكامل — مش مضمون.")
+    elif score >= 1:
+        lines.append("   الحكم: احتمال ضعيف-متوسط — محتاج وقت وسوق قوي.")
+    else:
+        lines.append("   الحكم: احتمال ضعيف تاريخيًا لنفس القمة.")
+
+    lines += ["", "🏗 دراسة المشروع:"]
+    if desc:
+        lines.append(f"   وصف: {desc}")
+    if cats:
+        lines.append("   تصنيف: " + " | ".join(cats))
+    if homepage:
+        lines.append(f"   موقع: {homepage}")
+    if twitter:
+        lines.append(f"   تويتر: @{twitter}")
+    if github:
+        lines.append(f"   GitHub: {github}")
+    bits = []
+    if tw_f: bits.append(f"تويتر {int(tw_f):,}")
+    if reddit: bits.append(f"ريديت {int(reddit):,}")
+    if watch: bits.append(f"متابعة {int(watch):,}")
+    if bits:
+        lines.append("   مجتمع: " + " | ".join(bits))
+    if stars is not None or commits is not None:
+        lines.append(f"   تطوير: نجوم {stars if stars is not None else '—'} | forks {forks if forks is not None else '—'} | commits 4أ {commits if commits is not None else '—'}")
+    if sentiment is not None:
+        lines.append(f"   مزاج المجتمع: {float(sentiment):.0f}% إيجابي")
+    if rank <= 20 and (isinstance(commits, (int, float)) and commits and commits > 0 or not github):
+        lines.append("   مستقبل المشروع: كبير/نشط نسبيًا — مخاطرة سوق عالية.")
+    elif rank <= 100 and isinstance(commits, (int, float)) and commits and commits > 0 and homepage:
+        lines.append("   مستقبل المشروع: إشارات حياة — مش ضمان بقاء.")
+    elif (isinstance(commits, (int, float)) and commits == 0 and github) or (rank > 200 and not homepage):
+        lines.append("   مستقبل المشروع: ضعيف ظاهر (ركود/صغر).")
+    else:
+        lines.append("   مستقبل المشروع: غير واضح — مفيش ضمان استمرار.")
+    lines.append("   أخبار: راجع الموقع/تويتر بنفسك قبل الدخول.")
+
+    lines += ["", "💎 زي البيتكوين دلوقتي؟"]
+    if sym == "BTC":
+        lines.append("   دي البيتكوين نفسها.")
+    else:
+        lines.append("   لا. البيتكوين له شبكة وأمان وسيولة واعتماد مؤسسي مختلف.")
+        lines.append("   معظم العملات ما بتكررش نفس المسار حتى لو المشروع كويس.")
+        if need and need >= 10:
+            lines.append(f"   الرجوع للقمة فقط محتاج ~×{need:.0f} — مش «يبقى زي BTC».")
+        lines.append("   أقصى ما نقدر: مشروع حي أو ضعيف نسبيًا — مش نسخة بيتكوين.")
+    lines += ["", "⚠️ مش نصيحة مالية ولا ضمان قمة أو مستقبل. التداول الحقيقي مقفول."]
+    return "\n".join(lines)
 
 def _norm(text):
     t = (text or "").strip().lower().split("@", 1)[0]
