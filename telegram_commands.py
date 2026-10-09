@@ -17,7 +17,8 @@ KEYBOARD = json.dumps({
 HELP = (
     "ابعت اسم العملة (BTC / NMR) للتحليل.\n"
     "ورقي = تفاصيل الحساب الورقي (\u0645ش فلوس حقيقية).\n"
-    "الصفقة: درجة 80+ . التداول الحقيقي مقفول."
+    "عند NO TRADE هيظهر أسماء المرشحين وسبب الرفض.\n"
+    "التداول الحقيقي مقفول."
 )
 
 def _api(token, method, params=None):
@@ -64,6 +65,72 @@ def _status():
     lines.append("ورقي: شغال | مخاطرة عالية على الورق")
     lines.append("التداول الحقيقي: مقفول")
     return "\n".join(lines)
+
+def _fnum(d, *names):
+    for name in names:
+        val = getattr(d, name, None)
+        if val is None and isinstance(d, dict):
+            val = d.get(name)
+        try:
+            if val not in (None, ""):
+                return float(val)
+        except (TypeError, ValueError):
+            continue
+    return 0.0
+
+def _reject_reasons(d, min_score: float, min_rr: float, market_bullish) -> list:
+    reasons = []
+    conf = _fnum(d, "confidence", "score")
+    if conf < min_score:
+        reasons.append(f"درجة {conf:.0f}<{min_score:.0f}")
+    if market_bullish is False:
+        reasons.append("السوق هابط")
+    if getattr(d, "_ema200_ok", True) is False:
+        reasons.append("تحت EMA200")
+    if getattr(d, "_rsi_ok", True) is False:
+        reasons.append("RSI مرتفع")
+    if getattr(d, "_confluence_ok", True) is False:
+        reasons.append("تأكيدات ناقصة")
+    entry = _fnum(d, "entry")
+    stop = _fnum(d, "stop_loss", "stop")
+    tp = _fnum(d, "take_profit", "target", "tp")
+    price = _fnum(d, "price")
+    if entry > 0 and stop > 0 and tp > 0:
+        risk = abs(entry - stop)
+        if risk > 0:
+            rr = abs(tp - entry) / risk
+            if rr < min_rr:
+                reasons.append(f"هدف 1:{rr:.1f}<1:{min_rr:g}")
+    if entry > 0 and price > 0 and price > entry * 1.04:
+        reasons.append("مطاردة (السعر بعيد عن الدخول)")
+    if not reasons:
+        reasons.append("مش ضمن أفضل الترتيب / تنويع")
+    return reasons
+
+def _format_rejects(cands, picks=None, market_bullish=None, limit=8) -> str:
+    pick_syms = {getattr(p, "symbol", None) for p in (picks or [])}
+    min_score = float(getattr(config, "TREND_MIN_SCORE", 85) or 85)
+    min_rr = float(getattr(config, "TREND_RR", 2.0) or 2.0)
+    rows = []
+    ordered = sorted(
+        cands or [],
+        key=lambda x: _fnum(x, "confidence", "score"),
+        reverse=True,
+    )
+    for d in ordered:
+        sym = getattr(d, "symbol", None)
+        if not sym or sym in pick_syms:
+            continue
+        why = "، ".join(_reject_reasons(d, min_score, min_rr, market_bullish))
+        conf = _fnum(d, "confidence", "score")
+        tf = getattr(d, "timeframe", "") or ""
+        rows.append(f"  • {sym} {tf} درجة {conf:.0f} — {why}")
+        if len(rows) >= limit:
+            break
+    if not rows:
+        return "مفيش مرشحين قريبين اتسجلوا في هذا الفحص."
+    header = f"أقرب مرشحين (عرض {len(rows)} من {len(ordered)}) وليه اترفضوا:"
+    return header + "\n" + "\n".join(rows)
 
 def _paper_report() -> str:
     apply_overrides(config)
@@ -131,9 +198,15 @@ def _quick_scan():
         config.CRYPTO_UNIVERSE = "all"
         tfs = list(getattr(config, "TREND_TIMEFRAMES", None) or ["6h", "1d"])
         picks, cands, bull = top_picks_multi(["crypto"], timeframes=tfs, top=3, rr=2.0)
+        rejects = _format_rejects(cands, picks, market_bullish=bull, limit=8)
         if picks:
-            return "🔍 فحص دقة\n\n" + format_picks(picks)
-        return f"NO TRADE — مفيش صفقة. مرفوضين: {len(cands or [])}"
+            return "🔍 فحص دقة\n\n" + format_picks(picks) + "\n\n" + rejects
+        state = "صاعد" if bull else ("هابط" if bull is False else "غير محدد")
+        return (
+            f"NO TRADE — مفيش صفقة عدت البوابة.\n"
+            f"السوق: {state} | إجمالي مرشحين: {len(cands or [])}\n\n"
+            + rejects
+        )
     except Exception as exc:
         return f"⚠️ {exc}"
 
@@ -143,11 +216,14 @@ def _fast_scan():
         from deals_bot.strategy import scan_universe
         from deals_bot.formatter import format_digest
         config.CRYPTO_UNIVERSE = "all"
-        _, accums, earlies = scan_universe(["crypto"], timeframe="1h", top=5)
-        picks = list(earlies or [])[:2] or list(accums or [])[:2]
-        if not picks:
-            return "NO TRADE — مفيش صفقة سريعة."
-        return "⚡ صفقات سريعة\n\n" + format_digest(picks, title="سريع")
+        _, accums, earlies = scan_universe(["crypto"], timeframe="1h", top=8)
+        all_c = list(earlies or []) + list(accums or [])
+        picks = all_c[:2]
+        if picks:
+            return "⚡ صفقات سريعة\n\n" + format_digest(picks, title="سريع")
+        if all_c:
+            return "NO TRADE — مفيش صفقة سريعة قوية.\n\n" + _format_rejects(all_c, picks=[], limit=8)
+        return "NO TRADE — مفيش مرشحين سريعين اتسجلوا."
     except Exception as exc:
         return f"⚠️ {exc}"
 
@@ -157,11 +233,14 @@ def _pump_scan():
         from deals_bot.strategy import scan_universe
         from deals_bot.formatter import format_digest
         config.CRYPTO_UNIVERSE = "all"
-        _, accums, earlies = scan_universe(["crypto"], timeframe="6h", top=5)
-        picks = (list(accums or []) + list(earlies or []))[:2]
-        if not picks:
-            return "NO TRADE — مفيش بداية اندفاع."
-        return "🚀 بداية اندفاع\n\n" + format_digest(picks, title="اندفاع")
+        _, accums, earlies = scan_universe(["crypto"], timeframe="6h", top=8)
+        all_c = list(accums or []) + list(earlies or [])
+        picks = all_c[:2]
+        if picks:
+            return "🚀 بداية اندفاع\n\n" + format_digest(picks, title="اندفاع")
+        if all_c:
+            return "NO TRADE — مفيش بداية اندفاع قوية.\n\n" + _format_rejects(all_c, picks=[], limit=8)
+        return "NO TRADE — مفيش مرشحين اندفاع اتسجلوا."
     except Exception as exc:
         return f"⚠️ {exc}"
 
