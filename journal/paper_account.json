@@ -1,9 +1,25 @@
 {
-  "equity": 987.1007159390479,
+  "equity": 986.9638366435479,
   "starting_equity": 1000.0,
   "day": 20735,
   "day_start_equity": 987.1007159390479,
-  "positions": [],
+  "positions": [
+    {
+      "symbol": "ONT-USD",
+      "market": "crypto",
+      "direction": "BUY",
+      "entry": 0.060760365,
+      "stop": 0.05211839594039179,
+      "target": 0.07399333333333334,
+      "qty": 2252.7727656,
+      "opened_ts": 1791475200.0,
+      "fees_paid": 0.13687929549991545,
+      "ai_score": 92.5,
+      "atr0": 0.003561902706405478,
+      "risk0": 0.008641969059608207,
+      "peak": 0.060760365
+    }
+  ],
   "closed": [
     {
       "symbol": "FARTCOIN-USD",
