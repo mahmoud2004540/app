@@ -15,8 +15,8 @@ KEYBOARD = json.dumps({
     "persistent": True,
 }, ensure_ascii=False)
 HELP = (
-    "ابعت اسم العملة (BTC / NMR) لتحليل عميق.\n"
-    "خطة ادخار = توزيع جاهز فورًا (400€ بدون BTC/ETH).\n"
+    "ابعت اسم العملة لتحليل عميق.\n"
+    "خطة ادخار = بحث سوق (CoinGecko) + توزيع جاهز.\n"
     "ورقي = الحساب الورقي. التداول الحقيقي مقفول."
 )
 
@@ -49,7 +49,7 @@ def _status():
     lines = ["📊 حالة البوت"]
     for k in ["TREND_MIN_SCORE", "TREND_RR", "RISK_PER_TRADE_PRO", "MAX_OPEN_POSITIONS"]:
         lines.append(f"{k} = {getattr(config, k, '—')}")
-    lines.append("ورقي: شغال | خطة ادخار: جاهزة فورية")
+    lines.append("خطة ادخار: بحث سوق حي")
     lines.append("التداول الحقيقي: مقفول")
     return "\n".join(lines)
 
@@ -72,12 +72,6 @@ def _reject_reasons(d, min_score, min_rr, market_bullish):
         reasons.append(f"درجة {conf:.0f}<{min_score:.0f}")
     if market_bullish is False:
         reasons.append("السوق هابط")
-    if getattr(d, "_ema200_ok", True) is False:
-        reasons.append("تحت EMA200")
-    if getattr(d, "_rsi_ok", True) is False:
-        reasons.append("RSI مرتفع")
-    if getattr(d, "_confluence_ok", True) is False:
-        reasons.append("تأكيدات ناقصة")
     entry, stop, tp, price = _fnum(d, "entry"), _fnum(d, "stop_loss", "stop"), _fnum(d, "take_profit", "target", "tp"), _fnum(d, "price")
     if entry > 0 and stop > 0 and tp > 0:
         risk = abs(entry - stop)
@@ -221,11 +215,7 @@ def _coin_report(query):
     return "\n".join(lines)
 
 def _savings_help():
-    return (
-        "💰 اضغط خطة ادخار للتوزيع الجاهز.\n"
-        "أو عدّل بالبيانات:\n"
-        "ادخار مبلغ=400 عملة=EUR طوارئ=12 ديون=لا نزول=90 كبار=لا"
-    )
+    return "💰 اضغط خطة ادخار — بحث سوق حي + توزيع."
 
 def _parse_savings(text):
     t = (text or "").strip()
@@ -267,11 +257,87 @@ def _parse_savings(text):
 
 def _tax_note(country):
     c = (country or "").lower().replace(" ", "")
-    notes = {"المانيا": "ألمانيا: إعفاء بعد سنة — Finanzamt", "germany": "ألمانيا: Finanzamt",
+    notes = {"المانيا": "ألمانيا: Finanzamt", "germany": "ألمانيا: Finanzamt",
              "فرنسا": "فرنسا: PFU", "france": "فرنسا: PFU", "مصر": "مصر: مصلحة الضرائب", "egypt": "مصر: مصلحة الضرائب"}
     for k, v in notes.items():
         if k in c: return v
     return "راجع مصلحة الضرائب في بلدك"
+
+def _cg_markets(pages=2, per_page=100):
+    rows = []
+    for page in range(1, pages + 1):
+        url = (
+            "https://api.coingecko.com/api/v3/coins/markets"
+            f"?vs_currency=usd&order=market_cap_desc&per_page={per_page}&page={page}"
+            "&sparkline=false&price_change_percentage=30d,1y"
+        )
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            chunk = json.loads(resp.read().decode("utf-8"))
+        if not chunk:
+            break
+        rows.extend(chunk)
+    return rows
+
+_STABLE = {
+    "USDT", "USDC", "USDE", "DAI", "FDUSD", "TUSD", "USDD", "BUSD", "PYUSD", "EURC",
+    "USDP", "GUSD", "FRAX", "LUSD", "CRVUSD", "USDY", "USD1", "RLUSD", "USTC",
+}
+_WRAPPED = {
+    "STETH", "WETH", "WBTC", "WSTETH", "CBETH", "WEETH", "RETH", "WBETH", "BTCB",
+    "CBBTC", "TBTC",
+}
+
+def _research_savings_picks(include_majors=False, top_n=3):
+    try:
+        markets = _cg_markets(pages=2, per_page=100)
+    except Exception as e:
+        return None, f"فشل بحث السوق: {e}"
+    scored = []
+    for c in markets:
+        sym = str(c.get("symbol") or "").upper()
+        cid = str(c.get("id") or "").lower()
+        name = c.get("name") or sym
+        if sym in _STABLE or sym in _WRAPPED:
+            continue
+        if not include_majors and (sym in ("BTC", "ETH") or cid in ("bitcoin", "ethereum")):
+            continue
+        rank = c.get("market_cap_rank") or 9999
+        try:
+            rank = int(rank)
+        except (TypeError, ValueError):
+            rank = 9999
+        mcap = float(c.get("market_cap") or 0)
+        vol = float(c.get("total_volume") or 0)
+        if mcap < 1e9 or vol < 5e7 or rank > 40:
+            continue
+        low = (name + " " + sym).lower()
+        if any(x in low for x in ("doge", "shib", "pepe", "bonk", "meme", "floki", "wif")):
+            continue
+        score = mcap + vol * 2
+        scored.append({
+            "symbol": sym, "name": name, "rank": rank, "mcap": mcap, "vol": vol,
+            "price": float(c.get("current_price") or 0), "score": score,
+        })
+    scored.sort(key=lambda x: (-x["score"], x["rank"]))
+    picks = scored[:top_n]
+    meta = f"تم فحص {len(markets)} عملة (CoinGecko) | مرّت الفلتر: {len(scored)}"
+    return picks, meta
+
+def _alloc_from_picks(picks, amount, weights=None):
+    if not picks:
+        return []
+    if weights and len(weights) == len(picks):
+        w = list(weights)
+    else:
+        total_s = sum(p["score"] for p in picks) or 1.0
+        w = [p["score"] / total_s * 100 for p in picks]
+    s = sum(w) or 1.0
+    w = [x / s * 100 for x in w]
+    ints = [int(round(x)) for x in w]
+    if ints:
+        ints[0] += 100 - sum(ints)
+    return [(p, pct, amount * pct / 100.0) for p, pct in zip(picks, ints)]
 
 def _savings_plan(data):
     if data.get("_incomplete"):
@@ -289,24 +355,56 @@ def _savings_plan(data):
     if em < 3:
         return "\n".join(lines + [f"⛔ طوارئ {em:g} < 3 شهور.", "⚠️ مش نصيحة مالية."])
     lines.append(f"✅ طوارئ {em:g} شهر — تقدر تبدأ بحذر.")
-    lines += ["", "② التوزيع (إطار تعليمي — مش توصية شراء)"]
-    if majors:
-        if dd <= 30: btc, eth, sol = 70, 30, 0
-        elif dd <= 50: btc, eth, sol = 60, 30, 10
-        else: btc, eth, sol = 55, 30, 15
-        lines.append(f"• BTC {btc}% → {amount*btc/100:g} {cur}")
-        lines.append(f"• ETH {eth}% → {amount*eth/100:g} {cur}")
-        if sol: lines.append(f"• SOL {sol}% → {amount*sol/100:g} {cur}")
+    lines += ["", "② بحث السوق + التوزيع (إطار تعليمي — مش توصية شراء)"]
+    picks, meta = _research_savings_picks(include_majors=majors, top_n=3)
+    lines.append(f"📡 {meta}")
+    if not picks:
+        lines.append("⚠️ البحث فشل — قائمة احتياطية.")
+        if majors:
+            lines.append(f"• BTC 60% → {amount*0.6:g} {cur}")
+            lines.append(f"• ETH 40% → {amount*0.4:g} {cur}")
+        else:
+            lines.append(f"• SOL 40% → {amount*0.4:g} {cur}")
+            lines.append(f"• XRP 30% → {amount*0.3:g} {cur}")
+            lines.append(f"• BNB 30% → {amount*0.3:g} {cur}")
         lines.append("• صغيرة/ميم: 0%")
     else:
-        lines.append("⚠️ بدون BTC/ETH = مخاطرة أعلى.")
-        if dd <= 30: sol, xrp, bnb = 50, 30, 20
-        elif dd <= 50: sol, xrp, bnb = 45, 30, 25
-        else: sol, xrp, bnb = 40, 30, 25
-        lines.append(f"• SOL {sol}% → {amount*sol/100:g} {cur}")
-        lines.append(f"• XRP {xrp}% → {amount*xrp/100:g} {cur}")
-        lines.append(f"• BNB {bnb}% → {amount*bnb/100:g} {cur}")
-        lines.append("• صغيرة/ميم: 0%")
+        if majors:
+            by_sym = {p["symbol"]: p for p in picks}
+            ordered = []
+            for s in ("BTC", "ETH"):
+                if s in by_sym:
+                    ordered.append(by_sym[s])
+            for p in picks:
+                if p["symbol"] not in ("BTC", "ETH") and len(ordered) < 3:
+                    ordered.append(p)
+            if dd <= 30:
+                weights = [70, 30][:len(ordered)]
+            elif dd <= 50:
+                weights = [60, 30, 10][:len(ordered)]
+            else:
+                weights = [55, 30, 15][:len(ordered)]
+            if len(weights) < len(ordered):
+                weights = None
+            alloc = _alloc_from_picks(ordered, amount, weights)
+        else:
+            lines.append("⚠️ بدون BTC/ETH = مخاطرة أعلى. الاختيار من أكبر سيولة بعد الاستبعاد.")
+            if dd <= 30:
+                weights = [50, 30, 20]
+            elif dd <= 50:
+                weights = [45, 30, 25]
+            else:
+                weights = [40, 35, 25]
+            weights = weights[:len(picks)]
+            alloc = _alloc_from_picks(picks, amount, weights)
+        for p, pct, amt in alloc:
+            mcap_b = p["mcap"] / 1e9
+            lines.append(
+                f"• {p['symbol']} ({p['name']}) {pct}% → {amt:g} {cur}"
+                f"  | #{p['rank']} | ~${mcap_b:.0f}B"
+            )
+        lines.append("• صغيرة/ميم/مستقرات: 0% (مستبعدة)")
+        lines.append("المعيار: أعلى قيمة سوق + حجم تداول ضمن أفضل ~40.")
     total = amount * 60
     lines += ["", "③ تنفيذ: يوم ثابت • شراء متكرر • بورصة مرخّصة • 2FA",
               "", "④ محاكاة 5س (افتراض)", f"دفع: {total:g} {cur}",
@@ -348,14 +446,8 @@ def _handle(text):
     if cmd == "/paper": return _paper_report()
     if cmd == "/savings":
         return _savings_plan({
-            "amount": 400,
-            "currency": "EUR",
-            "emergency_months": 12,
-            "debt": False,
-            "drawdown": 90,
-            "experience": "متوسط",
-            "country": "غير محدد",
-            "majors": False,
+            "amount": 400, "currency": "EUR", "emergency_months": 12, "debt": False,
+            "drawdown": 90, "experience": "متوسط", "country": "غير محدد", "majors": False,
         })
     if cmd == "/strict":
         save({"ALERT_REQUIRE_CONFIRM": True, "TREND_REQUIRE_MOMENTUM": True, "TREND_ANTI_REVERSAL": True, "ALERT_ONLY": True})
