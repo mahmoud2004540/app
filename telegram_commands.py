@@ -16,7 +16,8 @@ KEYBOARD = json.dumps({
 }, ensure_ascii=False)
 HELP = (
     "ابعت اسم العملة لتحليل عميق.\n"
-    "خطة ادخار = بحث سوق (CoinGecko) + توزيع جاهز.\n"
+    "خطة ادخار = SOL + FIL + TAO + ذهب ("
+    "جاهز فورًا).\n"
     "ورقي = الحساب الورقي. التداول الحقيقي مقفول."
 )
 
@@ -49,7 +50,7 @@ def _status():
     lines = ["📊 حالة البوت"]
     for k in ["TREND_MIN_SCORE", "TREND_RR", "RISK_PER_TRADE_PRO", "MAX_OPEN_POSITIONS"]:
         lines.append(f"{k} = {getattr(config, k, '—')}")
-    lines.append("خطة ادخار: بحث سوق حي")
+    lines.append("خطة ادخار: SOL+FIL+TAO+ذهب")
     lines.append("التداول الحقيقي: مقفول")
     return "\n".join(lines)
 
@@ -215,7 +216,7 @@ def _coin_report(query):
     return "\n".join(lines)
 
 def _savings_help():
-    return "💰 اضغط خطة ادخار — بحث سوق حي + توزيع."
+    return "💰 اضغط خطة ادخار — SOL + FIL + TAO + ذهب."
 
 def _parse_savings(text):
     t = (text or "").strip()
@@ -223,14 +224,14 @@ def _parse_savings(text):
         return None
     t = re.sub(r"^(?:ادخار|/save|/plan)\s*", "", t, flags=re.I)
     data = {"amount": None, "currency": "EUR", "emergency_months": None, "debt": None,
-            "drawdown": 50.0, "experience": "متوسط", "country": "غير_محدد", "majors": True}
+            "drawdown": 50.0, "experience": "متوسط", "country": "غير_محدد"}
     pairs = re.findall(
-        r"(مبلغ|amount|عملة|currency|طوارئ|emergency|ديون|debt|نزول|drawdown|خبرة|experience|بلد|country|كبار|majors|اساسيات)\s*[=:]\s*([^\s=]+)",
+        r"(مبلغ|amount|عملة|currency|طوارئ|emergency|ديون|debt|نزول|drawdown|خبرة|experience|بلد|country)\s*[=:]\s*([^\s=]+)",
         t, flags=re.I)
     key_map = {"مبلغ": "amount", "amount": "amount", "عملة": "currency", "currency": "currency",
                "طوارئ": "emergency_months", "emergency": "emergency_months", "ديون": "debt", "debt": "debt",
                "نزول": "drawdown", "drawdown": "drawdown", "خبرة": "experience", "experience": "experience",
-               "بلد": "country", "country": "country", "كبار": "majors", "majors": "majors", "اساسيات": "majors"}
+               "بلد": "country", "country": "country"}
     for k, v in pairs:
         kk = k.lower() if k.isascii() else k
         field = key_map.get(kk) or key_map.get(k)
@@ -249,8 +250,6 @@ def _parse_savings(text):
             except ValueError: pass
         elif field == "experience": data["experience"] = v
         elif field == "country": data["country"] = v.replace("_", " ")
-        elif field == "majors":
-            data["majors"] = v.strip().lower() not in ("لا", "no", "n", "false", "0", "بدون")
     if data["amount"] is None or data["emergency_months"] is None or data["debt"] is None:
         return {"_incomplete": True, "raw": data}
     return data
@@ -263,91 +262,22 @@ def _tax_note(country):
         if k in c: return v
     return "راجع مصلحة الضرائب في بلدك"
 
-def _cg_markets(pages=2, per_page=100):
-    rows = []
-    for page in range(1, pages + 1):
-        url = (
-            "https://api.coingecko.com/api/v3/coins/markets"
-            f"?vs_currency=usd&order=market_cap_desc&per_page={per_page}&page={page}"
-            "&sparkline=false&price_change_percentage=30d,1y"
-        )
-        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            chunk = json.loads(resp.read().decode("utf-8"))
-        if not chunk:
-            break
-        rows.extend(chunk)
-    return rows
-
-_STABLE = {
-    "USDT", "USDC", "USDE", "DAI", "FDUSD", "TUSD", "USDD", "BUSD", "PYUSD", "EURC",
-    "USDP", "GUSD", "FRAX", "LUSD", "CRVUSD", "USDY", "USD1", "RLUSD", "USTC",
-}
-_WRAPPED = {
-    "STETH", "WETH", "WBTC", "WSTETH", "CBETH", "WEETH", "RETH", "WBETH", "BTCB",
-    "CBBTC", "TBTC",
-}
-
-def _research_savings_picks(include_majors=False, top_n=3):
-    try:
-        markets = _cg_markets(pages=2, per_page=100)
-    except Exception as e:
-        return None, f"فشل بحث السوق: {e}"
-    scored = []
-    for c in markets:
-        sym = str(c.get("symbol") or "").upper()
-        cid = str(c.get("id") or "").lower()
-        name = c.get("name") or sym
-        if sym in _STABLE or sym in _WRAPPED:
-            continue
-        if not include_majors and (sym in ("BTC", "ETH") or cid in ("bitcoin", "ethereum")):
-            continue
-        rank = c.get("market_cap_rank") or 9999
-        try:
-            rank = int(rank)
-        except (TypeError, ValueError):
-            rank = 9999
-        mcap = float(c.get("market_cap") or 0)
-        vol = float(c.get("total_volume") or 0)
-        if mcap < 1e9 or vol < 5e7 or rank > 40:
-            continue
-        low = (name + " " + sym).lower()
-        if any(x in low for x in ("doge", "shib", "pepe", "bonk", "meme", "floki", "wif")):
-            continue
-        score = mcap + vol * 2
-        scored.append({
-            "symbol": sym, "name": name, "rank": rank, "mcap": mcap, "vol": vol,
-            "price": float(c.get("current_price") or 0), "score": score,
-        })
-    scored.sort(key=lambda x: (-x["score"], x["rank"]))
-    picks = scored[:top_n]
-    meta = f"تم فحص {len(markets)} عملة (CoinGecko) | مرّت الفلتر: {len(scored)}"
-    return picks, meta
-
-def _alloc_from_picks(picks, amount, weights=None):
-    if not picks:
-        return []
-    if weights and len(weights) == len(picks):
-        w = list(weights)
-    else:
-        total_s = sum(p["score"] for p in picks) or 1.0
-        w = [p["score"] / total_s * 100 for p in picks]
-    s = sum(w) or 1.0
-    w = [x / s * 100 for x in w]
-    ints = [int(round(x)) for x in w]
-    if ints:
-        ints[0] += 100 - sum(ints)
-    return [(p, pct, amount * pct / 100.0) for p, pct in zip(picks, ints)]
+_USER_BASKET = [
+    ("SOL", "Solana", 35, "شبكة كبيرة · أعلى سيولة في السلة"),
+    ("TAO", "Bittensor", 20, "سردية AI · تقلب أعلى"),
+    ("FIL", "Filecoin", 15, "تخزين · أبعد عن ATH · أعلى مخاطرة في السلة"),
+    ("GOLD", "ذهب", 30, "تنويع خارج الكريبتو · PAXG/XAUT أو ذهب فعلي"),
+]
 
 def _savings_plan(data):
     if data.get("_incomplete"):
         return "ناقص بيانات.\n" + _savings_help()
     amount = float(data["amount"]); cur = data["currency"]; em = float(data["emergency_months"])
     debt = bool(data["debt"]); dd = float(data["drawdown"]); exp = str(data["experience"])
-    country = str(data["country"]); majors = bool(data.get("majors", True))
+    country = str(data["country"])
     lines = [
-        "💰 خطة ادخار كريبتو",
-        f"{amount:g} {cur}/شهر | طوارئ {em:g} | ديون {'نعم' if debt else 'لا'} | كبار {'نعم' if majors else 'لا'}",
+        "💰 خطة ادخار (سلتك)",
+        f"{amount:g} {cur}/شهر | طوارئ {em:g} | ديون {'نعم' if debt else 'لا'}",
         f"نزول {dd:g}% | {exp} | {country}", "", "① الفحص",
     ]
     if debt:
@@ -355,64 +285,26 @@ def _savings_plan(data):
     if em < 3:
         return "\n".join(lines + [f"⛔ طوارئ {em:g} < 3 شهور.", "⚠️ مش نصيحة مالية."])
     lines.append(f"✅ طوارئ {em:g} شهر — تقدر تبدأ بحذر.")
-    lines += ["", "② بحث السوق + التوزيع (إطار تعليمي — مش توصية شراء)"]
-    picks, meta = _research_savings_picks(include_majors=majors, top_n=3)
-    lines.append(f"📡 {meta}")
-    if not picks:
-        lines.append("⚠️ البحث فشل — قائمة احتياطية.")
-        if majors:
-            lines.append(f"• BTC 60% → {amount*0.6:g} {cur}")
-            lines.append(f"• ETH 40% → {amount*0.4:g} {cur}")
-        else:
-            lines.append(f"• SOL 40% → {amount*0.4:g} {cur}")
-            lines.append(f"• XRP 30% → {amount*0.3:g} {cur}")
-            lines.append(f"• BNB 30% → {amount*0.3:g} {cur}")
-        lines.append("• صغيرة/ميم: 0%")
-    else:
-        if majors:
-            by_sym = {p["symbol"]: p for p in picks}
-            ordered = []
-            for s in ("BTC", "ETH"):
-                if s in by_sym:
-                    ordered.append(by_sym[s])
-            for p in picks:
-                if p["symbol"] not in ("BTC", "ETH") and len(ordered) < 3:
-                    ordered.append(p)
-            if dd <= 30:
-                weights = [70, 30][:len(ordered)]
-            elif dd <= 50:
-                weights = [60, 30, 10][:len(ordered)]
-            else:
-                weights = [55, 30, 15][:len(ordered)]
-            if len(weights) < len(ordered):
-                weights = None
-            alloc = _alloc_from_picks(ordered, amount, weights)
-        else:
-            lines.append("⚠️ بدون BTC/ETH = مخاطرة أعلى. الاختيار من أكبر سيولة بعد الاستبعاد.")
-            if dd <= 30:
-                weights = [50, 30, 20]
-            elif dd <= 50:
-                weights = [45, 30, 25]
-            else:
-                weights = [40, 35, 25]
-            weights = weights[:len(picks)]
-            alloc = _alloc_from_picks(picks, amount, weights)
-        for p, pct, amt in alloc:
-            mcap_b = p["mcap"] / 1e9
-            lines.append(
-                f"• {p['symbol']} ({p['name']}) {pct}% → {amt:g} {cur}"
-                f"  | #{p['rank']} | ~${mcap_b:.0f}B"
-            )
-        lines.append("• صغيرة/ميم/مستقرات: 0% (مستبعدة)")
-        lines.append("المعيار: أعلى قيمة سوق + حجم تداول ضمن أفضل ~40.")
+    lines += ["", "② التوزيع الشهري (إطار تعليمي — مش توصية شراء)", "السلّة: SOL + FIL + TAO + ذهب"]
+    for sym, name, pct, note in _USER_BASKET:
+        amt = amount * pct / 100.0
+        lines.append(f"• {sym} ({name}) {pct}% → {amt:g} {cur}")
+        lines.append(f"  {note}")
+    lines.append("• ميم / عشوائي: 0%")
     total = amount * 60
-    lines += ["", "③ تنفيذ: يوم ثابت • شراء متكرر • بورصة مرخّصة • 2FA",
-              "", "④ محاكاة 5س (افتراض)", f"دفع: {total:g} {cur}",
-              f"هبوط ~{total*0.4:g}–{total*0.7:g} | ثبات ~{total*0.85:g}–{total*1.15:g} | صعود ممكن {total*1.4:g}+",
-              "", "⑤ قواعد: مراجعة 1–2/سنة • وقف عند فقدان الدخل",
-              f"ضرايب: {_tax_note(country)}",
-              "", "⑥ نصب: أرباح مضمونة • ضغط شراء • طلب كلمات سرية",
-              "", "⚠️ مش نصيحة مالية. مش هنفترض صعود الأسعار."]
+    lines += [
+        "", "ملاحظات:",
+        "• الذهب يقلل الارتباط بالكريبتو — PAXG/XAUT أو ذهب فعلي.",
+        "• FIL أضعف حلقة (بعيدة عن ATH) — نسبتها الأقل.",
+        "• SOL أكبر حصة كريبتو للسيولة.",
+        "", "③ تنفيذ: يوم ثابت • شراء متكرر • 2FA",
+        "", "④ محاكاة 5س (افتراض)", f"دفع: {total:g} {cur}",
+        f"هبوط ~{total*0.45:g}–{total*0.75:g} | ثبات ~{total*0.9:g}–{total*1.2:g} | صعود ممكن {total*1.5:g}+",
+        "", "⑤ قواعد: مراجعة 1–2/سنة • وقف عند فقدان الدخل",
+        f"ضرايب: {_tax_note(country)}",
+        "", "⑥ نصب: أرباح مضمونة • ضغط شراء • طلب كلمات سرية",
+        "", "⚠️ مش نصيحة مالية. مش هنفترض صعود الأسعار.",
+    ]
     return "\n".join(lines)
 
 def _norm(text):
@@ -447,7 +339,7 @@ def _handle(text):
     if cmd == "/savings":
         return _savings_plan({
             "amount": 400, "currency": "EUR", "emergency_months": 12, "debt": False,
-            "drawdown": 90, "experience": "متوسط", "country": "غير محدد", "majors": False,
+            "drawdown": 90, "experience": "متوسط", "country": "غير محدد",
         })
     if cmd == "/strict":
         save({"ALERT_REQUIRE_CONFIRM": True, "TREND_REQUIRE_MOMENTUM": True, "TREND_ANTI_REVERSAL": True, "ALERT_ONLY": True})
