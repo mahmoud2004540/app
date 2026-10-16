@@ -16,8 +16,7 @@ KEYBOARD = json.dumps({
 }, ensure_ascii=False)
 HELP = (
     "ابعت اسم العملة (BTC / NMR) لتحليل عميق.\n"
-    "خطة ادخار = ادخار شهري 5 سنين+.\n"
-    "كبار=لا للخطة بدون BTC/ETH.\n"
+    "خطة ادخار = توزيع جاهز فورًا (400€ بدون BTC/ETH).\n"
     "ورقي = الحساب الورقي. التداول الحقيقي مقفول."
 )
 
@@ -50,7 +49,7 @@ def _status():
     lines = ["📊 حالة البوت"]
     for k in ["TREND_MIN_SCORE", "TREND_RR", "RISK_PER_TRADE_PRO", "MAX_OPEN_POSITIONS"]:
         lines.append(f"{k} = {getattr(config, k, '—')}")
-    lines.append("ورقي: شغال | خطة ادخار: شغالة")
+    lines.append("ورقي: شغال | خطة ادخار: جاهزة فورية")
     lines.append("التداول الحقيقي: مقفول")
     return "\n".join(lines)
 
@@ -205,15 +204,9 @@ def _coin_report(query):
         return f"فشل: {e}"
     md = full.get("market_data") or {}
     dd = full.get("developer_data") or {}
-    links = full.get("links") or {}
     def usd(key):
         v = md.get(key) or {}
         return float(v.get("usd") or 0) if isinstance(v, dict) else float(v or 0)
-    def pct(key):
-        try:
-            return float(md.get(key)) if md.get(key) is not None else None
-        except (TypeError, ValueError):
-            return None
     name, sym = full.get("name") or cid, str(full.get("symbol") or "").upper()
     price, ath = usd("current_price"), usd("ath")
     rank = full.get("market_cap_rank") or 9999
@@ -229,12 +222,9 @@ def _coin_report(query):
 
 def _savings_help():
     return (
-        "💰 خطة ادخار (5 سنين+)\n\n"
-        "ابعت:\n"
-        "ادخار مبلغ=400 عملة=EUR طوارئ=12 ديون=لا نزول=90 خبرة=متوسط بلد=غير_محدد كبار=لا\n\n"
-        "كبار=نعم → BTC+ETH\n"
-        "كبار=لا → بدون BTC/ETH (مخاطرة أعلى: SOL+XRP+BNB)\n\n"
-        "⚠️ مش توصية شراء/بيع."
+        "💰 اضغط خطة ادخار للتوزيع الجاهز.\n"
+        "أو عدّل بالبيانات:\n"
+        "ادخار مبلغ=400 عملة=EUR طوارئ=12 ديون=لا نزول=90 كبار=لا"
     )
 
 def _parse_savings(text):
@@ -254,13 +244,11 @@ def _parse_savings(text):
     for k, v in pairs:
         kk = k.lower() if k.isascii() else k
         field = key_map.get(kk) or key_map.get(k)
-        if not field:
-            continue
+        if not field: continue
         if field == "amount":
             try: data["amount"] = float(v.replace(",", "."))
             except ValueError: pass
-        elif field == "currency":
-            data["currency"] = v.upper()[:8]
+        elif field == "currency": data["currency"] = v.upper()[:8]
         elif field == "emergency_months":
             try: data["emergency_months"] = float(v.replace(",", "."))
             except ValueError: pass
@@ -269,30 +257,20 @@ def _parse_savings(text):
         elif field == "drawdown":
             try: data["drawdown"] = float(v.replace("%", "").replace(",", "."))
             except ValueError: pass
-        elif field == "experience":
-            data["experience"] = v
-        elif field == "country":
-            data["country"] = v.replace("_", " ")
+        elif field == "experience": data["experience"] = v
+        elif field == "country": data["country"] = v.replace("_", " ")
         elif field == "majors":
-            vv = v.strip().lower()
-            data["majors"] = vv not in ("لا", "no", "n", "false", "0", "بدون")
+            data["majors"] = v.strip().lower() not in ("لا", "no", "n", "false", "0", "بدون")
     if data["amount"] is None or data["emergency_months"] is None or data["debt"] is None:
         return {"_incomplete": True, "raw": data}
     return data
 
 def _tax_note(country):
     c = (country or "").lower().replace(" ", "")
-    notes = {
-        "المانيا": "ألمانيا: إعفاء بعد سنة غالبًا — Finanzamt",
-        "germany": "ألمانيا: إعفاء بعد سنة — Finanzamt",
-        "فرنسا": "فرنسا: PFU — راجع الضرائب",
-        "france": "فرنسا: PFU",
-        "مصر": "مصر: راجع مصلحة الضرائب",
-        "egypt": "مصر: راجع مصلحة الضرائب",
-    }
+    notes = {"المانيا": "ألمانيا: إعفاء بعد سنة — Finanzamt", "germany": "ألمانيا: Finanzamt",
+             "فرنسا": "فرنسا: PFU", "france": "فرنسا: PFU", "مصر": "مصر: مصلحة الضرائب", "egypt": "مصر: مصلحة الضرائب"}
     for k, v in notes.items():
-        if k in c:
-            return v
+        if k in c: return v
     return "راجع مصلحة الضرائب في بلدك"
 
 def _savings_plan(data):
@@ -309,7 +287,7 @@ def _savings_plan(data):
     if debt:
         return "\n".join(lines + ["⛔ أصلح الديون الغالية أولًا.", "⚠️ مش نصيحة مالية."])
     if em < 3:
-        return "\n".join(lines + [f"⛔ طوارئ {em:g} < 3 شهور — ابنِ الطوارئ أولًا.", "⚠️ مش نصيحة مالية."])
+        return "\n".join(lines + [f"⛔ طوارئ {em:g} < 3 شهور.", "⚠️ مش نصيحة مالية."])
     lines.append(f"✅ طوارئ {em:g} شهر — تقدر تبدأ بحذر.")
     lines += ["", "② التوزيع (إطار تعليمي — مش توصية شراء)"]
     if majors:
@@ -321,13 +299,13 @@ def _savings_plan(data):
         if sol: lines.append(f"• SOL {sol}% → {amount*sol/100:g} {cur}")
         lines.append("• صغيرة/ميم: 0%")
     else:
-        lines.append("⚠️ بدون BTC/ETH = مخاطرة أعلى وسيولة/تاريخ أضعف.")
+        lines.append("⚠️ بدون BTC/ETH = مخاطرة أعلى.")
         if dd <= 30: sol, xrp, bnb = 50, 30, 20
         elif dd <= 50: sol, xrp, bnb = 45, 30, 25
         else: sol, xrp, bnb = 40, 30, 25
         lines.append(f"• SOL {sol}% → {amount*sol/100:g} {cur}")
         lines.append(f"• XRP {xrp}% → {amount*xrp/100:g} {cur}")
-        lines.append(f"• BNB {bnb}% → {amount*bnb/100:g} {cur} (تركز بورصة)")
+        lines.append(f"• BNB {bnb}% → {amount*bnb/100:g} {cur}")
         lines.append("• صغيرة/ميم: 0%")
     total = amount * 60
     lines += ["", "③ تنفيذ: يوم ثابت • شراء متكرر • بورصة مرخّصة • 2FA",
@@ -368,7 +346,17 @@ def _handle(text):
     if cmd == "/pump": return _pump_scan()
     if cmd == "/moon": return _moon_scan()
     if cmd == "/paper": return _paper_report()
-    if cmd == "/savings": return _savings_help()
+    if cmd == "/savings":
+        return _savings_plan({
+            "amount": 400,
+            "currency": "EUR",
+            "emergency_months": 12,
+            "debt": False,
+            "drawdown": 90,
+            "experience": "متوسط",
+            "country": "غير محدد",
+            "majors": False,
+        })
     if cmd == "/strict":
         save({"ALERT_REQUIRE_CONFIRM": True, "TREND_REQUIRE_MOMENTUM": True, "TREND_ANTI_REVERSAL": True, "ALERT_ONLY": True})
         apply_overrides(config); return "✅ متشدد.\n" + _status()
