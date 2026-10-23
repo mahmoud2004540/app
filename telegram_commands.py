@@ -9,6 +9,7 @@ KEYBOARD = json.dumps({
         ["فحص الآن", "بداية اندفاع"],
         ["مرشح بعيد", "صفقات سريعة"],
         ["ورقي", "خطة ادخار"],
+        ["صفقة متحفظة", "نسبة النجاح"],
         ["الحالة", "تشديد", "عادي"],
     ],
     "resize_keyboard": True,
@@ -19,7 +20,8 @@ HELP = (
     "خطة ادخار = SOL + FIL + TAO + ذهب ("
     "جاهز فورًا).\n"
     "ورقي = الحساب الورقي. التداول الحقيقي مقفول.\n"
-    "/winrate = نسبة نجاح المحلّل المتحفّظ الحقيقية من السجل."
+    "صفقة متحفظة = فحص فوري بالشروط الثمانية (15M) على كل العملات.\n"
+    "نسبة النجاح = نسبة نجاح المحلّل المتحفّظ الحقيقية من السجل."
 )
 
 def _api(token, method, params=None):
@@ -317,6 +319,8 @@ def _norm(text):
         "بداية اندفاع": "/pump", "بمب": "/pump", "pump": "/pump",
         "مرشح بعيد": "/moon", "100x": "/moon", "moon": "/moon",
         "ورقي": "/paper", "paper": "/paper",
+        "صفقة متحفظة": "/safe", "متحفظ": "/safe", "safe": "/safe",
+        "نسبة النجاح": "/winrate", "winrate": "/winrate",
         "خطة ادخار": "/savings", "ادخار": "/savings", "savings": "/savings", "خطة": "/savings",
         "start": "/start", "help": "/help",
     }
@@ -338,6 +342,7 @@ def _handle(text):
     if cmd == "/moon": return _moon_scan()
     if cmd == "/paper": return _paper_report()
     if cmd == "/winrate": return _strict_report()
+    if cmd == "/safe": return _strict_scan()
     if cmd == "/savings":
         return _savings_plan({
             "amount": 400, "currency": "EUR", "emergency_months": 12, "debt": False,
@@ -354,6 +359,21 @@ def _handle(text):
         return _coin_report(cleaned)
     if cmd.startswith("/"): return "أمر مش معروف.\n" + HELP
     return None
+
+def _strict_scan():
+    """فحص فوري بالمحلّل المتحفّظ (عرض فقط — المراقب هو اللي بيسجّل ويتابع النتيجة)."""
+    from datetime import datetime, timezone
+    import strict_bot
+    from deals_bot import strict, strict_journal as sj
+    market = config.STRICT_MARKET
+    picks, log = strict_bot.scan(market, strict_bot._symbols(market), datetime.now(timezone.utc),
+                                 sj.current_min_score(int(config.STRICT_MIN_SCORE)))
+    if not picks:
+        return strict.NO_TRADE + "\n\n" + (log[0] if log else "")
+    equity = float(getattr(config, "ACCOUNT_BALANCE", 1000.0))
+    body = "\n\n".join(strict.format_setup(p, equity, float(config.STRICT_RISK_PER_TRADE))
+                       for p in picks)
+    return body + "\n\n(المراقب بيسجّل الصفقة ويتابع نتيجتها تلقائيًا.)"
 
 def _strict_report():
     from deals_bot import strict_journal as sj
