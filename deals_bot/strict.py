@@ -8,7 +8,7 @@ Strict, rule-based analyst. Eight mandatory conditions must ALL hold on the last
   2. المنطقة: الدخول من دعم/مقاومة مختبرة مرتين على الأقل، أو Order Block واضح.
   3. التأكيد: شمعة Engulfing أو Pin Bar مقفولة على الفريم الأساسي.
   4. الزخم: RSI مش متشبّع ضد الصفقة + MACD متوافق (الهيستوجرام في اتجاه الصفقة).
-  5. الفوليوم: حجم شمعة التأكيد أعلى من متوسّط آخر 20 شمعة.
+  5. الفوليوم: حجم شمعة التأكيد ≥ 2× متوسّط آخر 20 شمعة (volume_mult).
   6. العائد/المخاطرة: ≥ 1:2 حتى أقرب عائق (قمة/قاع معاكس) — وإلا نرفض.
   7. الأخبار: لا صفقات قبل/بعد خبر قوي (فائدة/تضخم/وظائف) بساعة.
   8. السيولة: لا صفقات في سوق جانبي (ADX ضعيف) أو وقت سيولة ضعيفة.
@@ -67,6 +67,7 @@ class StrictConfig:
     min_rr: float = 2.0
     max_rr: float = 3.0           # سقف واقعي للهدف (لو العائق بعيد جدًا)
     adx_min: float = 20.0         # تحته = سوق جانبي عشوائي
+    volume_mult: float = 2.0      # فوليوم شمعة التأكيد ≥ هذا × متوسط 20 شمعة
     min_dollar_vol: float = 0.0   # متوسط حجم دولاري لكل شمعة (0 = معطّل)
     block_weekend_crypto: bool = True
     news_window_min: int = 60
@@ -354,8 +355,8 @@ def analyze(primary: Series, trend: Dict[str, Series], timeframe: str, now_ts: f
 
     # 5) الفوليوم
     avg_v = sum(vols[-21:-1]) / 20
-    if avg_v <= 0 or vols[-1] <= avg_v:
-        return None, ["5) فوليوم شمعة التأكيد ليس أعلى من متوسط 20 شمعة"]
+    if avg_v <= 0 or vols[-1] < cfg.volume_mult * avg_v:
+        return None, [f"5) فوليوم شمعة التأكيد أقل من {cfg.volume_mult:g}× متوسط 20 شمعة"]
     vr = vols[-1] / avg_v
     points += 5 + (5 if vr >= 1.5 else 0)
     why.append(f"فوليوم {vr:.1f}× المتوسط")
@@ -429,7 +430,7 @@ def prefilter(primary: Series, timeframe: str, now_ts: float, cfg: StrictConfig 
         return []
     vols = p.volumes()
     avg_v = sum(vols[-21:-1]) / 20
-    if avg_v <= 0 or vols[-1] <= avg_v:
+    if avg_v <= 0 or vols[-1] < cfg.volume_mult * avg_v:
         return []
     if cfg.min_dollar_vol > 0:
         dvol = sum(x.close * x.volume for x in c[-20:]) / 20
