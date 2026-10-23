@@ -416,12 +416,36 @@ def analyze(primary: Series, trend: Dict[str, Series], timeframe: str, now_ts: f
     ), why
 
 
+def prefilter(primary: Series, timeframe: str, now_ts: float, cfg: StrictConfig = StrictConfig(),
+              allow_short: bool = True) -> List[str]:
+    """
+    فحص رخيص على الفريم الأساسي وحده قبل جلب فريمات الاتجاه (لفحص مئات العملات):
+    الاتجاهات اللي فيها شمعة انعكاس مقفولة + فوليوم أعلى من المتوسط + سيولة كافية.
+    أي اتجاه مش في القائمة مرفوض أصلًا بالشرطين 3 و5 (أو 8) — فمفيش داعي نكمّل.
+    """
+    p = closed_candles(primary, timeframe, now_ts)
+    c = p.candles
+    if len(c) < 60:
+        return []
+    vols = p.volumes()
+    avg_v = sum(vols[-21:-1]) / 20
+    if avg_v <= 0 or vols[-1] <= avg_v:
+        return []
+    if cfg.min_dollar_vol > 0:
+        dvol = sum(x.close * x.volume for x in c[-20:]) / 20
+        if dvol < cfg.min_dollar_vol:
+            return []
+    dirs = ("BUY", "SELL") if allow_short else ("BUY",)
+    return [d for d in dirs if candle_pattern(c, d)[0]]
+
+
 def best_setup(primary: Series, trend: Dict[str, Series], timeframe: str, now_ts: float,
                news: Optional[List[dict]], cfg: StrictConfig = StrictConfig(),
-               allow_short: bool = True) -> Tuple[Optional[StrictSetup], List[str]]:
+               allow_short: bool = True,
+               directions: Optional[List[str]] = None) -> Tuple[Optional[StrictSetup], List[str]]:
     """جرّب الشراء ثم البيع (لو مسموح) — يرجّع الإعداد الأعلى درجة وأسباب الرفض."""
     found, notes = [], []
-    for d in (("BUY", "SELL") if allow_short else ("BUY",)):
+    for d in directions or (("BUY", "SELL") if allow_short else ("BUY",)):
         s, why = analyze(primary, trend, timeframe, now_ts, news, cfg, d)
         if s:
             found.append(s)

@@ -283,7 +283,7 @@ PAPER_TRADING = True
 # الأخبار/السيولة) على آخر شمعة مقفولة، ثم درجة ثقة من 100. «لا صفقة» أفضل من
 # صفقة ضعيفة. متغيّرات البيئة STRICT_MARKET و STRICT_SYMBOLS تتجاوز القيم هنا.
 STRICT_MARKET = "crypto"                 # crypto | forex | stocks
-STRICT_SYMBOLS = ["BTC-USD", "ETH-USD"]  # كريبتو: BTC-USD = BTCUSDT
+STRICT_SYMBOLS = "all"                   # "all" = كل العملات (Coinbase + OKX)، أو قائمة مثل ["BTC-USD", "ETH-USD"]
 STRICT_PRIMARY_TF = "1h"
 STRICT_TREND_TFS = ["4h", "1d"]
 STRICT_MIN_SCORE = 80                    # لا نرسل تحتها
@@ -298,3 +298,4 @@ STRICT_ADX_MIN = 20.0                    # أقل = سوق جانبي عشوائ
 STRICT_MIN_DOLLAR_VOL = 1_000_000        # متوسط حجم دولاري لكل شمعة (كريبتو/أسهم)
 STRICT_BLOCK_WEEKEND_CRYPTO = True       # سيولة الكريبتو أضعف في العطلة
 STRICT_NO_TRADE_NOTICE = "bar"           # "bar" = رسالة «لا توجد فرصة» مع كل شمعة مقفولة | "daily" = مرة يوميًا | "off"
+STRICT_MAX_PER_SCAN = 5                  # أقصى عدد صفقات تُرسَل في فحص واحد (الأعلى درجة)

@@ -20,6 +20,7 @@ import argparse
 import json
 import os
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
 try:
@@ -32,19 +33,33 @@ except ImportError:
 import config
 from deals_bot import strict, strict_journal
 from deals_bot.providers import fetch, fetch_okx
+from deals_bot.strategy import resolve_symbols
 
 
-def _symbols():
-    env = os.environ.get("STRICT_SYMBOLS")
-    if env:
-        return [s.strip() for s in env.split(",") if s.strip()]
-    return list(config.STRICT_SYMBOLS)
+# عملات مستقرة (مفيش حركة نتداولها) + نسخ مغلّفة من BTC/ETH (تكرار لنفس الإشارة)
+STABLES = {"USDT", "USDC", "DAI", "USD1", "FDUSD", "PYUSD", "TUSD", "USDE", "USDS",
+           "USDG", "RLUSD", "EURC", "EURT", "GUSD", "PAX", "USDP", "BUSD", "LUSD", "FRAX",
+           "USTC", "XSGD", "AUDD", "WBTC", "CBBTC", "CBETH", "WETH", "STETH"}
+
+
+def _symbols(market: str):
+    """«all» = كل الكون (كريبتو: اتحاد Coinbase + OKX)، وإلا القائمة المحدّدة."""
+    raw = os.environ.get("STRICT_SYMBOLS") or config.STRICT_SYMBOLS
+    if isinstance(raw, str):
+        if raw.strip().lower() == "all":
+            return [s for s in resolve_symbols(market, "auto")
+                    if s.split("-")[0].upper() not in STABLES]
+        return [s.strip() for s in raw.split(",") if s.strip()]
+    return list(raw)
 
 
 def fetch_frame(symbol: str, market: str, timeframe: str, limit: int = 300):
-    """كريبتو من OKX (فريمات أصلية 1H/4H/1D)؛ غيره من Yahoo."""
+    """كريبتو من OKX (فريمات أصلية 1H/4H/1D) ثم Coinbase/Yahoo؛ غيره من Yahoo."""
     if market == "crypto":
-        return fetch_okx(symbol, timeframe=timeframe, limit=limit)
+        try:
+            return fetch_okx(symbol, timeframe=timeframe, limit=limit)
+        except Exception:  # noqa: BLE001 - عملة مش على OKX
+            return fetch(symbol, market, "auto", timeframe, limit=limit)
     return fetch(symbol, market, "yfinance", timeframe, limit=limit)
 
 
@@ -95,15 +110,33 @@ def scan(market: str, symbols, now: datetime, min_score: int):
     news = load_news(now.timestamp())
     picks, log = [], []
     now_ts = now.timestamp()
-    for sym in symbols:
+    cfg = _cfg(market)
+    short = config.STRICT_ALLOW_SHORT
+
+    # المرحلة 1 (رخيصة): الفريم الأساسي فقط — شمعة انعكاس مقفولة + فوليوم + سيولة.
+    def stage1(sym):
         try:
             primary = fetch_frame(sym, market, tf, 300)
+        except Exception:  # noqa: BLE001
+            return sym, None, None
+        return sym, primary, strict.prefilter(primary, tf, now_ts, cfg, short)
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        first = list(pool.map(stage1, symbols))
+    failed = sum(1 for _, p, _ in first if p is None)
+    survivors = [(s, p, d) for s, p, d in first if d]
+    log.append(f"المرحلة 1: {len(symbols)} عملة → {len(survivors)} فيها شمعة انعكاس + فوليوم"
+               + (f" (تعذّر جلب {failed})" if failed else ""))
+
+    # المرحلة 2: فريمات الاتجاه + الشروط الثمانية كاملة للناجين فقط.
+    for sym, primary, dirs in survivors:
+        try:
             trend = {t: fetch_frame(sym, market, t, 300) for t in config.STRICT_TREND_TFS}
         except Exception as exc:  # noqa: BLE001
-            log.append(f"{sym}: تعذّر الجلب ({exc})")
+            log.append(f"{sym}: تعذّر جلب فريمات الاتجاه ({exc})")
             continue
-        setup, why = strict.best_setup(primary, trend, tf, now_ts, news, _cfg(market),
-                                       allow_short=config.STRICT_ALLOW_SHORT)
+        setup, why = strict.best_setup(primary, trend, tf, now_ts, news, cfg,
+                                       allow_short=short, directions=dirs)
         if not setup:
             log.append(f"{sym}: ❌ " + " | ".join(why))
         elif setup.score < min_score:
@@ -113,7 +146,8 @@ def scan(market: str, symbols, now: datetime, min_score: int):
         else:
             log.append(f"{sym}: ✅ {setup.direction} درجة {setup.score}")
             picks.append(setup)
-    return picks, log
+    picks.sort(key=lambda x: x.score, reverse=True)
+    return picks[:int(getattr(config, "STRICT_MAX_PER_SCAN", 5))], log
 
 
 def main(argv=None) -> int:
@@ -145,8 +179,19 @@ def main(argv=None) -> int:
         if report:
             send(report)
 
+    # القرار يتغيّر فقط مع قفل شمعة جديدة — فحص واحد لكل شمعة (المراقب يشتغل كل 15 دقيقة)
+    step = strict.TF_SECONDS.get(config.STRICT_PRIMARY_TF, 3600)
+    bar = int(now.timestamp() // step)
+    if not args.dry_run:
+        state = strict_journal.load_state()
+        if state.get("last_scan_bar") == bar:
+            print("⏭ الشمعة الحالية اتفحصت قبل كده — مستني قفل الشمعة الجاية.")
+            return 0
+        state["last_scan_bar"] = bar
+        strict_journal.save_state(state)
+
     min_score = strict_journal.current_min_score(base)
-    picks, log = scan(market, _symbols(), now, min_score)
+    picks, log = scan(market, _symbols(market), now, min_score)
     print(f"🔎 فحص {market} {config.STRICT_PRIMARY_TF} (حد الثقة {min_score}):")
     print("\n".join("  " + x for x in log))
 
@@ -163,8 +208,8 @@ def main(argv=None) -> int:
     mode = getattr(config, "STRICT_NO_TRADE_NOTICE", "bar")
     if mode == "off":
         return 0
-    step = strict.TF_SECONDS.get(config.STRICT_PRIMARY_TF, 3600) if mode == "bar" else 86400
-    bar = int(now.timestamp() // step)
+    if mode != "bar":
+        bar = int(now.timestamp() // 86400)
     state = strict_journal.load_state()
     if args.dry_run:
         print(strict.NO_TRADE)
