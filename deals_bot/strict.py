@@ -31,7 +31,7 @@ from typing import Dict, List, Optional, Tuple
 from . import indicators as ind
 from .models import Candle, Series
 
-TF_SECONDS = {"15m": 900, "30m": 1800, "1h": 3600, "2h": 7200, "4h": 14400,
+TF_SECONDS = {"5m": 300, "15m": 900, "30m": 1800, "1h": 3600, "2h": 7200, "4h": 14400,
               "6h": 21600, "1d": 86400}
 
 NEWS_URL = "https://nfs.faireconomy.media/ff_calendar_thisweek.json"

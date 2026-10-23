@@ -284,8 +284,12 @@ PAPER_TRADING = True
 # صفقة ضعيفة. متغيّرات البيئة STRICT_MARKET و STRICT_SYMBOLS تتجاوز القيم هنا.
 STRICT_MARKET = "crypto"                 # crypto | forex | stocks
 STRICT_SYMBOLS = "all"                   # "all" = كل العملات (Coinbase + OKX)، أو قائمة مثل ["BTC-USD", "ETH-USD"]
-STRICT_PRIMARY_TF = "1h"
-STRICT_TREND_TFS = ["4h", "1d"]
+# صفقات سريعة (اختيار المستخدم): 15M والاتجاه من 1H و4H. مقاس على 120 عملة سائلة
+# (~شهرين، بعد رسوم 0.1% لكل جهة): 15 صفقة/≈1.7 أسبوعيًا، نجاح 40% (+4 تعادل)،
+# +0.32R لكل صفقة صافي، مدة الصفقة ~3 ساعات. 5M اتجرّب وطلع خسران (−0.56R صافي:
+# الرسوم بتاكل الوقف الصغير) — فمش بننزل تحت 15M. 1H: صفقات نادرة جدًا (~0/4 شهور).
+STRICT_PRIMARY_TF = "15m"
+STRICT_TREND_TFS = ["1h", "4h"]
 STRICT_MIN_SCORE = 80                    # لا نرسل تحتها
 STRICT_RAISED_SCORE = 85                 # تُفعَّل لو نسبة أسبوع < STRICT_WEEKLY_MIN_WINRATE
 STRICT_WEEKLY_MIN_WINRATE = 0.60
@@ -295,7 +299,7 @@ STRICT_RISK_PER_TRADE = 0.01             # 1% (مقصورة على 1%–2%)
 STRICT_ALLOW_SHORT = True                # صفقات بيع أيضًا (للفيوتشرز). False = شراء فقط (سبوت)
 STRICT_NEWS_WINDOW_MIN = 60              # لا صفقات قبل/بعد خبر قوي بساعة
 STRICT_ADX_MIN = 20.0                    # أقل = سوق جانبي عشوائي
-STRICT_MIN_DOLLAR_VOL = 1_000_000        # متوسط حجم دولاري لكل شمعة (كريبتو/أسهم)
+STRICT_MIN_DOLLAR_VOL = 1_000_000        # متوسط حجم دولاري لكل ساعة (يتقسّم على طول الشمعة)
 STRICT_BLOCK_WEEKEND_CRYPTO = True       # سيولة الكريبتو أضعف في العطلة
-STRICT_NO_TRADE_NOTICE = "bar"           # "bar" = رسالة «لا توجد فرصة» مع كل شمعة مقفولة | "daily" = مرة يوميًا | "off"
+STRICT_NO_TRADE_NOTICE = "daily"         # "daily" = رسالة «لا توجد فرصة» مرة يوميًا | "bar" = مع كل شمعة (96 رسالة/يوم على 15M) | "off"
 STRICT_MAX_PER_SCAN = 5                  # أقصى عدد صفقات تُرسَل في فحص واحد (الأعلى درجة)

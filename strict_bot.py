@@ -98,7 +98,8 @@ def _cfg(market: str) -> strict.StrictConfig:
         max_rr=config.STRICT_MAX_RR,
         adx_min=config.STRICT_ADX_MIN,
         # Yahoo لا يعطي فوليوم/سيولة دولارية موثوقة للفوركس
-        min_dollar_vol=0.0 if market == "forex" else config.STRICT_MIN_DOLLAR_VOL,
+        min_dollar_vol=0.0 if market == "forex" else (
+            config.STRICT_MIN_DOLLAR_VOL * strict.TF_SECONDS.get(config.STRICT_PRIMARY_TF, 3600) / 3600),
         block_weekend_crypto=config.STRICT_BLOCK_WEEKEND_CRYPTO,
         news_window_min=config.STRICT_NEWS_WINDOW_MIN,
     )
@@ -205,7 +206,7 @@ def main(argv=None) -> int:
         return 0
 
     # لا صفقة: نبلّغ مرة واحدة لكل شمعة مقفولة جديدة (أو مرة يوميًا / أبدًا)
-    mode = getattr(config, "STRICT_NO_TRADE_NOTICE", "bar")
+    mode = getattr(config, "STRICT_NO_TRADE_NOTICE", "daily")
     if mode == "off":
         return 0
     if mode != "bar":
