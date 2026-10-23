@@ -6,11 +6,9 @@ from deals_bot.settings_store import apply_overrides, save
 OFFSET_PATH = os.path.join("journal", "tg_offset.json")
 KEYBOARD = json.dumps({
     "keyboard": [
-        ["🎯 أفضل صفقة الآن"],
         ["فحص الآن", "بداية اندفاع"],
         ["مرشح بعيد", "صفقات سريعة"],
         ["ورقي", "خطة ادخار"],
-        ["صفقة متحفظة", "نسبة النجاح"],
         ["الحالة", "تشديد", "عادي"],
     ],
     "resize_keyboard": True,
@@ -20,10 +18,7 @@ HELP = (
     "ابعت اسم العملة لتحليل عميق.\n"
     "خطة ادخار = SOL + FIL + TAO + ذهب ("
     "جاهز فورًا).\n"
-    "ورقي = الحساب الورقي. التداول الحقيقي مقفول.\n"
-    "🎯 أفضل صفقة الآن = زر واحد يديك أفضل صفقة متاحة.\n"
-    "صفقة متحفظة = فحص فوري بالشروط الثمانية (15M) على كل العملات.\n"
-    "نسبة النجاح = نسبة نجاح المحلّل المتحفّظ الحقيقية من السجل."
+    "ورقي = الحساب الورقي. التداول الحقيقي مقفول."
 )
 
 def _api(token, method, params=None):
@@ -321,10 +316,6 @@ def _norm(text):
         "بداية اندفاع": "/pump", "بمب": "/pump", "pump": "/pump",
         "مرشح بعيد": "/moon", "100x": "/moon", "moon": "/moon",
         "ورقي": "/paper", "paper": "/paper",
-        "🎯 أفضل صفقة الآن": "/best", "أفضل صفقة الآن": "/best", "أفضل صفقة": "/best",
-        "صفقة": "/best", "best": "/best",
-        "صفقة متحفظة": "/safe", "متحفظ": "/safe", "safe": "/safe",
-        "نسبة النجاح": "/winrate", "winrate": "/winrate",
         "خطة ادخار": "/savings", "ادخار": "/savings", "savings": "/savings", "خطة": "/savings",
         "start": "/start", "help": "/help",
     }
@@ -345,9 +336,6 @@ def _handle(text):
     if cmd == "/pump": return _pump_scan()
     if cmd == "/moon": return _moon_scan()
     if cmd == "/paper": return _paper_report()
-    if cmd == "/winrate": return _strict_report()
-    if cmd == "/safe": return _strict_scan()
-    if cmd == "/best": return _best_now()
     if cmd == "/savings":
         return _savings_plan({
             "amount": 400, "currency": "EUR", "emergency_months": 12, "debt": False,
@@ -364,62 +352,6 @@ def _handle(text):
         return _coin_report(cleaned)
     if cmd.startswith("/"): return "أمر مش معروف.\n" + HELP
     return None
-
-def _strict_scan():
-    """فحص فوري بالمحلّل المتحفّظ (عرض فقط — المراقب هو اللي بيسجّل ويتابع النتيجة)."""
-    from datetime import datetime, timezone
-    import strict_bot
-    from deals_bot import strict, strict_journal as sj
-    market = config.STRICT_MARKET
-    picks, log = strict_bot.scan(market, strict_bot._symbols(market), datetime.now(timezone.utc),
-                                 sj.current_min_score(int(config.STRICT_MIN_SCORE)))
-    if not picks:
-        return strict.NO_TRADE + "\n\n" + (log[0] if log else "")
-    equity = float(getattr(config, "ACCOUNT_BALANCE", 1000.0))
-    body = "\n\n".join(strict.format_setup(p, equity, float(config.STRICT_RISK_PER_TRADE))
-                       for p in picks)
-    return body + "\n\n(المراقب بيسجّل الصفقة ويتابع نتيجتها تلقائيًا.)"
-
-def _best_now():
-    """
-    زر واحد يرجّع أفضل صفقة متاحة دلوقتي:
-      1) لو فيه صفقة مطابقة للشروط الثمانية (المحلّل المتحفّظ 15M) → هي، بعلامة ✅.
-      2) وإلا أفضل صفقة سريعة من الماسح القديم (زي الأول) → بعلامة ⚠️ احتمال أقل.
-    مفيش صفقة مضمونة — العلامة بتوضّح درجة الثقة بصراحة.
-    """
-    try:
-        strict_reply = _strict_scan()
-    except Exception as exc:  # noqa: BLE001
-        strict_reply = f"⚠️ {exc}"
-    from deals_bot import strict
-    if not strict_reply.startswith(strict.NO_TRADE) and not strict_reply.startswith("⚠️"):
-        return "✅ صفقة مطابقة لكل الشروط الثمانية (أعلى احتمال)\n\n" + strict_reply
-    apply_overrides(config)
-    try:
-        from deals_bot.strategy import scan_universe
-        from deals_bot.formatter import format_digest
-        config.CRYPTO_UNIVERSE = "all"
-        _, accums, earlies = scan_universe(["crypto"], timeframe="1h", top=8)
-        pool = list(earlies or []) + list(accums or [])
-    except Exception as exc:  # noqa: BLE001
-        return strict.NO_TRADE + f"\n⚠️ {exc}"
-    if not pool:
-        return strict.NO_TRADE + "\nولا الماسح السريع لقى صفقة — السوق مش مناسب دلوقتي."
-    pick = max(pool, key=lambda d: getattr(d, "confidence", 0))
-    return ("⚠️ مفيش صفقة مطابقة لكل الشروط الثمانية دلوقتي.\n"
-            "دي أفضل صفقة سريعة متاحة (زي الأول) — احتمالها أقل، فادخل بحجم صغير والتزم بالوقف:\n\n"
-            + format_digest([pick], title="أفضل صفقة الآن"))
-
-def _strict_report():
-    from deals_bot import strict_journal as sj
-    trades = sj.load()
-    s = sj.stats(trades)
-    opn = sum(t.status == "open" for t in trades)
-    head = f"📒 المحلّل المتحفّظ — حد الثقة الحالي {sj.current_min_score(int(config.STRICT_MIN_SCORE))}\n"
-    if not s["n"]:
-        return head + f"لسه مفيش صفقات مقفولة (مفتوحة: {opn})."
-    return head + (f"{s['n']} مقفولة: ✅ {s['wins']} | ❌ {s['losses']} | ➖ {s['breakeven']}\n"
-                   f"نسبة النجاح {s['win_rate']:.0%} | {s['total_r']:+.2f}R | مفتوحة: {opn}")
 
 def process_inbox():
     token = os.environ.get("TELEGRAM_TOKEN")

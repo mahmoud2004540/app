@@ -36,7 +36,6 @@ jobs:
             iter=$((iter+1))
             echo "دورة $iter"
             python send_digest.py || echo "fail"
-            python strict_bot.py || echo "strict fail"
             if [ -n "$(git status --porcelain journal/)" ]; then
               git add journal/
               git commit -m "chore(journal): watcher [skip ci]" || true
