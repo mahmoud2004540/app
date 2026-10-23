@@ -275,3 +275,26 @@ CONFIRM_VOLUME_MULT = 1.3         # توسّع الحجم المطلوب في ش
 # 🔒 التداول الحقيقي مُعطَّل افتراضيًا — لا أموال حقيقية إطلاقًا حتى تفعيل صريح.
 LIVE_TRADING_ENABLED = False
 PAPER_TRADING = True
+
+# ==========================================================================
+#  المحلّل المتحفّظ (strict_bot.py) — صفقات عالية الاحتمالية فقط
+# ==========================================================================
+# 8 شروط إلزامية كلها لازم تتحقق (الاتجاه/المنطقة/الشمعة/الزخم/الفوليوم/RR/
+# الأخبار/السيولة) على آخر شمعة مقفولة، ثم درجة ثقة من 100. «لا صفقة» أفضل من
+# صفقة ضعيفة. متغيّرات البيئة STRICT_MARKET و STRICT_SYMBOLS تتجاوز القيم هنا.
+STRICT_MARKET = "crypto"                 # crypto | forex | stocks
+STRICT_SYMBOLS = ["BTC-USD", "ETH-USD"]  # كريبتو: BTC-USD = BTCUSDT
+STRICT_PRIMARY_TF = "1h"
+STRICT_TREND_TFS = ["4h", "1d"]
+STRICT_MIN_SCORE = 80                    # لا نرسل تحتها
+STRICT_RAISED_SCORE = 85                 # تُفعَّل لو نسبة أسبوع < STRICT_WEEKLY_MIN_WINRATE
+STRICT_WEEKLY_MIN_WINRATE = 0.60
+STRICT_MIN_RR = 2.0                      # أقل من 1:2 حتى أقرب عائق = رفض
+STRICT_MAX_RR = 3.0                      # سقف واقعي لـ TP2
+STRICT_RISK_PER_TRADE = 0.01             # 1% (مقصورة على 1%–2%)
+STRICT_ALLOW_SHORT = True                # صفقات بيع أيضًا (للفيوتشرز). False = شراء فقط (سبوت)
+STRICT_NEWS_WINDOW_MIN = 60              # لا صفقات قبل/بعد خبر قوي بساعة
+STRICT_ADX_MIN = 20.0                    # أقل = سوق جانبي عشوائي
+STRICT_MIN_DOLLAR_VOL = 1_000_000        # متوسط حجم دولاري لكل شمعة (كريبتو/أسهم)
+STRICT_BLOCK_WEEKEND_CRYPTO = True       # سيولة الكريبتو أضعف في العطلة
+STRICT_NO_TRADE_NOTICE = "bar"           # "bar" = رسالة «لا توجد فرصة» مع كل شمعة مقفولة | "daily" = مرة يوميًا | "off"

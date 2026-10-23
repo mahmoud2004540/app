@@ -18,7 +18,8 @@ HELP = (
     "ابعت اسم العملة لتحليل عميق.\n"
     "خطة ادخار = SOL + FIL + TAO + ذهب ("
     "جاهز فورًا).\n"
-    "ورقي = الحساب الورقي. التداول الحقيقي مقفول."
+    "ورقي = الحساب الورقي. التداول الحقيقي مقفول.\n"
+    "/winrate = نسبة نجاح المحلّل المتحفّظ الحقيقية من السجل."
 )
 
 def _api(token, method, params=None):
@@ -336,6 +337,7 @@ def _handle(text):
     if cmd == "/pump": return _pump_scan()
     if cmd == "/moon": return _moon_scan()
     if cmd == "/paper": return _paper_report()
+    if cmd == "/winrate": return _strict_report()
     if cmd == "/savings":
         return _savings_plan({
             "amount": 400, "currency": "EUR", "emergency_months": 12, "debt": False,
@@ -352,6 +354,17 @@ def _handle(text):
         return _coin_report(cleaned)
     if cmd.startswith("/"): return "أمر مش معروف.\n" + HELP
     return None
+
+def _strict_report():
+    from deals_bot import strict_journal as sj
+    trades = sj.load()
+    s = sj.stats(trades)
+    opn = sum(t.status == "open" for t in trades)
+    head = f"📒 المحلّل المتحفّظ — حد الثقة الحالي {sj.current_min_score(int(config.STRICT_MIN_SCORE))}\n"
+    if not s["n"]:
+        return head + f"لسه مفيش صفقات مقفولة (مفتوحة: {opn})."
+    return head + (f"{s['n']} مقفولة: ✅ {s['wins']} | ❌ {s['losses']} | ➖ {s['breakeven']}\n"
+                   f"نسبة النجاح {s['win_rate']:.0%} | {s['total_r']:+.2f}R | مفتوحة: {opn}")
 
 def process_inbox():
     token = os.environ.get("TELEGRAM_TOKEN")
