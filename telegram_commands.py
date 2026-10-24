@@ -184,14 +184,21 @@ def _patterns_scan():
     import time
     from concurrent.futures import ThreadPoolExecutor
     from deals_bot import pro_patterns as pp
-    from deals_bot.providers import fetch_okx, list_okx_usd_products
+    from deals_bot.providers import fetch_gate, fetch_okx, list_gate_usd_products, list_okx_usd_products
     now = time.time()
     try:
         bull = {tf: pp.market_bullish([x for x in fetch_okx("BTC-USD", tf, 300).candles
                                        if x.ts + pp.TF_SECONDS[tf] <= now]) for tf in ("1d", "4h")}
-        syms = [s for s in list_okx_usd_products() if s.split("-")[0] not in _STABLES]
+        okx = {s for s in list_okx_usd_products() if s.split("-")[0] not in _STABLES}
     except Exception as exc:
         return f"⚠️ {exc}"
+    # كون أوسع: عملات Gate.io اللي حجمها اليومي ≥ 100 ألف دولار ومش على OKX
+    # (مقاسة: النماذج التلاتة لسه كسبانة عليها، بس أضعف من عملات OKX).
+    try:
+        gate = {s for s in list_gate_usd_products(100_000) if s.split("-")[0] not in _STABLES} - okx
+    except Exception:
+        gate = set()
+    syms = sorted(okx) + sorted(gate)
     tfs = [tf for tf in ("1d", "4h") if bull.get(tf)]
     head = ("📐 نماذج احترافية (وتد هابط + قاع مزدوج يومي، علم صاعد 4 ساعات)\n"
             f"السوق (BTC فوق EMA200): يومي {'🟢' if bull.get('1d') else '🔴'} | "
@@ -203,7 +210,8 @@ def _patterns_scan():
         found = []
         for tf in tfs:
             try:
-                for d in pp.recent_setups(fetch_okx(sym, tf, 300).candles, tf, now):
+                fetch_fn = fetch_okx if sym in okx else fetch_gate
+                for d in pp.recent_setups(fetch_fn(sym, tf, 300).candles, tf, now):
                     d["symbol"] = sym
                     found.append(d)
             except Exception:
@@ -212,7 +220,8 @@ def _patterns_scan():
     with ThreadPoolExecutor(max_workers=8) as pool:
         setups = [d for group in pool.map(scan, syms) for d in group]
     if not setups:
-        return head + f"NO TRADE — فحصت {len(syms)} عملة: مفيش نموذج اتكسر حديثًا ولسه مناسب للدخول."
+        return head + (f"NO TRADE — فحصت {len(syms)} عملة ({len(okx)} OKX + {len(gate)} Gate.io): "
+                       "مفيش نموذج اتكسر حديثًا ولسه مناسب للدخول.")
     setups.sort(key=lambda d: (-pp.MEASURED[d["pattern"]][2], d["bars_ago"]))
     body = "\n\n".join(pp.format_setup(d) for d in setups[:5])
     return (head + body + "\n\n⚠️ مفيش صفقة مضمونة — النجاح التاريخي ~55% والربح من إن المكسب "
