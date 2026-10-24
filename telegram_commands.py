@@ -9,6 +9,7 @@ KEYBOARD = json.dumps({
         ["فحص الآن", "بداية اندفاع"],
         ["مرشح بعيد", "صفقات سريعة"],
         ["ورقي", "خطة ادخار"],
+        ["📐 نماذج احترافية"],
         ["الحالة", "تشديد", "عادي"],
     ],
     "resize_keyboard": True,
@@ -18,7 +19,8 @@ HELP = (
     "ابعت اسم العملة لتحليل عميق.\n"
     "خطة ادخار = SOL + FIL + TAO + ذهب ("
     "جاهز فورًا).\n"
-    "ورقي = الحساب الورقي. التداول الحقيقي مقفول."
+    "ورقي = الحساب الورقي. التداول الحقيقي مقفول.\n"
+    "📐 نماذج احترافية = وتد هابط / قاع مزدوج / علم صاعد (مُختبرة، في السوق الصاعد بس)."
 )
 
 def _api(token, method, params=None):
@@ -174,6 +176,49 @@ def _pump_scan():
 def _moon_scan():
     return _pump_scan()
 
+# عملات مستقرة ونسخ مغلّفة — مفيش نماذج نتداولها عليها
+_STABLES = {"USDT", "USDC", "DAI", "USD1", "FDUSD", "PYUSD", "TUSD", "USDE", "USDS", "USDG",
+            "RLUSD", "EURC", "WBTC", "WETH", "STETH"}
+
+def _patterns_scan():
+    """النماذج الاحترافية المُختبرة: وتد هابط + قاع مزدوج (يومي)، علم صاعد (4 ساعات)."""
+    import time
+    from concurrent.futures import ThreadPoolExecutor
+    from deals_bot import pro_patterns as pp
+    from deals_bot.providers import fetch_okx, list_okx_usd_products
+    now = time.time()
+    try:
+        bull = {tf: pp.market_bullish([x for x in fetch_okx("BTC-USD", tf, 300).candles
+                                       if x.ts + pp.TF_SECONDS[tf] <= now]) for tf in ("1d", "4h")}
+        syms = [s for s in list_okx_usd_products() if s.split("-")[0] not in _STABLES]
+    except Exception as exc:
+        return f"⚠️ {exc}"
+    tfs = [tf for tf in ("1d", "4h") if bull.get(tf)]
+    head = ("📐 نماذج احترافية (وتد هابط + قاع مزدوج يومي، علم صاعد 4 ساعات)\n"
+            f"السوق (BTC فوق EMA200): يومي {'🟢' if bull.get('1d') else '🔴'} | "
+            f"4 ساعات {'🟢' if bull.get('4h') else '🔴'}\n\n")
+    if not tfs:
+        return head + ("NO TRADE — السوق مش صاعد على الفريمين. النماذج دي بتكسب في السوق "
+                       "الصاعد بس (مقاس) — بنستنى.")
+    def scan(sym):
+        found = []
+        for tf in tfs:
+            try:
+                for d in pp.recent_setups(fetch_okx(sym, tf, 300).candles, tf, now):
+                    d["symbol"] = sym
+                    found.append(d)
+            except Exception:
+                pass
+        return found
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        setups = [d for group in pool.map(scan, syms) for d in group]
+    if not setups:
+        return head + f"NO TRADE — فحصت {len(syms)} عملة: مفيش نموذج اتكسر حديثًا ولسه مناسب للدخول."
+    setups.sort(key=lambda d: (-pp.MEASURED[d["pattern"]][2], d["bars_ago"]))
+    body = "\n\n".join(pp.format_setup(d) for d in setups[:5])
+    return (head + body + "\n\n⚠️ مفيش صفقة مضمونة — النجاح التاريخي ~55% والربح من إن المكسب "
+            "أكبر من الخسارة. التزم بالوقف.")
+
 def _clean_query(text):
     t = (text or "").strip()
     t = re.sub(r"^(?:تحليل|العملة|عملة|coin|analyze|check)\s*[:\-]?\s*", "", t, flags=re.I)
@@ -316,6 +361,8 @@ def _norm(text):
         "بداية اندفاع": "/pump", "بمب": "/pump", "pump": "/pump",
         "مرشح بعيد": "/moon", "100x": "/moon", "moon": "/moon",
         "ورقي": "/paper", "paper": "/paper",
+        "📐 نماذج احترافية": "/patterns", "نماذج احترافية": "/patterns", "نماذج": "/patterns",
+        "patterns": "/patterns",
         "خطة ادخار": "/savings", "ادخار": "/savings", "savings": "/savings", "خطة": "/savings",
         "start": "/start", "help": "/help",
     }
@@ -335,6 +382,7 @@ def _handle(text):
     if cmd == "/fast": return _fast_scan()
     if cmd == "/pump": return _pump_scan()
     if cmd == "/moon": return _moon_scan()
+    if cmd == "/patterns": return _patterns_scan()
     if cmd == "/paper": return _paper_report()
     if cmd == "/savings":
         return _savings_plan({
