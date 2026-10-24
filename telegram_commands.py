@@ -6,11 +6,10 @@ from deals_bot.settings_store import apply_overrides, save
 OFFSET_PATH = os.path.join("journal", "tg_offset.json")
 KEYBOARD = json.dumps({
     "keyboard": [
-        ["فحص الآن", "بداية اندفاع"],
-        ["مرشح بعيد", "صفقات سريعة"],
-        ["ورقي", "خطة ادخار"],
         ["📐 نماذج احترافية"],
-        ["الحالة", "تشديد", "عادي"],
+        ["فحص الآن", "بداية اندفاع"],
+        ["صفقات سريعة", "ورقي"],
+        ["خطة ادخار", "الحالة"],
     ],
     "resize_keyboard": True,
     "persistent": True,
@@ -355,7 +354,7 @@ def _savings_plan(data):
 def _norm(text):
     t = (text or "").strip().lower().split("@", 1)[0]
     aliases = {
-        "حالة": "/status", "status": "/status", "تشديد": "/strict", "strict": "/strict",
+        "الحالة": "/status", "حالة": "/status", "status": "/status", "تشديد": "/strict", "strict": "/strict",
         "عادي": "/normal", "normal": "/normal", "فحص الآن": "/scan", "فحص": "/scan", "scan": "/scan",
         "صفقات سريعة": "/fast", "سريع": "/fast", "fast": "/fast",
         "بداية اندفاع": "/pump", "بمب": "/pump", "pump": "/pump",
