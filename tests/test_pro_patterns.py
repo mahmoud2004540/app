@@ -66,3 +66,13 @@ def test_format_setup_mentions_stop_and_target():
          "target": 175.0, "rr": 2.5, "risk_pct": 6.7, "target_pct": 16.7, "bars_ago": 0}
     msg = pp.format_setup(d)
     assert "SOLUSDT" in msg and "العلم الصاعد" in msg and "140" in msg and "175" in msg
+
+
+def test_parse_gate_rows():
+    from deals_bot.providers import _parse_gate_rows
+    rows = [["200", "1000", "1.2", "1.3", "1.0", "1.1", "900", "true"],
+            ["100", "500", "1.1", "1.15", "0.95", "1.0", "450", "true"], ["bad"]]
+    cs = _parse_gate_rows(rows, "X-USD")
+    assert [c.ts for c in cs] == [100.0, 200.0]               # مرتّبة ومن غير الصف التالف
+    c = cs[1]
+    assert (c.open, c.high, c.low, c.close, c.volume) == (1.1, 1.3, 1.0, 1.2, 900.0)

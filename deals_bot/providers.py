@@ -525,6 +525,62 @@ def list_okx_usd_products() -> List[str]:
     return sorted(set(out))
 
 
+# --------------------------------------------------------------------------- #
+# Gate.io provider (crypto, no API key) — كون أوسع بكتير من OKX (~2000 زوج USDT)
+# --------------------------------------------------------------------------- #
+_GATE = "https://api.gateio.ws/api/v4/spot"
+_GATE_TF = {"1h": "1h", "4h": "4h", "1d": "1d"}
+
+
+def _parse_gate_rows(rows, symbol: str) -> List[Candle]:
+    """صفوف Gate [ts, حجم_بالدولار, إغلاق, أعلى, أدنى, فتح, حجم_بالعملة, مقفولة؟] → شموع مرتّبة."""
+    out: List[Candle] = []
+    for r in rows or []:
+        try:
+            out.append(Candle(ts=float(r[0]), open=float(r[5]), high=float(r[3]), low=float(r[4]),
+                              close=float(r[2]), volume=float(r[6]) if len(r) > 6 else float(r[1])))
+        except (IndexError, TypeError, ValueError):
+            continue
+    return sorted(out, key=lambda c: c.ts)
+
+
+def fetch_gate(symbol: str, timeframe: str = "1d", limit: int = 300) -> Series:
+    """شموع Gate.io لـ '<BASE>-USD' (زوج <BASE>_USDT). حد أقصى 1000 شمعة في الطلب."""
+    tf = _GATE_TF.get(timeframe)
+    if not tf:
+        raise RuntimeError(f"إطار غير مدعوم في Gate: {timeframe}")
+    base = symbol.split("-")[0].strip().upper()
+    rows = _http_json(f"{_GATE}/candlesticks?currency_pair={base}_USDT&interval={tf}&limit={min(limit, 1000)}",
+                      timeout=20, retries=3)
+    candles = _parse_gate_rows(rows, symbol)
+    if not candles:
+        raise RuntimeError(f"لا توجد شموع لِـ {base}_USDT من Gate.")
+    return Series(symbol=symbol, market="crypto", candles=candles)
+
+
+def list_gate_usd_products(min_quote_volume: float = 100_000.0) -> List[str]:
+    """
+    أزواج Gate.io *الكريبتو* بالـ USDT اللي حجم تداولها اليومي ≥ min_quote_volume دولار،
+    بصيغة '<BASE>-USD'. نستبعد الأسهم المرمّزة (تصنيف Gate فيه "stocks" — زي AAPLG/MSTRON).
+    """
+    stocks = set()
+    for c in _http_json(f"{_GATE}/currencies", timeout=30, retries=4) or []:
+        if any("stock" in str(x).lower() for x in (c.get("category") or [])):
+            stocks.add(str(c.get("currency", "")).upper())
+    rows = _http_json(f"{_GATE}/tickers", timeout=30, retries=4)
+    out = []
+    for t in rows or []:
+        pair = str(t.get("currency_pair", ""))
+        try:
+            vol = float(t.get("quote_volume") or 0)
+        except (TypeError, ValueError):
+            continue
+        base = pair[:-5].upper()
+        if pair.endswith("_USDT") and vol >= min_quote_volume and base not in stocks:
+            out.append(f"{base}-USD")
+    return sorted(set(out))
+
+
 # أطر زمنية غير مدعومة أصلًا من المزوّدين → تُبنى بدمج إطار أصغر.
 # 30m = دمج كل شمعتَي 15m؛ 2h = دمج كل شمعتَي 1h؛ 4h = دمج كل 4 شمعات 1h.
 _RESAMPLE_FROM = {"30m": ("15m", 2), "2h": ("1h", 2), "4h": ("1h", 4)}
