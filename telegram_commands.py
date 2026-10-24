@@ -7,9 +7,8 @@ OFFSET_PATH = os.path.join("journal", "tg_offset.json")
 KEYBOARD = json.dumps({
     "keyboard": [
         ["📐 نماذج احترافية"],
-        ["فحص الآن", "بداية اندفاع"],
-        ["ورقي", "خطة ادخار"],
-        ["الحالة"],
+        ["بداية اندفاع", "ورقي"],
+        ["خطة ادخار", "الحالة"],
     ],
     "resize_keyboard": True,
     "persistent": True,
@@ -53,6 +52,11 @@ def _status():
         lines.append(f"{k} = {getattr(config, k, '—')}")
     lines.append("خطة ادخار: SOL+FIL+TAO+ذهب")
     lines.append("التداول الحقيقي: مقفول")
+    try:
+        from deals_bot import pattern_scan as ps
+        lines.append(ps.stats_line())
+    except Exception:
+        pass
     return "\n".join(lines)
 
 def _fnum(d, *names):
@@ -159,6 +163,18 @@ def _fast_scan():
 
 def _pump_scan():
     apply_overrides(config)
+    # فلتر احترافي مُقاس: في السوق الهابط إشارات ما قبل الاندفاع خسرانة (−0.05R)،
+    # ومع BTC فوق EMA200 على 6 ساعات بقت كسبانة (+0.10R، ثابتة في نصّين الفترة).
+    try:
+        import time
+        from deals_bot import pro_patterns as pp
+        from deals_bot.providers import fetch_okx
+        btc = [x for x in fetch_okx("BTC-USD", "6h", 300).candles if x.ts + 21600 <= time.time()]
+        if pp.market_bullish(btc) is False:
+            return ("NO TRADE — السوق هابط (BTC تحت EMA200 على 6 ساعات).\n"
+                    "إشارات بداية الاندفاع في السوق الهابط خسرانة (مقاس) — بنستنى السوق يطلع.")
+    except Exception:
+        pass
     try:
         from deals_bot.strategy import scan_universe
         from deals_bot.formatter import format_digest
@@ -175,57 +191,17 @@ def _pump_scan():
 def _moon_scan():
     return _pump_scan()
 
-# عملات مستقرة ونسخ مغلّفة — مفيش نماذج نتداولها عليها
-_STABLES = {"USDT", "USDC", "DAI", "USD1", "FDUSD", "PYUSD", "TUSD", "USDE", "USDS", "USDG",
-            "RLUSD", "EURC", "WBTC", "WETH", "STETH"}
-
 def _patterns_scan():
     """النماذج الاحترافية المُختبرة: وتد هابط + قاع مزدوج (يومي)، علم صاعد (4 ساعات)."""
-    import time
-    from concurrent.futures import ThreadPoolExecutor
-    from deals_bot import pro_patterns as pp
-    from deals_bot.providers import fetch_gate, fetch_okx, list_gate_usd_products, list_okx_usd_products
-    now = time.time()
+    apply_overrides(config)
+    from deals_bot import pattern_scan as ps
     try:
-        bull = {tf: pp.market_bullish([x for x in fetch_okx("BTC-USD", tf, 300).candles
-                                       if x.ts + pp.TF_SECONDS[tf] <= now]) for tf in ("1d", "4h")}
-        okx = {s for s in list_okx_usd_products() if s.split("-")[0] not in _STABLES}
+        res = ps.scan()
     except Exception as exc:
         return f"⚠️ {exc}"
-    # كون أوسع: عملات Gate.io اللي حجمها اليومي ≥ 100 ألف دولار ومش على OKX
-    # (مقاسة: النماذج التلاتة لسه كسبانة عليها، بس أضعف من عملات OKX).
-    try:
-        gate = {s for s in list_gate_usd_products(100_000) if s.split("-")[0] not in _STABLES} - okx
-    except Exception:
-        gate = set()
-    syms = sorted(okx) + sorted(gate)
-    tfs = [tf for tf in ("1d", "4h") if bull.get(tf)]
-    head = ("📐 نماذج احترافية (وتد هابط + قاع مزدوج يومي، علم صاعد 4 ساعات)\n"
-            f"السوق (BTC فوق EMA200): يومي {'🟢' if bull.get('1d') else '🔴'} | "
-            f"4 ساعات {'🟢' if bull.get('4h') else '🔴'}\n\n")
-    if not tfs:
-        return head + ("NO TRADE — السوق مش صاعد على الفريمين. النماذج دي بتكسب في السوق "
-                       "الصاعد بس (مقاس) — بنستنى.")
-    def scan(sym):
-        found = []
-        for tf in tfs:
-            try:
-                fetch_fn = fetch_okx if sym in okx else fetch_gate
-                for d in pp.recent_setups(fetch_fn(sym, tf, 300).candles, tf, now):
-                    d["symbol"] = sym
-                    found.append(d)
-            except Exception:
-                pass
-        return found
-    with ThreadPoolExecutor(max_workers=8) as pool:
-        setups = [d for group in pool.map(scan, syms) for d in group]
-    if not setups:
-        return head + (f"NO TRADE — فحصت {len(syms)} عملة ({len(okx)} OKX + {len(gate)} Gate.io): "
-                       "مفيش نموذج اتكسر حديثًا ولسه مناسب للدخول.")
-    setups.sort(key=lambda d: (-pp.MEASURED[d["pattern"]][2], d["bars_ago"]))
-    body = "\n\n".join(pp.format_setup(d) for d in setups[:5])
-    return (head + body + "\n\n⚠️ مفيش صفقة مضمونة — النجاح التاريخي ~55% والربح من إن المكسب "
-            "أكبر من الخسارة. التزم بالوقف.")
+    equity = float(getattr(config, "ACCOUNT_BALANCE", 1000.0))
+    risk = float(getattr(config, "RISK_PER_TRADE_PRO", 0.02))
+    return ps.format_reply(res, equity, risk) + "\n\n" + ps.stats_line()
 
 def _clean_query(text):
     t = (text or "").strip()
