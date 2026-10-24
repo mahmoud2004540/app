@@ -29,7 +29,8 @@ def closed(series: Series, timeframe: str, now_ts: Optional[float]) -> Series:
 def detect_double_bottom(series: Series, timeframe: str = "1d", now_ts: Optional[float] = None,
                          tol: float = 0.06, min_gap: int = 10, max_gap: int = 150,
                          min_height: float = 0.10, max_breakout_age: int = 60,
-                         pivot: int = 5) -> Optional[dict]:
+                         pivot: int = 5, stop_mode: str = "retest",
+                         min_rr: float = 2.0) -> Optional[dict]:
     """
     ابحث عن قاع مزدوج مكسور خط عنقه والسعر حاليًا في منطقة إعادة الاختبار.
 
@@ -86,14 +87,19 @@ def detect_double_bottom(series: Series, timeframe: str = "1d", now_ts: Optional
             if not (neck * 0.96 <= last <= neck + 0.30 * height):
                 continue                                  # بعيد عن منطقة إعادة الاختبار
             retest_low = min(lows[b:])
-            stop = min(retest_low, neck * 0.96) - 0.5 * a
+            if stop_mode == "mid":          # تحت نص النموذج = النموذج فشل فعلًا
+                stop = neck - 0.5 * height - 0.25 * a
+            elif stop_mode == "bottom":     # تحت أعمق قاع
+                stop = bottom - 0.25 * a
+            else:                           # تحت قاع إعادة الاختبار (ضيّق)
+                stop = min(retest_low, neck * 0.96) - 0.5 * a
             risk = last - stop
             if risk <= 0:
                 continue
             tp1 = neck + 0.5 * height
             tp2 = neck + height
             rr = (tp2 - last) / risk
-            if rr < 2.0:
+            if rr < min_rr:
                 continue
             # الدرجة: تطابق القاعين، القاع التاني أعلى، فوليوم الكسر، تباعد RSI
             score = 60
