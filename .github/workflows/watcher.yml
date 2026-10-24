@@ -35,7 +35,7 @@ jobs:
           while [ "$(date +%s)" -lt "$END" ]; do
             iter=$((iter+1))
             echo "دورة $iter"
-            python send_digest.py || echo "fail"
+            python pattern_alerts.py || echo "fail"
             if [ -n "$(git status --porcelain journal/)" ]; then
               git add journal/
               git commit -m "chore(journal): watcher [skip ci]" || true
