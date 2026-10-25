@@ -81,8 +81,8 @@ def format_reply(res: Dict, equity: float, risk_pct: float, limit: int = 5) -> s
         return head + (f"NO TRADE — فحصت {res['okx'] + res['gate']} عملة ({res['okx']} OKX + "
                        f"{res['gate']} Gate.io): مفيش نموذج اتكسر حديثًا ولسه مناسب للدخول.")
     body = "\n\n".join(format_setup(d, equity, risk_pct) for d in res["setups"][:limit])
-    return (head + body + "\n\n⚠️ مفيش صفقة مضمونة — النجاح التاريخي ~55% والربح من إن المكسب "
-            "أكبر من الخسارة. التزم بالوقف.")
+    return (head + body + "\n\n⚠️ مفيش صفقة مضمونة — النجاح التاريخي من 43% لـ 69% حسب النموذج، "
+            "والربح من إن المكسب أكبر من الخسارة. التزم بالوقف.")
 
 
 def format_setup(d: Dict, equity: float, risk_pct: float) -> str:
