@@ -1,292 +1,87 @@
-# 📈 بوت أفضل صفقات التداول | Trading Deals Bot
+# Trading Deals Bot
 
-بوت يحلّل الأسواق ويعطيك **أفضل فرص التداول** بناءً على تحليل فني آلي — يغطّي
-**الكريبتو والأسهم والفوركس**، ويعمل كـ **برنامج سطر أوامر (CLI)** أو **بوت تيليجرام**.
+A Python bot that scans crypto, stock and forex markets, scores trade setups with automated technical analysis, and sends the best ones to Telegram. Works as a command-line tool, a Telegram bot, or a scheduled GitHub Actions job with no server.
 
-> ⚠️ **تنبيه مهم:** هذه الأداة تعطي تحليلًا فنيًا آليًا **لأغراض تعليمية فقط**، وهي
-> **ليست نصيحة مالية**. التداول ينطوي على مخاطر حقيقية. تحقّق دائمًا بنفسك ولا
-> تخاطر بأكثر مما تتحمّل خسارته.
+[العربية](README.ar.md)
 
----
+> ⚠️ Educational project. This is automated technical analysis, not financial advice. Trading involves real risk.
 
-## ⭐ إشعارات تلقائية على تيليجرام — بدون كود وبدون سيرفر (الأسهل)
+## Features
 
-خلّي البوت يبعتلك أفضل الصفقات على تيليجرام **تلقائيًا كل ٤ ساعات** — يشتغل مجانًا
-على **GitHub Actions** من غير أي جهاز أو أوامر. كل الخطوات دي بالضغط فقط:
+- **Three markets**: crypto (BTC-USD…), stocks (AAPL…), forex (EURUSD=X…)
+- **Technical analysis**: EMA 9/21/50 trend, RSI, MACD, momentum, volume flow
+- **Large-money detection**: flags unusual inflows (MFI + abnormal volume) and explains why
+- **Trend-aware scoring**: each setup gets a 0–100 confidence score and never bets against a strong trend
+- **Risk management**: entry, stop-loss, target and risk/reward from volatility (ATR); position size from a fixed % risk per trade
+- **Higher-timeframe confirmation** and a minimum-confidence filter for cleaner signals
+- **Backtesting**: win rate, profit factor and total return in R multiples on historical data
+- **Multi-school confluence analysis** for a single asset (technical, price structure, volume, quantitative, sentiment) with a minimum 1:2 risk/reward gate
+- **Live prices without API keys**: Coinbase for crypto with Yahoo Finance fallback; Yahoo Finance for stocks and forex
+- **Telegram alerts every 4 hours** via GitHub Actions, with the token stored as an encrypted secret
 
-### 1) أنشئ بوتًا وخُد التوكن
-- افتح **[@BotFather](https://t.me/BotFather)** في تيليجرام → أرسل `/newbot` →
-  اتبع الخطوات → انسخ **التوكن** (شكله: `123456789:AAF...`).
+## Quick start
 
-### 2) اعرف معرّف محادثتك (Chat ID)
-- افتح **[@userinfobot](https://t.me/userinfobot)** في تيليجرام وأرسل له أي رسالة
-  → سيردّ عليك برقم **Id** — هذا هو `TELEGRAM_CHAT_ID`.
-- ثم افتح محادثة بوتك أنت وأرسل له `/start` مرة واحدة (حتى يسمح له بمراسلتك).
-
-### 3) أضف السرّين في إعدادات المستودع
-- من صفحة مستودعك على GitHub: **Settings → Secrets and variables → Actions →
-  New repository secret**، وأضف اثنين:
-  - `TELEGRAM_TOKEN` = التوكن من الخطوة 1
-  - `TELEGRAM_CHAT_ID` = الرقم من الخطوة 2
-
-### 4) فعّل وجرّب
-- افتح تبويب **Actions** في المستودع → إن طُلب منك تفعيل الـ workflows اضغط
-  **Enable**.
-- اختر **«إشعارات الصفقات إلى تيليجرام»** من القائمة → اضغط **Run workflow**
-  لتجربتها فورًا. خلال دقيقة ستصلك رسالة على تيليجرام فيها أفضل الصفقات ✅.
-
-بعد كده هتوصلك الرسائل **تلقائيًا** حسب الجدول. لتغيير التوقيت عدّل السطر `cron`
-في `.github/workflows/deals-digest.yml` (مثلًا `0 */2 * * *` كل ساعتين). التوقيت
-بحسب **UTC**.
-
-> 🔒 التوكن يُخزَّن كـ Secret مشفّر في GitHub ولا يظهر في الكود إطلاقًا.
-
----
-
-## ✨ المميزات
-
-- **ثلاثة أسواق:** كريبتو (`BTC-USD`)، أسهم (`AAPL`)، فوركس (`EURUSD=X`).
-- **تحليل فني متكامل:** المتوسطات المتحركة (EMA 9/21/50)، مؤشر القوة النسبية
-  (RSI)، الماكد (MACD)، الزخم (Momentum)، وتدفّق حجم التداول.
-- **🐋 رصد نشاط الحيتان:** يكتشف تدفّق الأموال الكبير (MFI + حجم ضخم غير معتاد)
-  ويعلّم صفقات الحيتان بـ 🐋 ويضعها في المقدمة مع سبب واضح ومقنع.
-- **تقييم ذكي متوافق مع الاتجاه:** يعطي كل فرصة درجة ثقة من 100، ولا يراهن على
-  الارتداد عكس اتجاه راسخ.
-- **إدارة مخاطر جاهزة:** لكل صفقة سعر دخول، وقف خسارة، هدف، ونسبة مخاطرة/عائد
-  محسوبة من التذبذب (ATR).
-- **أسعار لحظية بدون مفاتيح API:** للكريبتو يستخدم **Coinbase** اللحظي مع رجوع
-  تلقائي لـ Yahoo Finance؛ وللأسهم والفوركس يستخدم Yahoo Finance.
-- **واجهتان:** سطر أوامر سريع + بوت تيليجرام يوصلك على تليفونك.
-
----
-
-## 🚀 التثبيت
+Python 3.10+
 
 ```bash
-# ثبّت المتطلبات
 pip install -r requirements.txt
-```
 
-يتطلب **بايثون 3.10+**.
-
----
-
-## 🖥️ الاستخدام كبرنامج (CLI)
-
-```bash
-# أفضل صفقات الكريبتو (الافتراضي، فريم ساعة)
-python cli.py
-
-# أفضل 5 صفقات أسهم على الفريم اليومي
+python cli.py                                   # best crypto setups, 1h
 python cli.py --market stocks --timeframe 1d --top 5
-
-# أفضل صفقات الفوركس
-python cli.py --market forex
-
-# أفضل الصفقات عبر كل الأسواق معًا
-python cli.py --market all
-
-# صفقات الشراء فقط في الكريبتو
-python cli.py --market crypto --direction buy
-
-# استخدام Binance كمصدر للكريبتو (دقة أعلى)
-python cli.py --market crypto --source binance
-```
-
-### الخيارات
-
-| الخيار | القيم | الافتراضي | الوصف |
-|--------|-------|-----------|--------|
-| `--market`, `-m` | `crypto` \| `stocks` \| `forex` \| `all` | `crypto` | السوق |
-| `--source`, `-s` | `yfinance` \| `binance` | `yfinance` | مصدر البيانات (binance للكريبتو فقط) |
-| `--timeframe`, `-t` | `1m` \| `5m` \| `15m` \| `1h` \| `1d` | `1h` | الإطار الزمني |
-| `--top`, `-n` | رقم | `5` | عدد الصفقات المعروضة |
-| `--direction`, `-d` | `any` \| `buy` \| `sell` | `any` | اتجاه الصفقات |
-
-### تجربة سريعة بدون إنترنت
-
-```bash
-python demo.py     # يعرض شكل المخرجات ببيانات اصطناعية
-```
-
----
-
-## 🏛️ تحليل تقاطع الأدلة المؤسسي (Confluence)
-
-تحليل متعدد المدارس لأصل واحد، يبني القرار على **اتفاق أكبر عدد من المدارس**:
-
-```bash
+python cli.py --market all --direction buy
 python analyze.py --symbol BTC-USD --market crypto --timeframe 1h
-python analyze.py -s AAPL -m stocks -t 1d
-python analyze.py -s EURUSD=X -m forex
-```
-
-**المدارس المُطبَّقة آليًا:** فني (EMA/RSI/MACD/بولنجر/ستوكاستك)، حركة سعر/بنية
-(HH-HL/BOS)، حجم/تدفّق (VSA/POC/MFI)، كمّي (زخم/تذبذب)، مشاعر (خوف/طمع
-للكريبتو). **يُعلَّم كـ«غير متوفّر» بدل التخمين:** أساسي، كلّي/بيني، أونشين،
-COT، دفتر الأوامر/التمويل، وإليوت/جان (تحتاج مراجعة يدوية أو بيانات مدفوعة).
-
-القرار لا يصدر إلا بتفوّق واضح للأدلة (تقاطع)، مع بوابة **مخاطرة/عائد ≥ 1:2**
-ومخاطرة ثابتة **1%** لكل صفقة، وسيناريو بديل عند فشل الفكرة.
-
----
-
-## 🎯 جودة الإشارات وإدارة المخاطر
-
-> ⚠️ **لا توجد صفقة ناجحة 100%** — أي وعد بذلك احتيال. الهدف هنا رفع الاحتمالية
-> وتقليل الخسارة، لا ضمان الربح.
-
-هذه الميزات مفعّلة تلقائيًا (تُضبط من `config.py`):
-
-- **فلتر الجودة (`MIN_CONFIDENCE`):** لا تُعرض إلا الصفقات القوية (ثقة ≥ 55
-  افتراضيًا). ارفع الرقم لصفقات أنضف وأقل عددًا.
-- **تأكيد من إطار أعلى (`CONFIRM_HIGHER_TIMEFRAME`):** الصفقة تظهر فقط إذا اتفق
-  اتجاهها مع الإطار الزمني الأعلى (مثلًا ساعة ↔ يوم) — إشارات أنظف.
-- **إدارة المخاطر (`ACCOUNT_BALANCE`, `RISK_PER_TRADE`):** يحسب لك **حجم الصفقة
-  المقترح** بحيث لا تخاطر بأكثر من نسبة محددة (1% افتراضيًا) في الصفقة الواحدة.
-
-### قياس الأداء الحقيقي (باك-تِست)
-
-اعرف نسبة النجاح والعائد المتوقّع للاستراتيجية بالأرقام على بيانات تاريخية:
-
-```bash
 python backtest.py --market crypto
-python backtest.py --market stocks --timeframe 1d
-python backtest.py --market all
+python demo.py                                  # offline demo with synthetic data
 ```
 
-يطبع لكل رمز عدد الصفقات، نسبة النجاح، عامل الربح، والعائد الإجمالي بمضاعفات
-المخاطرة (R). القاعدة: عائد متوقّع موجب لكل صفقة = استراتيجية رابحة على المدى
-الطويل حتى لو نسبة النجاح أقل من 100%.
+| Option | Values | Default |
+|---|---|---|
+| `--market, -m` | crypto · stocks · forex · all | crypto |
+| `--source, -s` | yfinance · binance | yfinance |
+| `--timeframe, -t` | 1m · 5m · 15m · 1h · 1d | 1h |
+| `--top, -n` | number | 5 |
+| `--direction, -d` | any · buy · sell | any |
 
----
+## Telegram
 
-## 🤖 الاستخدام كبوت تيليجرام
+**Without a server (GitHub Actions):** create a bot with @BotFather, get your chat ID from @userinfobot, add `TELEGRAM_TOKEN` and `TELEGRAM_CHAT_ID` as repository secrets, then run the *deals digest* workflow from the Actions tab. The schedule is the `cron` line in `.github/workflows/deals-digest.yml`.
 
-### الخطوة 1: احصل على التوكن
-افتح **[@BotFather](https://t.me/BotFather)** في تيليجرام، أرسل `/newbot`، واتبع
-الخطوات (اسم البوت + معرّف ينتهي بـ `bot`) لتحصل على **التوكن** بالشكل:
-`123456789:AAF...`
+**As an interactive bot:**
 
-> 🔒 التوكن سرّي — لا تشاركه مع أحد ولا ترفعه على GitHub. ضعه في ملف `.env` فقط.
-
-### الخطوة 2: ضع التوكن في ملف `.env`
-انسخ `.env.example` إلى `.env` وضع توكنك:
 ```bash
-cp .env.example .env
-# ثم عدّل .env :  TELEGRAM_TOKEN=123456789:AAF...
+cp .env.example .env      # set TELEGRAM_TOKEN
+./run_bot.sh
 ```
 
-### الخطوة 3: شغّل البوت
-```bash
-./run_bot.sh        # يثبّت المتطلبات ويشغّل البوت تلقائيًا
-# أو يدويًا:
-pip install -r requirements.txt && python telegram_bot.py
-```
-عند نجاح التشغيل ستظهر رسالة مثل: `✅ متصل كـ @your_bot`. افتح محادثة بوتك في
-تيليجرام وابدأ بـ `/start`.
+Commands: `/best crypto 1h`, `/crypto`, `/stocks`, `/forex`, `/best all`, `/buy crypto`.
 
-### الأوامر داخل البوت
+Also ships with a `Dockerfile` and `Procfile` for Railway, Render or any VPS.
 
-| الأمر | الوصف |
-|-------|--------|
-| `/start` | نبذة وتعليمات |
-| `/best crypto 1h` | أفضل صفقات سوق معيّن على فريم معيّن |
-| `/crypto` `/stocks` `/forex` | اختصار لكل سوق |
-| `/best all` | أفضل الصفقات عبر كل الأسواق |
-| `/buy crypto` | صفقات الشراء فقط |
+## How scoring works
 
----
+Each symbol gets bullish and bearish points from trend (EMA order, highest weight), RSI read in the direction of the trend, MACD, momentum and volume. Final score = bull − bear (positive = buy, negative = sell). Stop-loss and target are ATR multiples, configurable in `deals_bot/analyzer.py`. Watchlists and risk settings live in `config.py`.
 
-## ☁️ تشغيله 24/7 على استضافة مجانية
-
-البوت يحتاج جهازًا يظل شغّالًا. أسهل الخيارات:
-
-**أ) على جهازك (أبسط طريقة):** شغّل `./run_bot.sh` واتركه مفتوحًا. لتشغيله في
-الخلفية على لينكس/ماك:
-```bash
-nohup ./run_bot.sh > bot.log 2>&1 &
-```
-
-**ب) عبر Docker (على أي VPS أو خدمة سحابية):**
-```bash
-docker build -t deals-bot .
-docker run -d --restart=always -e TELEGRAM_TOKEN="123456:ABC..." deals-bot
-```
-
-**ج) على منصات مجانية مثل Railway / Render:**
-- اربط المستودع، وأضف متغيّر البيئة `TELEGRAM_TOKEN` في إعدادات المشروع.
-- يوجد `Procfile` جاهز (نوع `worker`) و`Dockerfile` — المنصة تلتقطهما تلقائيًا.
-- لا تضع التوكن في الكود أبدًا — استخدم متغيّرات البيئة (Secrets) في المنصة.
-
----
-
-## ⚙️ التخصيص
-
-عدّل قوائم المتابعة والإعدادات في **`config.py`**:
-
-```python
-WATCHLISTS = {
-    "crypto": ["BTC-USD", "ETH-USD", ...],   # صيغة yfinance
-    "stocks": ["AAPL", "MSFT", ...],
-    "forex":  ["EURUSD=X", "GBPUSD=X", ...],
-}
-```
-
-عتبات التقييم ومعاملات المخاطرة (وقف الخسارة/الهدف) موجودة في أعلى
-**`deals_bot/analyzer.py`** (`STOP_ATR_MULT`, `TARGET_ATR_MULT`, `NEUTRAL_BAND`).
-
----
-
-## 🧠 كيف يعمل التقييم؟
-
-لكل رمز يُحسب مجموع نقاط صعودي (bull) ونزولي (bear) من عدة إشارات:
-
-1. **الاتجاه (EMA 9/21/50):** ترتيب المتوسطات يحدّد الاتجاه العام (أقوى وزن).
-2. **RSI:** متوافق مع الاتجاه — التشبّع البيعي داخل اتجاه صاعد فرصة، وداخل اتجاه
-   هابط استمرار ضعف.
-3. **MACD:** إشارة الزخم واتجاهه.
-4. **الزخم (Momentum):** نسبة التغيّر خلال آخر الشموع.
-5. **حجم التداول:** يعزّز الإشارة القائمة عند وجود اهتمام غير معتاد.
-
-الدرجة النهائية = `bull − bear` (موجب = شراء، سالب = بيع). الصفقات تُرتّب حسب
-قوة الإشارة، ووقف الخسارة/الهدف يُحسبان من مضاعفات الـ ATR.
-
----
-
-## 🗂️ بنية المشروع
+## Project structure
 
 ```
-app/
-├── cli.py                 # واجهة سطر الأوامر
-├── telegram_bot.py        # واجهة تيليجرام
-├── demo.py                # عرض توضيحي بدون إنترنت
-├── config.py              # قوائم المتابعة والإعدادات
-├── requirements.txt
-├── deals_bot/
-│   ├── models.py          # نماذج البيانات (Candle, Series, Deal)
-│   ├── indicators.py      # المؤشرات الفنية (بايثون نقي)
-│   ├── analyzer.py        # محرّك التقييم
-│   ├── providers.py       # جلب البيانات (yfinance / binance)
-│   └── formatter.py       # تنسيق المخرجات
-└── tests/                 # اختبارات تعمل بدون إنترنت
+cli.py              command-line interface
+telegram_bot.py     Telegram interface
+analyze.py          confluence analysis
+backtest.py         backtesting
+config.py           watchlists and settings
+deals_bot/
+  indicators.py     technical indicators (pure Python)
+  analyzer.py       scoring engine
+  providers.py      market data (yfinance / Binance / Coinbase)
+  formatter.py      output formatting
+tests/              offline tests
 ```
 
----
-
-## 🧪 الاختبارات
+## Tests
 
 ```bash
 pip install pytest
 pytest -q
 ```
 
-الاختبارات تتحقق من صحة المؤشرات ومحرّك التقييم باستخدام بيانات اصطناعية، فلا
-تحتاج اتصالًا بالإنترنت.
-
----
-
-## ملاحظة حول الشبكة
-
-يحتاج البوت وصولًا للإنترنت **وقت التشغيل** لجلب أسعار السوق من Yahoo Finance
-أو Binance. شغّله على جهازك حيث تكون هذه المواقع متاحة.
+Tests use synthetic data and need no internet connection.
