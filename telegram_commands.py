@@ -6,7 +6,7 @@ from deals_bot.settings_store import apply_overrides, save
 OFFSET_PATH = os.path.join("journal", "tg_offset.json")
 KEYBOARD = json.dumps({
     "keyboard": [
-        ["📐 نماذج احترافية"],
+        ["📐 نماذج احترافية", "🔔 تنبيهاتي"],
         ["بداية اندفاع", "ورقي"],
         ["خطة ادخار", "الحالة"],
     ],
@@ -18,7 +18,9 @@ HELP = (
     "خطة ادخار = SOL + FIL + TAO + ذهب ("
     "جاهز فورًا).\n"
     "ورقي = الحساب الورقي. التداول الحقيقي مقفول.\n"
-    "📐 نماذج احترافية = وتد هابط / قاع مزدوج / علم صاعد (مُختبرة، في السوق الصاعد بس)."
+    "📐 نماذج احترافية = وتد هابط / قاع مزدوج / علم صاعد (مُختبرة، في السوق الصاعد بس).\n"
+    "🔔 تنبيه سعر: ابعت «تنبيه BTC 100000» أو «تنبيه SOL +5%» — وأبلّغك أول ما يوصل.\n"
+    "«تنبيهاتي» = القائمة، «الغي 3» أو «الغي الكل» = مسح."
 )
 
 def _api(token, method, params=None):
@@ -356,6 +358,10 @@ def _norm(text):
 
 def _handle(text):
     raw = (text or "").strip()
+    from deals_bot import price_alerts
+    alert_reply = price_alerts.handle_text(raw)
+    if alert_reply is not None:
+        return alert_reply
     parsed = _parse_savings(raw)
     if parsed is not None:
         return _savings_plan(parsed)

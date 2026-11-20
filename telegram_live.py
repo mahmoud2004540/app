@@ -19,7 +19,18 @@ def main() -> int:
         print("announce", exc)
     off = tc._offset()
     end = time.time() + WINDOW
+    from deals_bot import price_alerts
+    last_check = 0.0
     while time.time() < end:
+        # تنبيهات السعر: فحص كل دقيقة (طلب أسعار واحد لكل العملات)
+        if time.time() - last_check >= 60:
+            last_check = time.time()
+            try:
+                for msg in price_alerts.check():
+                    tc.send_text(token, chat_id, msg)
+                    print("alert", msg.splitlines()[0])
+            except Exception as exc:
+                print("alerts", exc)
         try:
             upd = tc._api(token, "getUpdates", {"timeout": "25", "limit": "50", "offset": str(off)})
         except Exception as exc:
