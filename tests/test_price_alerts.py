@@ -50,7 +50,7 @@ def test_check_fires_once_and_removes(tmp_path):
 def test_list_and_delete(tmp_path):
     p = str(tmp_path / "a.json")
     px = _prices({"BTC": 90_000.0, "SOL": 150.0})
-    assert "مفيش تنبيهات" in pa.list_text(p)
+    assert "مفيش تنبيهات" in pa.list_text(p, px)
     pa.handle_text("تنبيه BTC 100000", px, p)
     pa.handle_text("تنبيه SOL 200", px, p)
     assert "⚠️" in pa.handle_text("الغي 9", px, p)
@@ -68,3 +68,44 @@ def test_other_messages_pass_through(tmp_path):
 def test_tiny_prices_are_readable():
     assert pa._px(3.5319e-06) == "0.0000035319"
     assert pa._px(61613.5) == "61,613.50"
+
+
+def test_watch_fires_every_step_both_ways(tmp_path):
+    p = str(tmp_path / "a.json")
+    r = pa.handle_text("راقب BTC 500", _prices({"BTC": 90_000.0}), p)
+    assert "هراقب BTC" in r and "$500" in r
+    assert pa.check(_prices({"BTC": 90_300.0}), p) == []              # لسه أقل من 500
+    up = pa.check(_prices({"BTC": 90_520.0}), p)
+    assert len(up) == 1 and "طلع" in up[0] and "$520" in up[0]
+    assert pa.check(_prices({"BTC": 90_700.0}), p) == []              # بيعدّ من 90,520 دلوقتي
+    down = pa.check(_prices({"BTC": 90_000.0}), p)
+    assert len(down) == 1 and "نزل" in down[0]
+    assert pa.load(p)["watches"][0]["ref"] == 90_000.0                # المراقبة مستمرة
+
+
+def test_watch_small_coins_and_replace(tmp_path):
+    p = str(tmp_path / "a.json")
+    px = _prices({"PYTH": 0.35, "FIL": 2.5, "SOL": 150.0})
+    assert "هراقب PYTH" in pa.handle_text("راقب pyth 0.01", px, p)
+    assert "هراقب FIL" in pa.handle_text("تابع FIL 0.1", px, p)
+    pa.handle_text("راقب SOL 5", px, p)
+    pa.handle_text("راقب SOL 10", px, p)                               # بيستبدل القديم
+    w = {x["symbol"]: x["step"] for x in pa.load(p)["watches"]}
+    assert w == {"PYTH": 0.01, "FIL": 0.1, "SOL": 10.0}
+    fired = pa.check(_prices({"PYTH": 0.362, "FIL": 2.45, "SOL": 151.0}), p)
+    assert len(fired) == 1 and "PYTH" in fired[0]
+
+
+def test_watch_rejects_tiny_step_and_unwatch(tmp_path):
+    p = str(tmp_path / "a.json")
+    px = _prices({"BTC": 90_000.0})
+    assert "صغير" in pa.handle_text("راقب BTC 5", px, p)
+    pa.handle_text("راقب BTC 500", px, p)
+    listing = pa.list_text(p, px)
+    assert "BTC" in listing and "$500" in listing
+    assert "وقفت مراقبة BTC" in pa.handle_text("وقف BTC", px, p)
+    assert pa.load(p)["watches"] == []
+    assert "⚠️" in pa.handle_text("وقف BTC", px, p)
+    pa.handle_text("راقب BTC 500", px, p)
+    pa.handle_text("الغي الكل", px, p)
+    assert pa.load(p)["watches"] == []
